@@ -3,4 +3,5 @@
 members = [
     "auxin_protos",
     "auxin",
+    "auxin_cli",
 ]
