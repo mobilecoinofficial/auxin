@@ -1,0 +1,17 @@
+[package]
+name = "auxin_protos"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+protobuf = { version = "2.23.0", features = ["with-serde"] }
+
+serde = { version = "1.0.126", features = ["derive"], optional = true }
+serde-protobuf = { version = "0.8.2", optional = true }
+
+[features]
+default = ["with-serde"]
+with-serde = ["serde", "serde-protobuf", "serde/derive", "protobuf/with-serde"]
+
+[build-dependencies]
+protobuf-codegen-pure = "2.23.0"
