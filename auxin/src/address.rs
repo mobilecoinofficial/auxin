@@ -1,20 +1,24 @@
+use std::convert::TryFrom;
 use std::error::Error;
 use std::result::Result;
+use std::str::FromStr;
 
 use libsignal_protocol::ProtocolAddress;
 use uuid::Uuid;
 use custom_error::custom_error;
+use serde::{Serialize, Deserialize};
 
 /// Phone number (as formatted to the E.164 standard).
 /// String should begin with '+', followed by a country code and a regular 10-digit phone number (no delimiters between parts, as in no "-" or " ").
 pub type E164 = String;
 
-custom_error!{AuxinAddressBuildError
+custom_error!{AddressError
     NoPhone{addr:AuxinAddress} = "Attempted to build address {addr} into an auxin device address using its phone number, but it has no phone number.",
     NoUuid{addr:AuxinAddress}  = "Attempted to build address {addr} into an auxin device address using its UUID, but it has no UUID.",
+    NoDevice{val: String} = "Could not convert {val} into an AuxinDeviceAddress: must end in '.[DeviceId]' where [DeviceID] is a valid integer 0..(2^32-1)",
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum AuxinAddress { 
     Phone(E164),
     Uuid(Uuid),
@@ -49,7 +53,9 @@ impl AuxinAddress {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub const DEFAULT_DEVICE_ID : u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct AuxinDeviceAddress { 
     pub address: AuxinAddress, 
     pub device_id: u32,
@@ -59,17 +65,73 @@ impl AuxinDeviceAddress {
     /// Generate a protocol address using our phone number (E164) as its "name"
     pub fn phone_protocol_address(&self) -> Result<ProtocolAddress, Box<dyn Error> > {
         let phone_number = self.address.get_phone_number()
-            .ok_or(AuxinAddressBuildError::NoPhone { addr: self.address.clone() })?;
+            .ok_or(AddressError::NoPhone { addr: self.address.clone() })?;
         Ok(ProtocolAddress::new(phone_number.clone(), self.device_id))
     }
     /// Generate a protocol address using our uuid, converted to a string, as its "name"
     pub fn uuid_protocol_address(&self) -> Result<ProtocolAddress, Box<dyn Error> > {
         let addr_uuid = self.address.get_uuid()
-            .ok_or(AuxinAddressBuildError::NoUuid { addr: self.address.clone() })?;
+            .ok_or(AddressError::NoUuid { addr: self.address.clone() })?;
         Ok(ProtocolAddress::new(addr_uuid.to_string(), self.device_id))
+    }
+
+    pub fn new_default_device(address: AuxinAddress) -> Self { 
+        AuxinDeviceAddress{address, device_id: DEFAULT_DEVICE_ID}
     }
 }
 
+impl From<AuxinAddress> for AuxinDeviceAddress {
+    fn from(address: AuxinAddress) -> Self {
+        Self::new_default_device(address)
+    }
+}
+
+impl From<AuxinDeviceAddress> for AuxinAddress {
+    fn from(device_address: AuxinDeviceAddress) -> Self {
+        device_address.address
+    }
+}
+
+impl TryFrom<&str> for AuxinAddress {
+    type Error = Box<dyn Error>;
+    fn try_from(val: &str) -> Result<Self, Self::Error> {
+        if val.starts_with("+") {
+            //Is a phone number. 
+            Ok(Self::Phone(val.to_string()))
+        }
+        else {
+            //Should be a UUID
+            Ok(Self::Uuid(Uuid::from_str(val)?)) 
+        }
+    }
+}
+
+impl FromStr for AuxinAddress {
+    type Err = Box<dyn Error>;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
+impl TryFrom<&str> for AuxinDeviceAddress {
+    type Error = Box<dyn Error>;
+    fn try_from(val: &str) -> Result<Self, Self::Error> {
+        let split = val.rsplit_once(".");
+        let (addr, dev) = split.ok_or(Box::new(AddressError::NoDevice{val: val.to_string()}))?;
+        let device_id = u32::from_str(dev).map_err(|_e| Box::new(AddressError::NoDevice{val: val.to_string()}))?;
+        Ok(AuxinDeviceAddress {
+            address: AuxinAddress::try_from(addr)?,
+            device_id
+        })
+    }
+}
+
+impl FromStr for AuxinDeviceAddress {
+    type Err = Box<dyn Error>;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -79,7 +141,7 @@ mod tests {
     fn test_build_protocol_address() {
         let addr = AuxinAddress::Both(String::from("+12345678910"), Uuid::new_v4());
         let dev_addr = AuxinDeviceAddress {
-            address: addr, 
+            address: addr,
             device_id: 123,
         };
         let phone_address = dev_addr.phone_protocol_address().unwrap();

@@ -1,15 +1,16 @@
 use core::fmt;
-use std::{cmp::Ordering, collections::HashMap, error::Error, fs::{File, OpenOptions, read_dir}, io::{Read, Write}, path::Path};
+use std::cmp::Ordering;
 
 //use libsignal_protocol::{Context, IdentityKey, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, ProtocolAddress, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
-use log::{debug, warn};
+use log::{debug};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::{self, Visitor}};
 use serde_json::Value;
 use uuid::Uuid;
+use crate::{net::AuxinNetHandler, util::Result};
 
 use crate::address::{AuxinAddress, AuxinDeviceAddress, E164};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum UnidentifiedAccessMode {
 	ENABLED, 
 	DISABLED, 
@@ -17,7 +18,7 @@ pub enum UnidentifiedAccessMode {
 }
 
 impl Serialize for UnidentifiedAccessMode {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
 	where
 		S: Serializer,
 	{
@@ -30,7 +31,7 @@ impl Serialize for UnidentifiedAccessMode {
 }
 
 impl<'de> Deserialize<'de> for UnidentifiedAccessMode {
-	fn deserialize<D>(deserializer: D) -> Result<UnidentifiedAccessMode, D::Error>
+	fn deserialize<D>(deserializer: D) -> std::result::Result<UnidentifiedAccessMode, D::Error>
 	where
 		D: Deserializer<'de>,
 	{
@@ -42,13 +43,13 @@ impl<'de> Deserialize<'de> for UnidentifiedAccessMode {
 			fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
 				formatter.write_str("'ENABLED', 'DISABLED', or any regular boolean type")
 			}
-			fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
-				match value { 
+			fn visit_bool<E: de::Error>(self, value: bool) -> std::result::Result<Self::Value, E> {
+				match value {
 					true => Ok(UnidentifiedAccessMode::ENABLED), 
 					false => Ok(UnidentifiedAccessMode::DISABLED),
 				}
 			}
-			fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+			fn visit_str<E: de::Error>(self, value: &str) -> std::result::Result<Self::Value, E> {
 				let upper_string = value.to_ascii_uppercase();
 				if upper_string.eq_ignore_ascii_case("ENABLED")
 					|| upper_string.eq_ignore_ascii_case("\"ENABLED\"")
@@ -93,7 +94,7 @@ pub struct PeerRecord {
 	pub uuid: uuid::Uuid,
 	pub profile_key: Option<String>,
 	pub profile_key_credential: Option<String>,
-	pub contact: Option<Value>,
+	pub contact: Option<Value>, //TODO
 	pub profile: Option<PeerProfile>,
 	#[serde(skip)]
 	pub device_ids_used: Vec<u32>,
@@ -221,4 +222,12 @@ pub struct PeerIdentity {
 	pub identity_key : String,
 	pub trust_level : Option<i32>,
 	pub added_timestamp : Option<u64>,
+}
+
+pub trait AuxinStateHandler {
+    /// Construct a context using the state we have.
+    /// Network Handler is passed so that we can get a SenderCertificate if necessary.
+    fn build_context<Net: AuxinNetHandler>(&self, net: &mut Net) -> Result<crate::Context>;
+    /// Write any state which has changed in the Context to our storage system.
+    fn sync_from(&mut self) -> Result<()>;
 }
