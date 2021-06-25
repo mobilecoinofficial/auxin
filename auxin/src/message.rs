@@ -1,4 +1,4 @@
-use crate::{address::AuxinDeviceAddress, util::Result};
+use crate::{address::AuxinDeviceAddress, Result};
 use custom_error::custom_error;
 use serde::{Serialize, Deserialize};
 

@@ -34,5 +34,3 @@ protobuf = "2.23.0"
 serde-protobuf = "0.8.2"
 
 custom_error = "1.9.2"
-lazy_static = "1.4.0"
-async-trait = "0.1.50"
