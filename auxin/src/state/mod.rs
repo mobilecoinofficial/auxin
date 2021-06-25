@@ -1,12 +1,14 @@
 use core::fmt;
 use std::cmp::Ordering;
 
+use libsignal_protocol::{IdentityKeyStore, PreKeyStore, SessionStore, SignedPreKeyStore};
 //use libsignal_protocol::{Context, IdentityKey, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, ProtocolAddress, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
 use log::{debug};
+use rand::CryptoRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::{self, Visitor}};
 use serde_json::Value;
 use uuid::Uuid;
-use crate::{net::AuxinNetHandler, util::Result};
+use crate::{Context, util::Result};
 
 use crate::address::{AuxinAddress, AuxinDeviceAddress, E164};
 
@@ -136,22 +138,65 @@ pub struct PeerRecordStructure {
 	pub last_id: u64,
 }
 
+
+// Many helper functions.
+pub trait PeerStore {
+	fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord>;
+	fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord>;
+	fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord>;
+	fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord>;
+    fn push(&mut self, peer: PeerRecord);    
+    fn get(&self, address: &AuxinAddress) -> Option<&PeerRecord>;
+    fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord>;
+
+    fn complete_phone_address(&self, phone_number: &String) -> Option<AuxinAddress> {
+        self.get_by_number(phone_number).map(|peer| AuxinAddress::from(peer))
+    }
+    fn complete_uuid_address(&self, peer_uuid: &Uuid) -> Option<AuxinAddress> {
+        self.get_by_uuid(peer_uuid).map(|peer| AuxinAddress::from(peer))
+    }
+    /// If we only have a phone number or a UUID, fill in the other one,. Returns None if no peer by this address is found.
+    fn complete_address(&self, address: &AuxinAddress) -> Option<AuxinAddress> {
+        if let AuxinAddress::Both(_, _) = address {
+            return Some(address.clone());
+        }
+        else {
+            return (address.get_phone_number().map(|p| self.complete_phone_address(p))
+            .or(address.get_uuid().map(|u| self.complete_uuid_address(u)))
+            ).flatten();
+        }
+    }
+    /// Returns a list of Auxin Device Addresses, one for each known device ID used by the peer referred to with 'address'. 
+    /// Returns None if no peer by this address is found.
+    fn get_device_addresses(&self, address: &AuxinAddress) -> Option<Vec<AuxinDeviceAddress>> {
+        self.get(address).map(|peer | {
+            peer.device_ids_used.iter().map(|i | {
+                AuxinDeviceAddress {
+                    address: address.clone(),
+                    device_id: *i,
+                }
+            }).collect()
+            // Empty lists of device IDs should return None.
+        }).filter(|v: &Vec<AuxinDeviceAddress>| !v.is_empty())
+    }
+}
+
 // Many helper functions.
 
-impl PeerRecordStructure {
-	pub fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord> {
+impl PeerStore for PeerRecordStructure {
+	fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord> {
 		self.peers.iter().find(|i | i.number.eq_ignore_ascii_case(phone_number) )
 	}
-	pub fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord> {
+	fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord> {
 		self.peers.iter().find(|i | i.uuid == *peer_uuid )
 	}
-	pub fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord> {
+	fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord> {
 		self.peers.iter_mut().find(|i | i.number.eq_ignore_ascii_case(phone_number) )
 	}
-	pub fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord> {
+	fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord> {
 		self.peers.iter_mut().find(|i | i.uuid == *peer_uuid )
 	}
-    pub fn push(&mut self, peer: PeerRecord) {
+    fn push(&mut self, peer: PeerRecord) {
         let id = peer.id;
         self.peers.push(peer);
         if id > self.last_id { 
@@ -159,7 +204,7 @@ impl PeerRecordStructure {
         }
     }
     
-    pub fn get(&self, address: &AuxinAddress) -> Option<&PeerRecord> {
+    fn get(&self, address: &AuxinAddress) -> Option<&PeerRecord> {
         let address = self.complete_address(address);
 		match address { 
             Some(AuxinAddress::Phone(phone_number)) => { 
@@ -174,45 +219,20 @@ impl PeerRecordStructure {
             None => None,
         }
 	}
-    pub fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord> {
+    fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord> {
         let address = self.complete_address(address);
-		match address { 
-            Some(AuxinAddress::Phone(phone_number)) => { 
+		match address {
+            Some(AuxinAddress::Phone(phone_number)) => {
                 self.get_by_number_mut(&phone_number)
             },
-            Some(AuxinAddress::Uuid(peer_uuid)) => { 
+            Some(AuxinAddress::Uuid(peer_uuid)) => {
                 self.get_by_uuid_mut(&peer_uuid)
             },
-            Some(AuxinAddress::Both(phone_number, peer_uuid)) => { 
+            Some(AuxinAddress::Both(phone_number, peer_uuid)) => {
                 self.peers.iter_mut().find(|i | (i.number.eq_ignore_ascii_case(&phone_number) || (i.uuid == peer_uuid) ))
             },
             None => None,
         }
-    }
-    pub fn complete_phone_address(&self, phone_number: &String) -> Option<AuxinAddress> {
-        self.get_by_number(phone_number).map(|peer| AuxinAddress::from(peer))
-    }
-    pub fn complete_uuid_address(&self, peer_uuid: &Uuid) -> Option<AuxinAddress> {
-        self.get_by_uuid(peer_uuid).map(|peer| AuxinAddress::from(peer))
-    }
-    /// If we only have a phone number or a UUID, fill in the other one,. Returns None if no peer by this address is found.
-    pub fn complete_address(&self, address: &AuxinAddress) -> Option<AuxinAddress> {
-        (address.get_phone_number().map(|p| self.complete_phone_address(p))
-        .or(address.get_uuid().map(|u| self.complete_uuid_address(u)))
-        ).flatten()
-    }
-    /// Returns a list of Auxin Device Addresses, one for each known device ID used by the peer referred to with 'address'. 
-    /// Returns None if no peer by this address is found.
-    pub fn get_device_addresses(&self, address: &AuxinAddress) -> Option<Vec<AuxinDeviceAddress>> {
-        self.get(address).map(|peer | {
-            peer.device_ids_used.iter().map(|i | {
-                AuxinDeviceAddress {
-                    address: address.clone(),
-                    device_id: *i,
-                }
-            }).collect()
-            // Empty lists of device IDs should return None.
-        }).filter(|v: &Vec<AuxinDeviceAddress>| !v.is_empty())
     }
 }
 
@@ -223,11 +243,17 @@ pub struct PeerIdentity {
 	pub trust_level : Option<i32>,
 	pub added_timestamp : Option<u64>,
 }
-
-pub trait AuxinStateHandler {
+pub trait AuxinStateHandler<Peers, ProtocolState, Rng> where Peers: PeerStore, ProtocolState: libsignal_protocol::ProtocolStore, Rng: CryptoRng {
     /// Construct a context using the state we have.
-    /// Network Handler is passed so that we can get a SenderCertificate if necessary.
-    fn build_context<Net: AuxinNetHandler>(&self, net: &mut Net) -> Result<crate::Context>;
+    fn build_context(&self) -> Result<crate::Context<Peers, ProtocolState, Rng>>;
+
+    fn store_peer_cache_from(&mut self, peers: &Peers) -> Result<()>;
+    fn store_protocol_state_from(&mut self, identities: &ProtocolState) -> Result<()>;
+
     /// Write any state which has changed in the Context to our storage system.
-    fn sync_from(&mut self) -> Result<()>;
+    fn store_from(&mut self, ctx: &Context<Peers, ProtocolState, Rng>) -> Result<()> {
+        self.store_peer_cache_from(ctx.get_peer_cache())?;
+        self.store_protocol_state_from(ctx.get_protocol_state())?;
+        Ok(())
+    }
 }

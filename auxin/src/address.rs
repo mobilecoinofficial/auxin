@@ -18,7 +18,7 @@ custom_error!{AddressError
     NoDevice{val: String} = "Could not convert {val} into an AuxinDeviceAddress: must end in '.[DeviceId]' where [DeviceID] is a valid integer 0..(2^32-1)",
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize, Hash)]
 pub enum AuxinAddress { 
     Phone(E164),
     Uuid(Uuid),
@@ -55,7 +55,7 @@ impl AuxinAddress {
 
 pub const DEFAULT_DEVICE_ID : u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize, Hash)]
 pub struct AuxinDeviceAddress { 
     pub address: AuxinAddress, 
     pub device_id: u32,
@@ -151,5 +151,29 @@ mod tests {
         assert_eq!(phone_address.device_id(), dev_addr.device_id); 
         assert!(uuid_address.name().eq_ignore_ascii_case( &dev_addr.address.get_uuid().unwrap().to_string() )); 
         assert_eq!(uuid_address.device_id(), dev_addr.device_id);
+    }
+
+    #[test]
+    fn test_address_from_string() {
+        let first_str = "+12345678910";
+        let second_str = "2c624fff-b2ae-493a-9ee8-8f99eddaa349";
+        let addr1 = AuxinAddress::from_str(first_str).unwrap();
+        let addr2 = AuxinAddress::from_str(second_str).unwrap();
+
+        assert_eq!(addr1.get_phone_number().unwrap().as_str(), first_str);
+        assert_eq!(addr2.get_uuid().unwrap().to_string().as_str(), second_str);
+
+        //Now with device id
+        let first_str_dev = "+12345678910.3";
+        let second_str_dev = "2c624fff-b2ae-493a-9ee8-8f99eddaa349.5";
+
+        let dev_addr1 = AuxinDeviceAddress::from_str(first_str_dev).unwrap();
+        let dev_addr2 = AuxinDeviceAddress::from_str(second_str_dev).unwrap();
+
+        assert_eq!(dev_addr1.device_id, 3);
+        assert_eq!(dev_addr2.device_id, 5);
+
+        assert_eq!(dev_addr1.address, addr1);
+        assert_eq!(dev_addr2.address, addr2);
     }
 }
