@@ -34,3 +34,4 @@ protobuf = "2.23.0"
 serde-protobuf = "0.8.2"
 
 custom_error = "1.9.2"
+http = "0.2.4"

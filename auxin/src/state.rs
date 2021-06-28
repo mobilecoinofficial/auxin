@@ -3,11 +3,9 @@ use std::cmp::Ordering;
 
 //use libsignal_protocol::{Context, IdentityKey, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, ProtocolAddress, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
 use log::{debug};
-use rand::CryptoRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::{self, Visitor}};
 use serde_json::Value;
 use uuid::Uuid;
-use crate::{AuxinContext, Result};
 
 use crate::address::{AuxinAddress, AuxinDeviceAddress, E164};
 
@@ -241,18 +239,4 @@ pub struct PeerIdentity {
 	pub identity_key : String,
 	pub trust_level : Option<i32>,
 	pub added_timestamp : Option<u64>,
-}
-pub trait AuxinStateHandler<Peers, ProtocolState, Rng> where Peers: PeerStore, ProtocolState: libsignal_protocol::ProtocolStore, Rng: CryptoRng {
-    /// Construct a context using the state we have.
-    fn build_context(&self) -> Result<crate::AuxinContext<Peers, ProtocolState, Rng>>;
-
-    fn store_peer_cache_from(&mut self, peers: &Peers) -> Result<()>;
-    fn store_protocol_state_from(&mut self, identities: &ProtocolState) -> Result<()>;
-
-    /// Write any state which has changed in the Context to our storage system.
-    fn store_from(&mut self, ctx: &AuxinContext<Peers, ProtocolState, Rng>) -> Result<()> {
-        self.store_peer_cache_from(ctx.get_peer_cache())?;
-        self.store_protocol_state_from(ctx.get_protocol_state())?;
-        Ok(())
-    }
 }

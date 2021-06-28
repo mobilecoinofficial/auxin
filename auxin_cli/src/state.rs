@@ -10,11 +10,14 @@ use auxin::Result;
 use auxin::address::{AuxinAddress, AuxinDeviceAddress, E164};
 use auxin::state::PeerRecordStructure;
 
-use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignalProtocolStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, SenderCertificate, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
+use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, SenderCertificate, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
 use log::{debug, warn};
+use rand::rngs::OsRng;
 use uuid::Uuid;
 use custom_error::custom_error;
 use serde::{Deserialize, Serialize};
+
+use crate::Context;
 
 /// Loads the needed information for a LocalIdentity from a json file - intended to be compatible with Libsingal-cli
 pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
@@ -436,42 +439,28 @@ pub async fn save_all(our_id: &String, base_dir: &String,
 
 	Ok(())
 }
+pub async fn make_context(base_dir: &str, local_identity: LocalIdentity, sender_cert: SenderCertificate, config: AuxinConfig, ctx: libsignal_protocol::Context) -> Result<Context> {
+	let our_phone_number = local_identity.our_address.address.get_phone_number().unwrap();
 
-pub struct StateHandlerFs {
-    pub local_identity: LocalIdentity,
-	pub protocol_store: InMemSignalProtocolStore,
-    pub base_dir: String,
-    pub sender_cert: SenderCertificate,
-	pub config: AuxinConfig,
-}
+	let mut identity_store = InMemIdentityKeyStore::new(local_identity.our_identity_keys.clone(), local_identity.our_reg_id);
+	
+	//Load cached peers and sessions.
+	let (sessions, peers) = load_sessions(&our_phone_number, base_dir, &ctx).await?;
+	//Load identity keys we saved for peers previously. Writes to the identity store.
+	load_known_peers(&our_phone_number, base_dir, &peers, &mut identity_store, &ctx).await?;
+	let (pre_keys, signed_pre_keys) = load_prekeys(&our_phone_number, base_dir, &ctx).await?;
 
-impl StateHandlerFs {
-    pub async fn new(base_dir: &str, local_identity: LocalIdentity, sender_cert: SenderCertificate, config: AuxinConfig) -> Result<Self> {
-		let our_phone_number = local_identity.our_address.address.get_phone_number().unwrap();
-		let ctx = libsignal_protocol::Context::default();
-
-		let mut identity_store = InMemIdentityKeyStore::new(local_identity.our_identity_keys.clone(), local_identity.our_reg_id);
-		
-		//Load cached peers and sessions.
-        let (sessions, peers) = load_sessions(&our_phone_number, base_dir, &ctx).await?;
-		//Load identity keys we saved for peers previously. Writes to the identity store.
-        load_known_peers(&our_phone_number, base_dir, &peers, &mut identity_store, &ctx).await?;
-		let (pre_keys, signed_pre_keys) = load_prekeys(&our_phone_number, base_dir, &ctx).await?;
-
-		let protocol_store = InMemSignalProtocolStore {
-			session_store: sessions,
-			pre_key_store: pre_keys,
-			signed_pre_key_store: signed_pre_keys,
-			identity_store,
-			sender_key_store: InMemSenderKeyStore::new(), // TODO: Figure out what this is for.
-		};
-		
-		Ok(StateHandlerFs {
-            local_identity,
-			protocol_store,
-            base_dir: base_dir.to_string(),
-            sender_cert,
-			config,
-        })
-    }
+	Ok(Context {
+		our_identity: local_identity,
+		our_sender_certificate: sender_cert,
+		peer_cache: peers,
+		session_store: sessions,
+		pre_key_store: pre_keys,
+		signed_pre_key_store: signed_pre_keys,
+		identity_store: identity_store,
+		sender_key_store: InMemSenderKeyStore::new(),
+		rng: OsRng,
+		config: config,
+		signal_ctx: ctx,
+	})
 }

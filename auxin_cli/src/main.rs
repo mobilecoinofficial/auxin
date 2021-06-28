@@ -1,12 +1,11 @@
 use std::borrow::Borrow;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use auxin::{AuxinConfig, LocalIdentity};
-use auxin::{Result, state::PeerRecordStructure};
+use auxin::net::{USER_AGENT, X_SIGNAL_AGENT, make_auth_header};
+use auxin::{AuxinConfig, LocalIdentity, generate_timestamp};
+use auxin::{Result};
 use hyper::Body;
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
-use libsignal_protocol::InMemSignalProtocolStore;
 use log::debug;
 use rand::Rng;
 use rand::rngs::OsRng;
@@ -20,35 +19,9 @@ pub mod state;
 
 use crate::state::*;
 
-pub type Context = auxin::AuxinContext<PeerRecordStructure, InMemSignalProtocolStore, OsRng>;
+pub type Context = auxin::AuxinContext<OsRng>;
 
-// TODO: Refactor net stuff here. 
-
-// Required HTTP header for our Signal requests. 
-// Authorization: "Basic {AUTH}""
-// AUTH is a base64-encoding of: NUMBER:B64PWD, where NUMBER is our address and 
-// B64PWD is our base64-encoded password.
-// We have to supply our own address as a phone number
-// It will not accept this if we use our UUID. 
-fn make_auth_header(our_phone_number: &str, passsword: &str) -> String {
-	let mut our_auth = String::from("Basic ");
-	let mut our_auth_value = String::default();
-	our_auth_value.push_str(our_phone_number);
-	our_auth_value.push_str(":");
-	our_auth_value.push_str(passsword);
-
-
-	let b64_auth = base64::encode(our_auth_value);
-
-	our_auth.push_str(b64_auth.as_str());
-
-	our_auth
-}
-
-fn get_timestamp() -> u64 {
-	let now = SystemTime::now();
-    now.duration_since(UNIX_EPOCH).expect("Time went backwards").as_millis() as u64
-}
+// TODO: Refactor net stuff here.
 
 async fn load_root_tls_cert() -> Result<Certificate> {
 	let key_string = fs::read_to_string("data/whisper.store.asn1")?;
@@ -79,18 +52,14 @@ async fn connect_tls() -> Result<TlsStream<TcpStream> > {
 
 fn build_sendercert_request<R: Rng>(local_identity: &LocalIdentity, _rng: &mut R) -> Result<hyper::Request<Body>> { 
 
-	let auth_header = make_auth_header(
-		local_identity.our_address.address.get_phone_number().unwrap(), 
-		local_identity.password.as_str()
-	);
+	let auth_header = make_auth_header(&local_identity);
 
 	let mut req = hyper::Request::get("https://textsecure-service.whispersystems.org/v1/certificate/delivery");
 	req = req.header("Authorization", auth_header.as_str());
-	req = req.header("X-Signal-Agent", "auxin");
-	req = req.header("User-Agent", "auxin");
+	req = req.header("X-Signal-Agent", X_SIGNAL_AGENT);
+	req = req.header("User-Agent", USER_AGENT);
 
 	Ok(req.body(hyper::Body::default())?)
-
 }
 
 #[tokio::main]
@@ -117,6 +86,8 @@ pub async fn main() -> Result<()> {
     let user_json = load_signal_cli_user(base_dir, &our_phone_number)?;
     let local_identity = local_identity_from_json(&user_json)?;
 
+	println!("Successfully loaded an identity structure for user {}", our_phone_number);
+
 	let mut csprng = OsRng;
 
 	//Regular TLS connection (not websocket) for getting a sender cert.
@@ -136,21 +107,21 @@ pub async fn main() -> Result<()> {
 		let mut v = Vec::from(b);
 		buf.append(&mut v);
 	}
+
 	let cert_structure_string = String::from_utf8_lossy(buf.as_slice());
 	let cert_structure : serde_json::Value = serde_json::from_str(&cert_structure_string)?;
 	let encoded_cert_str = cert_structure.get("certificate").unwrap();
 	let temp_vec = base64::decode(encoded_cert_str.as_str().unwrap())?;
 
-	let cert = libsignal_protocol::SenderCertificate::deserialize(temp_vec.as_slice())?;
+	let sender_cert = libsignal_protocol::SenderCertificate::deserialize(temp_vec.as_slice())?;
 
-	if cert.validate(&trust_root, get_timestamp() as u64)? { 
+	if sender_cert.validate(&trust_root, generate_timestamp() as u64)? { 
 		println!("Confirmed our sender certificate is valid!");
 	} else {
 		panic!("Invalid sender certificate!");
 	}
 
-	let _state = crate::state::StateHandlerFs::new(base_dir, local_identity, cert, AuxinConfig{}).await?;
-    
+	let _context: Context = state::make_context(base_dir, local_identity, sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
     println!("Hello, world! This doesn't do much yet.");
     Ok(())
 }
