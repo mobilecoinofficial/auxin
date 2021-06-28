@@ -63,6 +63,7 @@ pub struct AuxinContext<Rng> where Rng: RngCore + CryptoRng {
 
     pub config: AuxinConfig,
     pub signal_ctx: libsignal_protocol::Context,
+    pub report_as_online: bool,
 }
 
 fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> {

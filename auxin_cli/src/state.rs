@@ -249,8 +249,8 @@ pub async fn load_sessions(
 
 		debug!("Loaded {} bytes from {}", buffer.len(), &file_path );
 
-		session_store
-			.store_session(&recipient_address, &record, *ctx).await?;
+		//Store as UUID
+		session_store.store_session(&recipient_address, &record, *ctx).await?;
 	}
 
 	Ok((session_store, recipient_structure))
@@ -462,5 +462,6 @@ pub async fn make_context(base_dir: &str, local_identity: LocalIdentity, sender_
 		rng: OsRng,
 		config: config,
 		signal_ctx: ctx,
+		report_as_online: false,
 	})
 }

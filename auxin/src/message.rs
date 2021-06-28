@@ -1,10 +1,10 @@
 use std::{convert::TryFrom, str::FromStr};
 
-use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
+use crate::{AuxinContext, Result, address::{self, AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
 use auxin_protos::{Content, Envelope};
 use custom_error::custom_error;
 use libsignal_protocol::{ProtocolAddress, SessionStore, sealed_sender_decrypt, sealed_sender_encrypt};
-use log::{debug, trace};
+use log::{debug};
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
 use serde::{Serialize, Deserialize};
@@ -13,7 +13,7 @@ use std::error::Error;
 
 pub type Timestamp = u64;
 
-pub mod envelope_types { 
+pub mod envelope_types {
 	custom_error!{ pub EnvelopeTypeError
 		InvalidTypeId{attempted_value:i128} = "Attempted to decode {attempted_value} as an Envelope Type. Valid envelope types are 0 through 6.",
 	}
@@ -319,7 +319,6 @@ pub enum MessageContent {
     TextMessage(String),
     /// Takes a mode ("Delivered" to mean the inbox got it, "Read" to mean somebody saw it) 
     /// and one or more timestamps of the *messages we are acknowledging we received.*
-    /// NOTE: Be VERY careful not to 
     ReceiptMessage(ReceiptMode, Timestamp),
     Other(auxin_protos::Content),
 }
@@ -342,7 +341,18 @@ impl MessageContent {
 
                 Ok(content_message)
             },
-            MessageContent::ReceiptMessage(_, _) => todo!(),
+            MessageContent::ReceiptMessage(mode, acknowledging_timestamp) => {
+                let mut receipt_message = auxin_protos::ReceiptMessage::default();
+				receipt_message.set_field_type(*mode);
+				receipt_message.set_timestamp(vec![*acknowledging_timestamp]);
+
+                let _ = protobuf::Message::compute_size(&receipt_message);
+                let mut content_message = auxin_protos::Content::default();
+                content_message.set_receiptMessage(receipt_message);
+                let _ = protobuf::Message::compute_size(&content_message);
+
+                Ok(content_message)
+			},
             MessageContent::Other(content) => Ok(content.clone()),
         }
     }
@@ -350,59 +360,59 @@ impl MessageContent {
 
 /// The abstract representation of a message we are sending or receiving
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct AuxinMessage {
+pub struct MessageOut {
     pub content: MessageContent,
-    /// The address of the peer we are sending to / receiving from.
-    pub remote_address: AuxinDeviceAddress,
 }
 
-impl AuxinMessage {
+impl MessageOut {
 	//Encrypts our_message string and builds an OutgoingPushMessage from it.
-	pub async fn generate_sealed_message<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext<Rng>, timestamp: u64)-> Result<OutgoingPushMessage>{
-			let their_address = &self.remote_address.phone_protocol_address()?;
-			let sess = match context.session_store.load_session(&their_address, context.signal_ctx).await {
-				Ok(s) => s.unwrap(),
-				Err(e) => return Err(Box::new(e)),
-			};
+	pub async fn generate_sealed_message<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext<Rng>, address_to: &AuxinDeviceAddress, timestamp: u64)-> Result<OutgoingPushMessage>{
 
-			//Let's find their registration ID. 
-			let reg_id = sess.remote_registration_id()?;
-			drop(sess);
+		let their_address = address_to.uuid_protocol_address()?;
+		
+		let sess = match context.session_store.load_session(&their_address, context.signal_ctx).await {
+			Ok(s) => s.unwrap(),
+			Err(e) => return Err(Box::new(e)),
+		};
 
-			//Build our message.
-			let mut serialized_message : Vec<u8> = Vec::default();
-			let mut outstream = CodedOutputStream::vec(&mut serialized_message);
+		//Let's find their registration ID. 
+		let reg_id = sess.remote_registration_id()?;
+		drop(sess);
 
-			let b64_profile_key = base64::encode(context.our_identity.our_profile_key);
-			let content_message = self.content.build_signal_content(&b64_profile_key, timestamp)?;
+		//Build our message.
+		let mut serialized_message : Vec<u8> = Vec::default();
+		let mut outstream = CodedOutputStream::vec(&mut serialized_message);
 
-			let sz = protobuf::Message::compute_size(&content_message);
-			debug!("Estimated content message size: {}", sz );
+		let b64_profile_key = base64::encode(context.our_identity.our_profile_key);
+		let content_message = self.content.build_signal_content(&b64_profile_key, timestamp)?;
 
-			protobuf::Message::write_to_with_cached_sizes(&content_message, &mut outstream)?;
-			outstream.flush()?;
-			drop(outstream);
-			debug!("Length of message before padding: {}", serialized_message.len() );
+		let sz = protobuf::Message::compute_size(&content_message);
+		debug!("Estimated content message size: {}", sz );
 
-			let our_message_bytes = pad_message_body(serialized_message.as_slice());
-			debug!("Padded message length: {}", our_message_bytes.len() );
-			
-			//Encipher the content we just encoded.
-			let cyphertext_message = sealed_sender_encrypt(
-			their_address,
-			&context.our_sender_certificate,
-			our_message_bytes.as_slice(),
-			&mut context.session_store,
-			&mut context.identity_store,
-			context.signal_ctx,
-			&mut context.rng,
-			).await?;
-			debug!("Cyphertext message bytes: {}", cyphertext_message.len() );
+		protobuf::Message::write_to_with_cached_sizes(&content_message, &mut outstream)?;
+		outstream.flush()?;
+		drop(outstream);
+		debug!("Length of message before padding: {}", serialized_message.len() );
 
-			//Serialize our cyphertext.
-			let b64_content = base64::encode(cyphertext_message);
-			debug!("Encoded to {} bytes of bas64", b64_content.len() );
-			Ok(OutgoingPushMessage {
+		let our_message_bytes = pad_message_body(serialized_message.as_slice());
+		debug!("Padded message length: {}", our_message_bytes.len() );
+		
+		//Encipher the content we just encoded.
+		let cyphertext_message = sealed_sender_encrypt(
+		&their_address,
+		&context.our_sender_certificate,
+		our_message_bytes.as_slice(),
+		&mut context.session_store,
+		&mut context.identity_store,
+		context.signal_ctx,
+		&mut context.rng,
+		).await?;
+		debug!("Cyphertext message bytes: {}", cyphertext_message.len() );
+
+		//Serialize our cyphertext.
+		let b64_content = base64::encode(cyphertext_message);
+		debug!("Encoded to {} bytes of bas64", b64_content.len() );
+		Ok(OutgoingPushMessage {
 			envelope_type: envelope_types::UNIDENTIFIED_SENDER,
 			destination_device_id: their_address.device_id(),
 			destination_registration_id: reg_id,
@@ -411,12 +421,29 @@ impl AuxinMessage {
 	}
 }
 
+/// The abstract representation of a message we are sending or receiving
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct AuxinMessageList {
-    pub messages: Vec<AuxinMessage>, 
-    pub remote_address: AuxinAddress,
+pub struct MessageIn {
+    pub content: MessageContent,
+    /// The address of the peer we are receiving from.
+    pub remote_address: AuxinDeviceAddress,
+	pub timestamp: u64,
 }
 
+impl MessageIn {
+	/// Generate a receipt indicating that we received, or read, this message.
+	pub fn generate_receipt(&self, mode: ReceiptMode) -> MessageOut { 
+		MessageOut {
+			content: MessageContent::ReceiptMessage(mode, self.timestamp),
+		}
+	}
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct AuxinMessageList {
+    pub messages: Vec<MessageOut>, 
+    pub remote_address: AuxinAddress,
+}
 
 impl AuxinMessageList {
 	///Encrypts our_message string and builds an OutgoingPushMessage from it - One for each of remote_address's devices on file.
@@ -433,7 +460,10 @@ impl AuxinMessageList {
 			debug!("Send to ProtocolAddress {:?} owned by UUID {:?}", remote_address, dest_uuid);
 
 			for message_plaintext in self.messages.iter() { 
-				let message = message_plaintext.generate_sealed_message(context, timestamp).await?;
+				let message = message_plaintext.generate_sealed_message(context, 
+					&AuxinDeviceAddress {
+						address: self.remote_address.clone(),
+						device_id: *i}, timestamp).await?;
 				
 				messages_to_send.push(message);
 			}
@@ -443,11 +473,10 @@ impl AuxinMessageList {
 			destination_uuid: dest_uuid.to_string(),
 			timestamp,
 			messages: messages_to_send,
-			online: false,
+			online: context.report_as_online,
 		})
 	}
 }
-
 
 pub async fn decrypt_unidentified_sender<Rng: RngCore + CryptoRng>(envelope: &Envelope, context: &mut AuxinContext<Rng>) -> Result<(Content, AuxinDeviceAddress)> {
 	let decrypted = sealed_sender_decrypt(
@@ -471,7 +500,6 @@ pub async fn decrypt_unidentified_sender<Rng: RngCore + CryptoRng>(envelope: &En
 
 	let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
 	let message: auxin_protos::Content = reader.read_message()?;
-	trace!("Decrypted message: {:?}", message);
 
 	let sender_uuid = Uuid::from_str(decrypted.sender_uuid()?)?;
 	let sender_e164 = decrypted.sender_e164().ok().flatten().map(|s| s.to_string());
@@ -483,24 +511,21 @@ pub async fn decrypt_unidentified_sender<Rng: RngCore + CryptoRng>(envelope: &En
 
 	let remote_address = AuxinDeviceAddress{address: sender_address, device_id: decrypted.device_id};
 
+	debug!("Decrypted sealed sender message into: {:?}", &message);
 	return Ok((message, remote_address));
 }
 
-pub async fn decode_envelope<Rng: RngCore + CryptoRng>(envelope: Envelope, context: &mut AuxinContext<Rng>) -> Result<AuxinMessage> {
-	debug!("Envelope received from source UUID {}", envelope.get_sourceUuid());
-	debug!("Server GUID is {}", envelope.get_serverGuid());
+pub async fn decode_envelope<Rng: RngCore + CryptoRng>(envelope: Envelope, context: &mut AuxinContext<Rng>) -> Result<MessageIn> {
 
-
-	/*
 	// Build our remote address if this is not a sealed sender message.
-	let remote_address = match e.has_sourceDevice() {
+	/*let remote_address = match envelope.has_sourceDevice() {
 		true => {
-			let source_device = e.get_sourceDevice();
-			if e.has_sourceUuid() {
-				Some(AuxinDeviceAddress{address: AuxinAddress::try_from( e.get_sourceUuid())?, device_id: source_device} )
+			let source_device = envelope.get_sourceDevice();
+			if envelope.has_sourceUuid() {
+				Some(AuxinDeviceAddress{address: AuxinAddress::try_from( envelope.get_sourceUuid())?, device_id: source_device} )
 			}
-			else if e.has_sourceE164() {
-				Some(AuxinDeviceAddress{address: AuxinAddress::try_from( e.get_sourceE164())?, device_id: source_device} )
+			else if envelope.has_sourceE164() {
+				Some(AuxinDeviceAddress{address: AuxinAddress::try_from( envelope.get_sourceE164())?, device_id: source_device} )
 			}
 			else {
 				None
@@ -517,14 +542,16 @@ pub async fn decode_envelope<Rng: RngCore + CryptoRng>(envelope: Envelope, conte
 		auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => { 
 			// Decrypt the sealed sender message and also unpad the 
 			let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;
-			AuxinMessage {
+			MessageIn {
 				content: MessageContent::try_from(content)?, 
 				remote_address: sender,
+				timestamp: envelope.get_timestamp(),
 			}
 		},
 	})
 }
-pub async fn decode_envelope_bin<Rng: RngCore + CryptoRng>(bin: &[u8], context: &mut AuxinContext<Rng>) -> Result<AuxinMessage> {
+
+pub async fn decode_envelope_bin<Rng: RngCore + CryptoRng>(bin: &[u8], context: &mut AuxinContext<Rng>) -> Result<MessageIn> {
 	let envelope = read_envelope_from_bin(bin)?;
 	decode_envelope(envelope, context).await
 }
@@ -538,6 +565,11 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 			if data_message.has_body() {
 				return Ok(MessageContent::TextMessage(data_message.get_body().to_string()));
 			}
+		}
+		else if value.has_receiptMessage() { 
+			let receipt_message = value.get_receiptMessage();
+			assert_eq!(receipt_message.get_timestamp().len(), 1);
+			return Ok(MessageContent::ReceiptMessage(receipt_message.get_field_type(), receipt_message.get_timestamp()[0]))
 		}
 		// TODO: More fine-grained results. 
 		return Ok(MessageContent::Other(value));
