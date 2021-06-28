@@ -80,7 +80,7 @@ pub async fn main() -> Result<()> {
 						.version(VERSION_STR)
 						.author(AUTHOR_STR)
 						.about("[TODO]")
-						.arg(Arg::with_name("user")
+						.arg(Arg::with_name("USER")
 							.short("u")
 							.long("user")
 							.value_name("PHONE_NUMBER")
@@ -91,11 +91,18 @@ pub async fn main() -> Result<()> {
 							.about("Sends a message to the specified address.")
 							.version(VERSION_STR)
 							.author(AUTHOR_STR)
-							.args_from_usage("<DESTINATION> 'Sets the destination for our message'
-												-m --message=[MESSAGE] 'Specify message to send to our recipient.'"))
+							.args_from_usage("<DESTINATION> 'Sets the destination for our message'")
+							.arg(Arg::with_name("MESSAGE")
+								.short("m")
+								.long("message")
+								.value_name("MESSAGE_BODY")
+								.required(true)
+								.takes_value(true)
+								.help("Determines the message text we will send.")
+						))
 						.get_matches();
 
-	let our_phone_number = args.value_of("user").unwrap();
+	let our_phone_number = args.value_of("USER").unwrap();
 	let our_phone_number = our_phone_number.to_string();
 
 	let trust_root = auxin::sealed_sender_trust_root();
@@ -148,7 +155,7 @@ pub async fn main() -> Result<()> {
 		let recipient_addr = context.peer_cache.complete_address(&recipient_addr).unwrap();
 		let recipient = context.peer_cache.get(&recipient_addr);
 		if let Some(_recipient) = recipient {
-			let message_text = send_command.value_of("MESSAGE").unwrap_or("Hello world from Auxin!");
+			let message_text = send_command.value_of("MESSAGE").unwrap();
 			let message_content = MessageContent::TextMessage(message_text.to_string());
 			let message = MessageOut {
 				content: message_content,
