@@ -69,7 +69,7 @@ pub struct AuxinContext<R> where R: RngCore + CryptoRng {
 fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> {
     let profile_key_bytes = base64::decode(profile_key)?;
     let profile_key = aes_gcm::Key::from_slice(profile_key_bytes.as_slice());
-    let cipher = aes_gcm::Aes128Gcm::new(profile_key);
+    let cipher = aes_gcm::Aes256Gcm::new(profile_key);
     //Libsignal-service-java enciphers 16 zeroes with a (re-used) nonce of 12 zeroes
     //to get this access key, unless I am horribly misreading it. 
     let zeroes: [u8; 16] = [0; 16];
