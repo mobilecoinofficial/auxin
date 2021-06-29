@@ -2,16 +2,24 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
-use auxin::message::{AuxinMessageList, MessageOut, MessageContent};
-use auxin::net::{build_sendercert_request};
+use auxin::message::{AuxinMessageList, MessageContent, MessageIn, MessageOut, fix_protobuf_buf};
+use auxin::net::{build_sendercert_request, make_auth_header};
 use auxin::state::PeerStore;
-use auxin::{AuxinConfig, generate_timestamp};
+use auxin::{AuxinConfig, LocalIdentity, generate_timestamp};
 use auxin::{Result};
+use auxin_protos::WebSocketMessage_Type;
+use futures::{StreamExt, TryFutureExt};
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
-use log::{LevelFilter, debug};
+use hyper_tls::TlsStream;
+use log::{LevelFilter, debug, info};
 use rand::rngs::OsRng;
 use simple_logger::SimpleLogger;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{WebSocketStream, client_async};
+use tungstenite::error::ProtocolError;
+use tungstenite::http::Response;
 use std::fs;
 use tokio_native_tls::native_tls::Certificate;
 use tokio_native_tls::native_tls::TlsConnector;
@@ -42,7 +50,7 @@ async fn build_tls_connector() -> Result<tokio_native_tls::TlsConnector> {
 	Ok(tokio_native_tls::TlsConnector::from(connector))
 }
 
-/*
+
 async fn connect_tls() -> Result<TlsStream<TcpStream> > {
 
 	let (connector, stream) = tokio::try_join!(
@@ -51,7 +59,54 @@ async fn connect_tls() -> Result<TlsStream<TcpStream> > {
 	)?;
 
 	Ok(connector.connect("textsecure-service.whispersystems.org", stream).await?)
-}*/
+}
+
+// Signal's API lives at textsecure-service.whispersystems.org.
+async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(local_identity: &LocalIdentity, stream: S) 
+		-> Result<(WebSocketStream<S>, Response<()>)> {
+	let signal_url = "https://textsecure-service.whispersystems.org";
+
+	// Make a websocket URI which has the right protocol.
+	let ws_uri = signal_url
+		.replace("https://", "wss://")
+		.replace("http://", "ws://")
+		+ "/v1/websocket/";
+
+	// API arguments to identify ourselves.
+	let mut filled_uri = ws_uri.clone();
+	filled_uri.push_str("?login=");
+	filled_uri.push_str(local_identity.our_address.get_uuid()?.to_string().as_str());
+	filled_uri.push_str("&password=");
+	filled_uri.push_str(&local_identity.password);
+
+	let auth_header = make_auth_header(&local_identity);
+
+	let headers = &mut [
+		httparse::Header {
+			name: "Authorization", 
+			value: auth_header.as_bytes()
+		},
+		httparse::Header {
+			name: "X-Signal-Agent", 
+			value: "auxin".as_bytes(),
+		},
+	];
+	let req = httparse::Request { 
+		method: Some("GET"), 
+		path: Some(filled_uri.as_str()), 
+		version: Some(11),
+		headers };
+
+	debug!("Connecting to websocket with request {:?}", req);
+	Ok(client_async(req, stream).await?)
+}
+
+// (Try to) read a raw byte buffer as a Signal Websocketmessage protobuf.
+fn read_wsmessage(buf: &[u8]) -> Result<auxin_protos::WebSocketMessage> {
+	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
+	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
+	Ok(reader.read_message()?)
+}
 
 ///Blocking operation to loop on retrieving a Hyper response's body stream and turn it into an ordinary buffer. 
 async fn read_body_stream_to_buf(resp: &mut hyper::Response<hyper::Body>) -> Result<Vec<u8>> { 
@@ -97,8 +152,11 @@ pub async fn main() -> Result<()> {
 								.value_name("MESSAGE_BODY")
 								.required(true)
 								.takes_value(true)
-								.help("Determines the message text we will send.")
-						))
+								.help("Determines the message text we will send."))
+						).subcommand(SubCommand::with_name("receive")
+							.about("Polls for incoming messages.")
+							.version(VERSION_STR)
+							.author(AUTHOR_STR))
 						.get_matches();
 
 	let our_phone_number = args.value_of("USER").unwrap();
@@ -141,7 +199,7 @@ pub async fn main() -> Result<()> {
 		panic!("Invalid sender certificate!");
 	}
 
-	let mut context: Context = state::make_context(base_dir, local_identity, sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
+	let mut context: Context = state::make_context(base_dir, local_identity.clone(), sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
     println!("Hello, world! This doesn't do much yet.");
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
@@ -173,6 +231,84 @@ pub async fn main() -> Result<()> {
 
 		} else { 
 			panic!("Currently this application cannot send to unfamiliar peers. Please send a message to this peer via signal-cli first.");
+		}
+	}
+
+	
+	if let Some(_) = args.subcommand_matches("receive") { 
+		let second_stream = connect_tls().await?; 
+		let (mut websocket_client, connect_response) = connect_websocket(&local_identity, second_stream).await?;
+		debug!("Constructed websocket client, got response: {:?}", connect_response);
+	
+		let mut count = 0;
+		while let Some(msg) = websocket_client.next().await {
+			let msg = match msg {
+				Ok(m) => m,
+				Err(e ) => {
+					match e { 
+						tungstenite::Error::Protocol(ProtocolError::ResetWithoutClosingHandshake) => {
+							debug!("Reset without closing handshake - we're probably at the end of the incoming messages list with {} messages.", count);
+							break;
+						}, 
+						_ => {break;},//panic!("Encountered error in websocket polling loop: {}", e),
+					}
+				},
+			};
+			match &msg {
+				tungstenite::Message::Binary(bin) => {
+	
+					println!("\n-----------------------------------------\n");
+					//The server DEFINITELY has more messages to send us upon connect every time I message this nubmer.
+					count += 1;
+					println!("-----We have recieved {} messages in total.", count);
+					//Decode websocket message
+					let wsmessage: auxin_protos::WebSocketMessage = read_wsmessage(bin.as_slice())?;
+	
+					match wsmessage.get_field_type() {
+						WebSocketMessage_Type::REQUEST => {
+							
+							let req = wsmessage.get_request(); 
+	
+							println!("\n-----------------------------------------");
+							println!("-----------------------------------------\n");
+							debug!("Request message: {:?}", req);
+							println!("\n-----------------------------------------");
+							println!("-----------------------------------------\n");
+	
+							println!("Message ID: {}", req.get_id());
+							println!("Message path: {}", req.get_path());
+
+							if req.get_path().eq_ignore_ascii_case("/api/v1/queue/empty") { 
+								info!("Message queue empty, no more messages to receive.");
+								break;
+							}
+
+							let m = MessageIn::decode_envelope_bin(req.get_body(), &mut context).await?;
+							println!("{:?}", m);
+						},
+						WebSocketMessage_Type::RESPONSE => {
+							//let res = wsmessage.get_response();
+							//let e : Envelope = read_envelope(res.get_body())?;
+	
+							//debug!("Decoded websocket response: {:?}", e);
+						},
+						_ => {},
+					}
+				},
+				tungstenite::Message::Close(_) => {
+					break;
+				},
+				_ => {
+	
+					println!("\n-----------------------------------------");
+					println!("-----------------------------------------\n");
+					let msg = match msg.to_text() {
+						Ok(inner) => String::from(inner),
+						Err(e) => format!("Message decoding errored, with error message \"{}\"", e),
+					};
+					debug!("Message contents: {}", msg);
+				}
+			}
 		}
 	}
 

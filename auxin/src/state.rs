@@ -135,7 +135,6 @@ pub struct PeerRecordStructure {
 	pub last_id: u64,
 }
 
-
 // Many helper functions.
 pub trait PeerStore {
 	fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord>;
