@@ -158,8 +158,8 @@ pub trait PeerStore {
             return Some(address.clone());
         }
         else {
-            return (address.get_phone_number().map(|p| self.complete_phone_address(p))
-            .or(address.get_uuid().map(|u| self.complete_uuid_address(u)))
+            return (address.get_phone_number().ok().map(|p| self.complete_phone_address(p))
+            .or(address.get_uuid().ok().map(|u| self.complete_uuid_address(u)))
             ).flatten();
         }
     }

@@ -3,15 +3,13 @@ use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
 use auxin::message::{AuxinMessageList, MessageOut, MessageContent};
-use auxin::net::{USER_AGENT, X_SIGNAL_AGENT, make_auth_header};
+use auxin::net::{build_sendercert_request};
 use auxin::state::PeerStore;
-use auxin::{AuxinConfig, LocalIdentity, generate_timestamp, get_unidentified_access_for};
+use auxin::{AuxinConfig, generate_timestamp};
 use auxin::{Result};
-use hyper::Body;
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
 use log::{LevelFilter, debug};
-use rand::Rng;
 use rand::rngs::OsRng;
 use simple_logger::SimpleLogger;
 use std::fs;
@@ -55,15 +53,16 @@ async fn connect_tls() -> Result<TlsStream<TcpStream> > {
 	Ok(connector.connect("textsecure-service.whispersystems.org", stream).await?)
 }*/
 
-fn build_sendercert_request<R: Rng>(local_identity: &LocalIdentity, _rng: &mut R) -> Result<hyper::Request<Body>> { 
-	let auth_header = make_auth_header(&local_identity);
-
-	let mut req = hyper::Request::get("https://textsecure-service.whispersystems.org/v1/certificate/delivery");
-	req = req.header("Authorization", auth_header.as_str());
-	req = req.header("X-Signal-Agent", X_SIGNAL_AGENT);
-	req = req.header("User-Agent", USER_AGENT);
-
-	Ok(req.body(hyper::Body::default())?)
+///Blocking operation to loop on retrieving a Hyper response's body stream and turn it into an ordinary buffer. 
+async fn read_body_stream_to_buf(resp: &mut hyper::Response<hyper::Body>) -> Result<Vec<u8>> { 
+	let mut buf: Vec<u8> = Vec::default();
+	while let Some(next) = resp.data().await {
+		let chunk = next?;
+		let b: &[u8] = chunk.borrow();
+		let mut v = Vec::from(b);
+		buf.append(&mut v);
+	}
+	Ok(buf)
 }
 
 #[tokio::main]
@@ -113,25 +112,21 @@ pub async fn main() -> Result<()> {
 
 	println!("Successfully loaded an identity structure for user {}", our_phone_number);
 
-	let mut csprng = OsRng;
-
 	//Regular TLS connection (not websocket) for getting a sender cert.
 	let connector = build_tls_connector().await?;
 	let mut http_connector = HttpConnector::new();
+	//Critically important. If we do not set this value to false, it will defalt to true,
+	//and the connector will errror out when we attempt to connect using https://
+	//(Because technically it isn't http)
 	http_connector.enforce_http(false);
 	let https_connector = hyper_tls::HttpsConnector::from((http_connector, connector));
+
 	let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-	let sender_cert_request = build_sendercert_request(&local_identity, &mut csprng)?;
+	let sender_cert_request: http::Request<hyper::Body> = build_sendercert_request(&local_identity)?;
 	let mut sender_cert_response = client.request(sender_cert_request).await?;
 
 	assert!(sender_cert_response.status().is_success());
-	let mut buf: Vec<u8> = Vec::default();
-	while let Some(next) = sender_cert_response.data().await {
-		let chunk = next?;
-		let b: &[u8] = chunk.borrow();
-		let mut v = Vec::from(b);
-		buf.append(&mut v);
-	}
+	let buf: Vec<u8> = read_body_stream_to_buf(&mut sender_cert_response).await?;
 
 	let cert_structure_string = String::from_utf8_lossy(buf.as_slice());
 	let cert_structure : serde_json::Value = serde_json::from_str(&cert_structure_string)?;
@@ -161,45 +156,18 @@ pub async fn main() -> Result<()> {
 				content: message_content,
 			};
 
-			let message_list = AuxinMessageList { 
+			let message_list = AuxinMessageList {
 				messages: vec![message],
 				remote_address: recipient_addr.clone(),
 			};
 			let outgoing_push_list = message_list.generate_sealed_messages_to_all_devices(&mut context, generate_timestamp()).await?;
-			let json_message = serde_json::to_string(&outgoing_push_list)?;
 
-			let unidentified_access_key = get_unidentified_access_for(&recipient_addr, &context, &mut OsRng::default())?;
-
-			let unidentified_access_key = base64::encode(unidentified_access_key);
-			println!("Attempting to send with unidentified access key {}", unidentified_access_key);
-			
-			let mut msg_path = String::from("https://textsecure-service.whispersystems.org/v1/messages/");
-			msg_path.push_str(recipient_addr.get_uuid().unwrap().to_string().as_str());
-
-			//Start building our message to send. 
-			let auth_header = make_auth_header(&context.our_identity);
-
-			let mut req = hyper::Request::put(msg_path);
-			req = req.header("Authorization", auth_header.as_str());
-			req = req.header("X-Signal-Agent", "auxin");
-			req = req.header("User-Agent", "auxin");
-			req = req.header("Unidentified-Access-Key", unidentified_access_key);
-			req = req.header("Content-Type", "application/json; charset=utf-8");
-			req = req.header("Content-Length", json_message.len());
-
-			let request_final = req.body(Body::from(json_message))?;
-
-			debug!("Attempting to send message: {:?}", request_final);
-			let mut message_response = client.request(request_final).await?;
+			let request = outgoing_push_list.build_http_request(&recipient_addr, &mut context)?;
+			debug!("Attempting to send message: {:?}", request);
+			let mut message_response = client.request(request).await?;
 		
 			println!("Got response to attempt to send message: {:?}", message_response);
-			let mut buf: Vec<u8> = Vec::default();
-			while let Some(next) = message_response.data().await {
-				let chunk = next?;
-				let b: &[u8] = chunk.borrow();
-				let mut v = Vec::from(b);
-				buf.append(&mut v);
-			}
+			let buf: Vec<u8> = read_body_stream_to_buf(&mut message_response).await?;
 			let reply_string = String::from_utf8_lossy(buf.as_slice());
 			println!("Response body is: {:?}", reply_string);
 
@@ -207,5 +175,7 @@ pub async fn main() -> Result<()> {
 			panic!("Currently this application cannot send to unfamiliar peers. Please send a message to this peer via signal-cli first.");
 		}
 	}
+
+	save_all(&context, base_dir).await?;
     Ok(())
 }

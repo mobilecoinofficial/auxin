@@ -1,5 +1,4 @@
-use crate::{LocalIdentity};
-
+use crate::{LocalIdentity, Result};
 
 // Required HTTP header for our Signal requests. 
 // Authorization: "Basic {AUTH}""
@@ -33,3 +32,14 @@ pub mod api_paths {
 pub const USER_AGENT: &str = "auxin";
 //For "X-Signal-Agent" http header
 pub const X_SIGNAL_AGENT: &str = "auxin";
+
+pub fn build_sendercert_request<Body: Default>(local_identity: &LocalIdentity) -> Result<http::Request<Body>> {
+	let auth_header = make_auth_header(&local_identity);
+
+	let mut req = http::Request::get("https://textsecure-service.whispersystems.org/v1/certificate/delivery");
+	req = req.header("Authorization", auth_header.as_str());
+	req = req.header("X-Signal-Agent", X_SIGNAL_AGENT);
+	req = req.header("User-Agent", USER_AGENT);
+
+	Ok(req.body(Body::default())?)
+}

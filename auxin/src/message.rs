@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, str::FromStr};
 
-use crate::{AuxinContext, Result, address::{self, AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
+use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, net::make_auth_header, sealed_sender_trust_root, state::PeerStore};
 use auxin_protos::{Content, Envelope};
 use custom_error::custom_error;
 use libsignal_protocol::{ProtocolAddress, SessionStore, sealed_sender_decrypt, sealed_sender_encrypt};
@@ -293,6 +293,34 @@ pub struct OutgoingPushMessageList {
 	pub online: bool,
 }
 
+impl OutgoingPushMessageList { 
+	pub fn build_http_request<Body, Rng>(&self, peer_address: &AuxinAddress, context :&mut AuxinContext<Rng>) -> Result<http::Request<Body>> 
+			where Body: From<String>, Rng: RngCore + CryptoRng { 
+		let json_message = serde_json::to_string(&self)?;
+
+		let unidentified_access_key = context.get_unidentified_access_for(&peer_address)?;
+
+		let unidentified_access_key = base64::encode(unidentified_access_key);
+		debug!("Attempting to send with unidentified access key {}", unidentified_access_key);
+		
+		let mut msg_path = String::from("https://textsecure-service.whispersystems.org/v1/messages/");
+		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
+
+		//Start building our message to send. 
+		let auth_header = make_auth_header(&context.our_identity);
+
+		let mut req = http::Request::put(msg_path);
+		req = req.header("Authorization", auth_header.as_str());
+		req = req.header("X-Signal-Agent", "auxin");
+		req = req.header("User-Agent", "auxin");
+		req = req.header("Unidentified-Access-Key", unidentified_access_key);
+		req = req.header("Content-Type", "application/json; charset=utf-8");
+		req = req.header("Content-Length", json_message.len());
+
+		Ok(req.body(Body::from(json_message))?)
+	}
+}
+
 /*----------------------------------------------------------------------------------------\\
 ||--- ABSTRACT AUXIN MESSAGE TYPES BUILT TO / DESERIALIZED FROM PROPER SIGNAL MESSAGES ---||
 \\----------------------------------------------------------------------------------------*/
@@ -368,6 +396,10 @@ impl MessageOut {
 	//Encrypts our_message string and builds an OutgoingPushMessage from it.
 	pub async fn generate_sealed_message<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext<Rng>, address_to: &AuxinDeviceAddress, timestamp: u64)-> Result<OutgoingPushMessage>{
 
+		//Make sure it has both UUID and phone number. 
+		let mut address_to = address_to.clone();
+		address_to.address = context.peer_cache.complete_address(&address_to.address).unwrap();
+		//Get a valid protocol address with name=uuid
 		let their_address = address_to.uuid_protocol_address()?;
 		
 		let sess = match context.session_store.load_session(&their_address, context.signal_ctx).await {
@@ -483,8 +515,8 @@ pub async fn decrypt_unidentified_sender<Rng: RngCore + CryptoRng>(envelope: &En
 		envelope.get_content(),
 		&sealed_sender_trust_root(),
 		generate_timestamp() as u64,
-		context.our_identity.our_address.address.get_phone_number().map(|phone| phone.clone()),
-		context.our_identity.our_address.address.get_uuid().map(|id| id.to_string()).unwrap(),
+		context.our_identity.our_address.get_phone_number().ok().map(|s| s.clone()),
+		context.our_identity.our_address.get_uuid()?.to_string(),
 		context.our_identity.our_address.device_id,
 		&mut context.identity_store,
 		&mut context.session_store,
@@ -538,7 +570,10 @@ pub async fn decode_envelope<Rng: RngCore + CryptoRng>(envelope: Envelope, conte
 		auxin_protos::Envelope_Type::CIPHERTEXT => todo!(),
 		auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
 		auxin_protos::Envelope_Type::PREKEY_BUNDLE => todo!(),
-		auxin_protos::Envelope_Type::RECEIPT => todo!(),
+		auxin_protos::Envelope_Type::RECEIPT => {
+			debug!("{:?}", &envelope);
+			panic!();
+		},
 		auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => { 
 			// Decrypt the sealed sender message and also unpad the 
 			let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;

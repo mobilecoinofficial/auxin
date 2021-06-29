@@ -14,7 +14,7 @@ pub mod message;
 
 use rand::{CryptoRng, Rng, RngCore};
 //use serde::{Serialize, Deserialize};
-use state::{PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode};
+use state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -49,7 +49,7 @@ pub struct LocalIdentity {
 
 #[allow(unused)] // TODO: Remove this after we can send/remove a message.
 // This is the structure that an AuxinStateHandler builds and saves.
-pub struct AuxinContext<Rng> where Rng: RngCore + CryptoRng {
+pub struct AuxinContext<R> where R: RngCore + CryptoRng {
     pub our_identity: LocalIdentity,
     pub our_sender_certificate: SenderCertificate,
 
@@ -59,7 +59,7 @@ pub struct AuxinContext<Rng> where Rng: RngCore + CryptoRng {
     pub signed_pre_key_store: InMemSignedPreKeyStore,
     pub identity_store: InMemIdentityKeyStore,
     pub sender_key_store: InMemSenderKeyStore,
-    pub rng: Rng,
+    pub rng: R,
 
     pub config: AuxinConfig,
     pub signal_ctx: libsignal_protocol::Context,
@@ -81,12 +81,6 @@ fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> {
     Ok(cipher.encrypt(&nonce, payload)?)
 }
 
-fn get_unidentified_access_unrestricted<Rng: CryptoRng + RngCore>(rng: &mut Rng) -> Result<Vec<u8>> {
-    let bytes: [u8; 16] = rng.gen();
-
-    Ok(Vec::from(bytes))
-}
-
 custom_error!{ pub UnidentifiedaccessError
     NoProfileKey{uuid: Uuid} = "Cannot generate an unidentified access key for user {uuid}: We do not know their profile key! This would not matter for a user with UnidentifiedAccessMode::UNRESTRICTED.",
     PeerDisallowsSealedSender{uuid: Uuid} = "Tried to generatet an unidentified access key for peer {uuid}, but this user has disabled unidentified access!",
@@ -94,30 +88,36 @@ custom_error!{ pub UnidentifiedaccessError
     NoProfile{uuid: Uuid} = "Attempted to generate an unidenttified access key for peer {uuid}, but this user has no profile field whatsoever on record with this Auxin instance. We cannot retrieve their profile key.",
 }
 
-fn get_unidentified_access_for_peer<Rng: CryptoRng + RngCore>(peer: &PeerRecord, _context: &AuxinContext<Rng>, rng: &mut Rng) -> Result<Vec<u8>> {
-    match &peer.profile {
-		Some(p) => match p.unidentified_access_mode {
-			UnidentifiedAccessMode::UNRESTRICTED => {
-				debug!("User {} has unrestricted unidentified access, generating random key.", peer.uuid);
-				Ok(get_unidentified_access_unrestricted(rng)?)
-			},
-            UnidentifiedAccessMode::ENABLED => {
-				debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", peer.uuid);
-				match &peer.profile_key { 
-                    Some(pk) => Ok(get_unidentified_access_for_key(pk)?),
-                    None => { return Err( Box::new( UnidentifiedaccessError::NoProfileKey{ uuid: peer.uuid } )); },
-                }
-			},
-            UnidentifiedAccessMode::DISABLED => Err(Box::new(UnidentifiedaccessError::PeerDisallowsSealedSender{ uuid: peer.uuid } )),
-		},
-		None => Err(Box::new(UnidentifiedaccessError::NoProfile{ uuid: peer.uuid } )),
-	}
-}
+impl<R> AuxinContext<R> where R: RngCore + CryptoRng { 
+    fn get_unidentified_access_unrestricted(&mut self) -> Result<Vec<u8>> {
+        let bytes: [u8; 16] = self.rng.gen();
+    
+        Ok(Vec::from(bytes))
+    }
 
-/// Returns Some if the user accepts unidentified sender messages, None if not. Also returns None if this is not a known peer.
-pub fn get_unidentified_access_for<Rng: CryptoRng + RngCore>(peer_address: &AuxinAddress, context: &AuxinContext<Rng>, rng: &mut Rng) -> Result<Vec<u8>> {
-    match context.peer_cache.get(peer_address) {
-        Some(peer) => get_unidentified_access_for_peer(peer, context, rng),
-		None => Err(Box::new(UnidentifiedaccessError::UnrecognizedUser{ address: peer_address.clone() } )),
+    pub fn get_unidentified_access_for(&mut self, peer_address: &AuxinAddress) -> Result<Vec<u8>> {
+        let peer = self.peer_cache.get(peer_address);
+        if peer.is_none() {
+            return Err(Box::new(UnidentifiedaccessError::UnrecognizedUser{ address: peer_address.clone() } ))
+        }
+        let peer = peer.unwrap();
+
+        match &peer.profile {
+            Some(p) => match p.unidentified_access_mode {
+                UnidentifiedAccessMode::UNRESTRICTED => {
+                    debug!("User {} has unrestricted unidentified access, generating random key.", peer.uuid);
+                    Ok(self.get_unidentified_access_unrestricted()?)
+                },
+                UnidentifiedAccessMode::ENABLED => {
+                    debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", peer.uuid);
+                    match &peer.profile_key { 
+                        Some(pk) => Ok(get_unidentified_access_for_key(pk)?),
+                        None => { return Err( Box::new( UnidentifiedaccessError::NoProfileKey{ uuid: peer.uuid } )); },
+                    }
+                },
+                UnidentifiedAccessMode::DISABLED => Err(Box::new(UnidentifiedaccessError::PeerDisallowsSealedSender{ uuid: peer.uuid } )),
+            },
+            None => Err(Box::new(UnidentifiedaccessError::NoProfile{ uuid: peer.uuid } )),
+        }
     }
 }

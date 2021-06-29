@@ -352,16 +352,12 @@ pub async fn load_prekeys(our_id: &String, base_dir: &str, ctx: &libsignal_proto
 	Ok((pre_key_store, signed_pre_key_store))
 }
 
-pub async fn save_all(our_id: &String, base_dir: &String, 
-				session_store: &InMemSessionStore, _identity_store: &InMemIdentityKeyStore, recipient_store: &PeerRecordStructure,
-				_pre_key_store: &InMemPreKeyStore, _signed_pre_key_store: &InMemSignedPreKeyStore,
-				ctx: &libsignal_protocol::Context) 
-				-> Result<()> {
-
+pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
+	let our_id: String = context.our_identity.our_address.get_phone_number()?.clone();
 	//Figure out some directories.
-	let mut our_path = base_dir.clone();
+	let mut our_path = base_dir.to_string();
 	our_path.push_str("/");
-	our_path.push_str(our_id);
+	our_path.push_str(our_id.as_str());
 	our_path.push_str(".d/");
 	
 	let mut pre_keys_path = our_path.clone();
@@ -380,7 +376,7 @@ pub async fn save_all(our_id: &String, base_dir: &String,
 	
 	//Build a list of all recipient IDs and all recipient-device addresses in our store.
 	let mut addresses : Vec<(u64, ProtocolAddress)> = Vec::default();
-	for r in &recipient_store.peers { 
+	for r in &context.peer_cache.peers { 
 		for i in r.device_ids_used.iter() {
 			//MUST USE UUID
 			addresses.push( (r.id, ProtocolAddress::new(r.uuid.to_string().clone(), *i)) );
@@ -400,7 +396,7 @@ pub async fn save_all(our_id: &String, base_dir: &String,
 			
 		
 		debug!("Session lookup for {:?}", address);
-		let session = session_store.load_session(&address.1, *ctx).await?;
+		let session = context.session_store.load_session(&address.1, context.signal_ctx).await?;
 		let session = match session { 
 			Some(s) => s, 
 			None => { 
@@ -415,7 +411,7 @@ pub async fn save_all(our_id: &String, base_dir: &String,
 	}
 
 	// Save recipient store: 
-	let json_recipient_structure = serde_json::to_string_pretty(recipient_store)?;
+	let json_recipient_structure = serde_json::to_string_pretty(&context.peer_cache)?;
 	//debug!("Recipient structure {}", json_recipient_structure);
 
 	let mut file = OpenOptions::new()
