@@ -200,7 +200,6 @@ pub async fn main() -> Result<()> {
 	}
 
 	let mut context: Context = state::make_context(base_dir, local_identity.clone(), sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
-    println!("Hello, world! This doesn't do much yet.");
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();
