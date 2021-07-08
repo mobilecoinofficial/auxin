@@ -10,6 +10,7 @@ pub mod address;
 pub mod state;
 pub mod net;
 pub mod message;
+pub mod discovery;
 
 
 use rand::{CryptoRng, Rng, RngCore};
@@ -45,6 +46,38 @@ pub struct LocalIdentity {
     pub our_profile_key: ProfileKey,
     pub our_identity_keys: IdentityKeyPair,
     pub our_reg_id: u32,
+}
+
+impl LocalIdentity {
+    /// Required HTTP header for our Signal requests.
+    /// Authorization: "Basic {AUTH}""
+    /// AUTH is a base64-encoding of: NUMBER:B64PWD, where NUMBER is our phone number and 
+    /// B64PWD is our base64-encoded password.
+    /// NOTE: Discovery requests will require a different user-ID and password, which is retrieved with a GET request to https://textsecure-service.whispersystems.org/v1/directory/auth
+    pub fn make_auth_header(&self) -> String {
+        let mut our_auth_value = String::default();
+        // We have to supply our own address as a phone number
+        // It will not accept this if we use our UUID. 
+        our_auth_value.push_str(self.our_address.address.get_phone_number().unwrap());
+        our_auth_value.push_str(":");
+        our_auth_value.push_str(&self.password);
+
+
+        let b64_auth = base64::encode(our_auth_value);
+
+        let mut our_auth = String::from("Basic ");
+        our_auth.push_str(b64_auth.as_str());
+
+        our_auth
+    }
+
+    /// Build a request for a "Sender Certificate," which is required in order to deliver "sealed sender" messages.
+    pub fn build_sendercert_request<Body: Default>(&self) -> Result<http::Request<Body>> {
+        let req = crate::net::common_http_headers(http::Method::GET, 
+                            "https://textsecure-service.whispersystems.org/v1/certificate/delivery", 
+                            self.make_auth_header().as_str() )?;
+        Ok(req.body(Body::default())?)
+    }
 }
 
 #[allow(unused)] // TODO: Remove this after we can send/remove a message.

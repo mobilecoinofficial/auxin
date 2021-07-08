@@ -12,3 +12,6 @@ Cargo.lock
 # Symlinked to my ~/.local/share/signal-cli in my development environment.
 /state
 /state/
+
+# VSCode stuff 
+/.vscode/

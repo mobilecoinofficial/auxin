@@ -3,7 +3,6 @@ use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
 use auxin::message::{AuxinMessageList, MessageContent, MessageIn, MessageOut, fix_protobuf_buf};
-use auxin::net::{build_sendercert_request, make_auth_header};
 use auxin::state::PeerStore;
 use auxin::{AuxinConfig, LocalIdentity, generate_timestamp};
 use auxin::{Result};
@@ -79,7 +78,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(local_identity: &L
 	filled_uri.push_str("&password=");
 	filled_uri.push_str(&local_identity.password);
 
-	let auth_header = make_auth_header(&local_identity);
+	let auth_header = local_identity.make_auth_header();
 
 	let headers = &mut [
 		httparse::Header {
@@ -180,7 +179,7 @@ pub async fn main() -> Result<()> {
 	let https_connector = hyper_tls::HttpsConnector::from((http_connector, connector));
 
 	let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-	let sender_cert_request: http::Request<hyper::Body> = build_sendercert_request(&local_identity)?;
+	let sender_cert_request: http::Request<hyper::Body> = local_identity.build_sendercert_request()?;
 	let mut sender_cert_response = client.request(sender_cert_request).await?;
 
 	assert!(sender_cert_response.status().is_success());

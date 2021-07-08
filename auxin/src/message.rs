@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, str::FromStr};
 
-use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, net::make_auth_header, sealed_sender_trust_root, state::PeerStore};
+use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
 use auxin_protos::{Content, Envelope};
 use custom_error::custom_error;
 use libsignal_protocol::{ProtocolAddress, SessionStore, sealed_sender_decrypt, sealed_sender_encrypt};
@@ -179,7 +179,6 @@ pub mod envelope_types {
 ||--- SERIALIZATION/DESERIALIZATION HELPER METHODS ---||
 \\----------------------------------------------------*/
 
-
 //128
 const PADDING_START_CHAR : u8 = 0x80;
 
@@ -306,13 +305,8 @@ impl OutgoingPushMessageList {
 		let mut msg_path = String::from("https://textsecure-service.whispersystems.org/v1/messages/");
 		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
 
-		//Start building our message to send. 
-		let auth_header = make_auth_header(&context.our_identity);
-
-		let mut req = http::Request::put(msg_path);
-		req = req.header("Authorization", auth_header.as_str());
-		req = req.header("X-Signal-Agent", "auxin");
-		req = req.header("User-Agent", "auxin");
+		let mut req = crate::net::common_http_headers(http::Method::GET, msg_path.as_str(), context.our_identity.make_auth_header().as_str())?;
+		
 		req = req.header("Unidentified-Access-Key", unidentified_access_key);
 		req = req.header("Content-Type", "application/json; charset=utf-8");
 		req = req.header("Content-Length", json_message.len());
@@ -490,13 +484,15 @@ pub async fn decrypt_unidentified_sender<Rng: RngCore + CryptoRng>(envelope: &En
 	return Ok((message, remote_address));
 }
 
-/// The abstract representation of a message we are sending or receiving
+/// The abstract representation of a message we are receiving
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MessageIn {
     pub content: MessageContent,
     /// The address of the peer we are receiving from.
     pub remote_address: AuxinDeviceAddress,
 	pub timestamp: u64,
+	/// Timestamp for when we got this message. Technically this is when it was *decoded*, not *received,* but it should be close enough for any metric we're worried about. 
+	pub timestamp_received: u64, 
 }
 
 impl MessageIn {
@@ -508,7 +504,6 @@ impl MessageIn {
 	}
 
 	pub async fn decode_envelope<Rng: RngCore + CryptoRng>(envelope: Envelope, context: &mut AuxinContext<Rng>) -> Result<MessageIn> {
-
 		// Build our remote address if this is not a sealed sender message.
 		Ok(match envelope.get_field_type() {
 			auxin_protos::Envelope_Type::UNKNOWN => todo!(),
@@ -537,6 +532,7 @@ impl MessageIn {
 					content: MessageContent::ReceiptMessage(ReceiptMode::DELIVERY, envelope.get_timestamp()), 
 					remote_address: remote_address,
 					timestamp: envelope.get_timestamp(),
+					timestamp_received: generate_timestamp(), //Keep track of when we got it.
 				}
 			},
 			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => {
@@ -546,6 +542,7 @@ impl MessageIn {
 					content: MessageContent::try_from(content)?, 
 					remote_address: sender,
 					timestamp: envelope.get_timestamp(),
+					timestamp_received: generate_timestamp(), //Keep track of when we got it.
 				}
 			},
 		})

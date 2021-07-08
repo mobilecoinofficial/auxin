@@ -11,6 +11,7 @@ use crate::Result;
 /// Phone number (as formatted to the E.164 standard).
 /// String should begin with '+', followed by a country code and a regular 10-digit phone number (no delimiters between parts, as in no "-" or " ").
 pub type E164 = String;
+// Possibly move to using https://github.com/rustonaut/rust-phonenumber when needed
 
 custom_error!{AddressError
     NoPhone{addr:AuxinAddress} = "Attempted to get a phone number for {addr}, but it has no phone number.",
@@ -18,8 +19,9 @@ custom_error!{AddressError
     NoDevice{val: String} = "Could not convert {val} into an AuxinDeviceAddress: must end in '.[DeviceId]' where [DeviceID] is a valid integer 0..(2^32-1)",
 }
 
+//NOTE: UUID changes when phone number is re-registered. 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize, Hash)]
-pub enum AuxinAddress { 
+pub enum AuxinAddress {
     Phone(E164),
     Uuid(Uuid),
     Both(E164, Uuid)
