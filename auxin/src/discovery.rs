@@ -29,6 +29,7 @@ pub struct DiscoveryRequest {
 /// when we attempt to upgrade our auth username & password
 /// When we end up using this, we will base64-encode "$username:$password" and use that as
 /// the authorization code for discovery requests.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct DirectoryAuthResponse {
     pub username: String,
     pub password: String,

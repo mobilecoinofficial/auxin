@@ -2,7 +2,9 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
+use auxin::discovery::{DirectoryAuthResponse, ENCLAVE_ID};
 use auxin::message::{AuxinMessageList, MessageContent, MessageIn, MessageOut, fix_protobuf_buf};
+use auxin::net::common_http_headers;
 use auxin::state::PeerStore;
 use auxin::{AuxinConfig, LocalIdentity, generate_timestamp};
 use auxin::{Result};
@@ -13,6 +15,7 @@ use hyper::client::HttpConnector;
 use hyper_tls::TlsStream;
 use log::{LevelFilter, debug, info};
 use rand::rngs::OsRng;
+use serde_json::json;
 use simple_logger::SimpleLogger;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -199,6 +202,50 @@ pub async fn main() -> Result<()> {
 	}
 
 	let mut context: Context = state::make_context(base_dir, local_identity.clone(), sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
+
+
+	//Get upgraded auth for discovery / directory.
+	let auth = context.our_identity.make_auth_header();
+	let req = common_http_headers(http::Method::GET, 
+		"https://textsecure-service.whispersystems.org/v1/directory/auth",
+		auth.as_str())?;
+	let req = req.body(hyper::Body::default())?;
+
+	let mut auth_upgrade_response = client.request(req).await?;
+	assert!(auth_upgrade_response.status().is_success());
+	let buf: Vec<u8> = read_body_stream_to_buf(&mut auth_upgrade_response).await?;
+	let upgraded_auth_json_str = String::from_utf8_lossy(buf.as_slice());
+	debug!("Upgraded authorization response: {}", upgraded_auth_json_str);
+	let upgraded_auth : DirectoryAuthResponse = serde_json::from_str(&*upgraded_auth_json_str)?;
+	let mut upgraded_auth_token = upgraded_auth.username.clone();
+	upgraded_auth_token.push_str(":");
+	upgraded_auth_token.push_str(&upgraded_auth.password);
+	upgraded_auth_token = base64::encode(upgraded_auth_token);
+	debug!("Upgraded authorization token: {}", upgraded_auth_token);
+	let mut upgraded_auth_header = String::from("Basic ");
+	upgraded_auth_header.push_str(&upgraded_auth_token);
+	debug!("Upgraded authorization header: {}", upgraded_auth_header);
+
+	//Temporary Keypair for discovery
+	let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
+	let attestation_keys = libsignal_protocol::KeyPair::generate(&mut context.rng);
+	let attestation_request= json!({
+		"clientPublic": base64::encode(attestation_keys.public_key.public_key_bytes()?),
+	});
+	let mut req = common_http_headers(http::Method::PUT, 
+		&attestation_path,
+		upgraded_auth_header.as_str())?;
+	let attestation_request = attestation_request.to_string();
+	req = req.header("Content-Type", "application/json; charset=utf-8");
+	req = req.header("Content-Length", attestation_request.len());
+	let req = req.body(hyper::Body::try_from(attestation_request)?)?;
+
+	debug!("Sending attestation request: {:?}", req);
+
+	let mut attestation_response = client.request(req).await?;
+	let buf: Vec<u8> = read_body_stream_to_buf(&mut attestation_response).await?;
+
+	debug!("Attestation response: {:?};  {}", attestation_response, String::from_utf8_lossy(buf.as_slice()));
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();
