@@ -22,6 +22,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{WebSocketStream, client_async};
 use tungstenite::error::ProtocolError;
 use tungstenite::http::Response;
+use x509_parser::x509::X509Version;
 use std::fs;
 use tokio_native_tls::native_tls::Certificate;
 use tokio_native_tls::native_tls::TlsConnector;
@@ -250,10 +251,24 @@ pub async fn main() -> Result<()> {
 	let fixed_string = fixed_string.replace("\\\"", "\"");
 	let fixed_string = fixed_string.replace("\"{", "{");
 	let fixed_string = fixed_string.replace("\"}}", "}}");
-	println!("{}", fixed_string);
-	let attestation_response_body: AttestationResponseList = serde_json::from_str(fixed_string.as_str())?;
+	let mut attestation_response_body: AttestationResponseList = serde_json::from_str(fixed_string.as_str())?;
+	let mut first_key = None;
+	for (name, attest) in attestation_response_body.attestations.iter_mut() { 
+		if first_key.is_none() {
+			first_key = Some(name.clone());
+		}
+		attest.certificates = attest.certificates.replace("\\n", "\n");
+	}
 	
 	debug!("Attestation response: {:?};  {:?}", attestation_response, attestation_response_body);
+
+	let attest = attestation_response_body.attestations.get(&first_key.unwrap()).unwrap();
+
+	for pem in x509_parser::pem::Pem::iter_from_buffer(&attest.certificates.as_bytes()) {
+		let pem = pem.expect("Reading next PEM block failed");
+		let x509 = pem.parse_x509().expect("X.509: decoding DER failed");
+		assert_eq!(x509.tbs_certificate.version, X509Version::V3);
+	}
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();

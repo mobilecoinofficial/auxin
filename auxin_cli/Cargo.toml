@@ -33,3 +33,5 @@ http = "0.2.4"
 httparse = "1.4.1"
 
 protobuf = "2.24.1"
+
+x509-parser = "0.9.2"
