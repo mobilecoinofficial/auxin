@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
-use auxin::discovery::{DirectoryAuthResponse, ENCLAVE_ID};
+use auxin::discovery::{AttestationResponse, AttestationResponseList, DirectoryAuthResponse, ENCLAVE_ID};
 use auxin::message::{AuxinMessageList, MessageContent, MessageIn, MessageOut, fix_protobuf_buf};
 use auxin::net::common_http_headers;
 use auxin::state::PeerStore;
@@ -245,7 +245,15 @@ pub async fn main() -> Result<()> {
 	let mut attestation_response = client.request(req).await?;
 	let buf: Vec<u8> = read_body_stream_to_buf(&mut attestation_response).await?;
 
-	debug!("Attestation response: {:?};  {}", attestation_response, String::from_utf8_lossy(buf.as_slice()));
+	let string_with_escapes = String::from_utf8_lossy(buf.as_slice());
+	let fixed_string = string_with_escapes.replace(" \\\\\" ", "\"");
+	let fixed_string = fixed_string.replace("\\\"", "\"");
+	let fixed_string = fixed_string.replace("\"{", "{");
+	let fixed_string = fixed_string.replace("\"}}", "}}");
+	println!("{}", fixed_string);
+	let attestation_response_body: AttestationResponseList = serde_json::from_str(fixed_string.as_str())?;
+	
+	debug!("Attestation response: {:?};  {:?}", attestation_response, attestation_response_body);
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();
