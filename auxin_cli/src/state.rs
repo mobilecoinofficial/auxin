@@ -22,6 +22,8 @@ use crate::Context;
 /// Loads the needed information for a LocalIdentity from a json file - intended to be compatible with Libsingal-cli
 pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
     let mut identity_dir = String::from_str(base_dir)?;
+	let f = std::fs::canonicalize(base_dir);
+	println!("{:?}", f);
     if !base_dir.ends_with("/") {
         identity_dir.push_str("/");
     }

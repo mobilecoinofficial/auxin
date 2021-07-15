@@ -222,8 +222,8 @@ pub async fn main() -> Result<()> {
 	debug!("Upgraded authorization header: {}", upgraded_auth_header);
 
 	//Temporary Keypair for discovery
-	let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
 	let attestation_keys = libsignal_protocol::KeyPair::generate(&mut OsRng::default());
+	let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
 	let attestation_request= json!({
 		"clientPublic": base64::encode(attestation_keys.public_key.public_key_bytes()?),
 	});
@@ -249,12 +249,14 @@ pub async fn main() -> Result<()> {
 		}
 		attest.certificates = attest.certificates.replace("\\n", "\n");
 	}
-	
-	debug!("Attestation response: {:?};  {:?}", attestation_response, attestation_response_body);
 
 	let attest = attestation_response_body.attestations.get(&first_key.unwrap()).unwrap();
-	let res = attest.verify();
-	debug!("{:?}", res);
+	attest.verify()?;
+
+	let res = attest.decode_request_id(&attestation_keys);
+	debug!("{:?}", res); 
+	let res = res?;
+	
 	/*for pem in x509_parser::pem::Pem::iter_from_buffer(&attest.certificates.as_bytes()) {
 		let pem = pem.expect("Reading next PEM block failed");
 		let x509 = pem.parse_x509().expect("X.509: decoding DER failed");
@@ -262,7 +264,6 @@ pub async fn main() -> Result<()> {
 	}*/
 
 	let mut context: Context = state::make_context(base_dir, local_identity.clone(), sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
-
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();

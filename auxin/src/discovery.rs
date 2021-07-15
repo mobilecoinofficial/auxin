@@ -1,9 +1,11 @@
 use std::{collections::HashMap, convert::TryFrom};
+use aes_gcm::Aes256Gcm;
 use libsignal_protocol::{HKDF, PublicKey};
 use log::{debug, warn};
 use serde::{Serialize, Deserialize};
 use crate::{IAS_TRUST_ANCHOR, Result};
 use x509_certificate::{CapturedX509Certificate};
+use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
 
 ///Magic string referring to the Intel SGX enclave ID used by Signal.
 pub const ENCLAVE_ID: &str = "c98e00a4e3ff977a56afefe7362a27e4961e4f19e211febfbb19b897e6b80b15";
@@ -61,11 +63,15 @@ pub struct AttestationSignatureBody {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AttestationResponse {
+    /// Base-64 encoding of a [u8; 32]
     pub server_ephemeral_public: String,
+    /// Base-64 encoding of a [u8; 32]
     pub server_static_public: String,
     pub quote: String,
+    /// Initialization vector. Base-64 encoding of a [u8; 12]
     pub iv: String,
     pub ciphertext: String,
+    /// Tag - to be appended to the ciphertext before decryption. Notably NOT an aad. Base-64 encoding of a [u8; 16]
     pub tag: String,
     /// Equivalent to an X-IAS-Report-Signature, but sent inline with the json body. 
     pub signature: String,
@@ -135,7 +141,46 @@ impl AttestationResponse {
 
         cipher.verify(self.signature_body.as_bytes(), sig.as_slice())?;
 
+        debug!("Successfully verified attestation signature.");
+
         Ok(())
+    }
+
+    pub fn decode_request_id(&self, our_ephemeral_keys: &libsignal_protocol::KeyPair) -> Result<Vec<u8>> {
+        self.decode_request_id_with_keys(&self.make_remote_attestation_keys(our_ephemeral_keys)?)
+    }
+
+    pub fn decode_request_id_with_keys(&self, keys: &AttestationKeys) -> Result<Vec<u8>> {
+        let server_key = aes_gcm::Key::from_slice(&keys.server_key);
+        let cipher = Aes256Gcm::new(server_key);
+        let mut ciphertext_bytes = base64::decode(&self.ciphertext)?;
+        let tag_bytes = base64::decode(&self.tag)?;
+        assert_eq!(tag_bytes.len(), 16);
+        //IV corresponds to nonce here. 
+        let iv_bytes = base64::decode(&self.iv)?;
+        assert_eq!(iv_bytes.len(), 12);
+        let nonce = Nonce::from_slice(iv_bytes.as_slice());
+
+        //When developing this, I thought "tag" referred to "aad". NOPE! Tag gets appended to the ciphertext. We have no aad.
+        ciphertext_bytes.extend(tag_bytes.iter());
+        let payload = Payload{msg: &ciphertext_bytes, aad: b"" };
+
+        Ok(cipher.decrypt(nonce, payload)?)
+    }
+
+    pub fn make_remote_attestation_keys(&self, our_ephemeral_keys: &libsignal_protocol::KeyPair) -> Result<AttestationKeys> {
+        //TODO: Observe DRY here. Maybe a special Serde visitor for fixed-length arrays.
+        let server_static_vec: Vec<u8> = base64::decode(&self.server_static_public)?;
+        assert_eq!(server_static_vec.len(),32);
+        let mut server_static: [u8;32] = [0;32]; 
+        server_static.copy_from_slice(&server_static_vec.as_slice()[0..32]);
+
+        let server_ephemeral_vec: Vec<u8> = base64::decode(&self.server_ephemeral_public)?;
+        assert_eq!(server_ephemeral_vec.len(),32);
+        let mut server_ephemeral: [u8;32] = [0;32]; 
+        server_ephemeral.copy_from_slice(&server_ephemeral_vec.as_slice()[0..32]);
+
+        gen_remote_attestation_keys(our_ephemeral_keys, &server_ephemeral, &server_static)
     }
 
     // TODO TODO TODO HIGH PRIORITY: Verify the "Quote" !
@@ -147,12 +192,16 @@ pub struct AttestationResponseList {
     pub attestations: HashMap<String, AttestationResponse>,
 }
 
-/// Returns client_key and server_key
-pub fn make_remote_attestation_keys(local_keys : &libsignal_protocol::KeyPair, server_ephemeral_pk_bytes: &[u8; 32], server_static_pk_bytes: &[u8; 32]) -> Result<(PublicKey, PublicKey)> {
-    
-    let server_ephemeral_pk = PublicKey::from_djb_public_key_bytes(server_ephemeral_pk_bytes)?;
+/// For use decrypting attestation responses.
+pub struct AttestationKeys {
+    pub client_key: [u8; 32],
+    pub server_key: [u8; 32],
+}
 
-    let server_static_pk = PublicKey::from_djb_public_key_bytes(server_ephemeral_pk_bytes)?;
+/// Returns client_key and server_key
+pub fn gen_remote_attestation_keys(local_keys: &libsignal_protocol::KeyPair, server_ephemeral_pk_bytes: &[u8; 32], server_static_pk_bytes: &[u8; 32]) -> Result<AttestationKeys> {
+    let server_ephemeral_pk = PublicKey::from_djb_public_key_bytes(server_ephemeral_pk_bytes)?;
+    let server_static_pk = PublicKey::from_djb_public_key_bytes(server_static_pk_bytes)?;
     
     let ephemeral_to_ephemeral = local_keys.calculate_agreement(&server_ephemeral_pk)?;
     let ephemeral_to_static = local_keys.calculate_agreement(&server_static_pk)?;
@@ -177,5 +226,8 @@ pub fn make_remote_attestation_keys(local_keys : &libsignal_protocol::KeyPair, s
     let mut server_key: [u8; 32] = [0; 32];
     server_key.copy_from_slice(&keys[32..64]);
 
-    Ok( ( PublicKey::from_djb_public_key_bytes(&client_key)?, PublicKey::from_djb_public_key_bytes(&server_key)? ) )
-  }
+    Ok( AttestationKeys{ 
+        client_key,
+        server_key
+    })
+}
