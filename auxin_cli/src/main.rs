@@ -2,11 +2,11 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
-use auxin::discovery::{AttestationResponse, AttestationResponseList, DirectoryAuthResponse, ENCLAVE_ID};
+use auxin::discovery::{AttestationResponseList, DirectoryAuthResponse, ENCLAVE_ID};
 use auxin::message::{AuxinMessageList, MessageContent, MessageIn, MessageOut, fix_protobuf_buf};
 use auxin::net::common_http_headers;
 use auxin::state::PeerStore;
-use auxin::{AuxinConfig, LocalIdentity, generate_timestamp};
+use auxin::{AuxinConfig, LocalIdentity, SIGNAL_TLS_CERT, generate_timestamp};
 use auxin::{Result};
 use auxin_protos::WebSocketMessage_Type;
 use futures::{StreamExt, TryFutureExt};
@@ -22,8 +22,6 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{WebSocketStream, client_async};
 use tungstenite::error::ProtocolError;
 use tungstenite::http::Response;
-use x509_parser::x509::X509Version;
-use std::fs;
 use tokio_native_tls::native_tls::Certificate;
 use tokio_native_tls::native_tls::TlsConnector;
 
@@ -38,9 +36,8 @@ pub type Context = auxin::AuxinContext<OsRng>;
 // TODO: Refactor net stuff here.
 
 async fn load_root_tls_cert() -> Result<Certificate> {
-	let key_string = fs::read_to_string("data/whisper.store.asn1")?;
 	debug!("Loading Signal's self-signed certificate.");
-	Ok(Certificate::from_pem(key_string.as_bytes())?)
+	Ok(Certificate::from_pem(SIGNAL_TLS_CERT.as_bytes())?)
 }
 
 async fn build_tls_connector() -> Result<tokio_native_tls::TlsConnector> {
@@ -202,11 +199,8 @@ pub async fn main() -> Result<()> {
 		panic!("Invalid sender certificate!");
 	}
 
-	let mut context: Context = state::make_context(base_dir, local_identity.clone(), sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
-
-
 	//Get upgraded auth for discovery / directory.
-	let auth = context.our_identity.make_auth_header();
+	let auth = local_identity.make_auth_header();
 	let req = common_http_headers(http::Method::GET, 
 		"https://textsecure-service.whispersystems.org/v1/directory/auth",
 		auth.as_str())?;
@@ -229,7 +223,7 @@ pub async fn main() -> Result<()> {
 
 	//Temporary Keypair for discovery
 	let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
-	let attestation_keys = libsignal_protocol::KeyPair::generate(&mut context.rng);
+	let attestation_keys = libsignal_protocol::KeyPair::generate(&mut OsRng::default());
 	let attestation_request= json!({
 		"clientPublic": base64::encode(attestation_keys.public_key.public_key_bytes()?),
 	});
@@ -246,12 +240,8 @@ pub async fn main() -> Result<()> {
 	let mut attestation_response = client.request(req).await?;
 	let buf: Vec<u8> = read_body_stream_to_buf(&mut attestation_response).await?;
 
-	let string_with_escapes = String::from_utf8_lossy(buf.as_slice());
-	let fixed_string = string_with_escapes.replace(" \\\\\" ", "\"");
-	let fixed_string = fixed_string.replace("\\\"", "\"");
-	let fixed_string = fixed_string.replace("\"{", "{");
-	let fixed_string = fixed_string.replace("\"}}", "}}");
-	let mut attestation_response_body: AttestationResponseList = serde_json::from_str(fixed_string.as_str())?;
+	let json_structure = String::from_utf8_lossy(buf.as_slice());
+	let mut attestation_response_body: AttestationResponseList = serde_json::from_str(&json_structure)?;
 	let mut first_key = None;
 	for (name, attest) in attestation_response_body.attestations.iter_mut() { 
 		if first_key.is_none() {
@@ -263,12 +253,16 @@ pub async fn main() -> Result<()> {
 	debug!("Attestation response: {:?};  {:?}", attestation_response, attestation_response_body);
 
 	let attest = attestation_response_body.attestations.get(&first_key.unwrap()).unwrap();
-
-	for pem in x509_parser::pem::Pem::iter_from_buffer(&attest.certificates.as_bytes()) {
+	let res = attest.verify();
+	debug!("{:?}", res);
+	/*for pem in x509_parser::pem::Pem::iter_from_buffer(&attest.certificates.as_bytes()) {
 		let pem = pem.expect("Reading next PEM block failed");
 		let x509 = pem.parse_x509().expect("X.509: decoding DER failed");
 		assert_eq!(x509.tbs_certificate.version, X509Version::V3);
-	}
+	}*/
+
+	let mut context: Context = state::make_context(base_dir, local_identity.clone(), sender_cert, AuxinConfig{}, libsignal_protocol::Context::default()).await?;
+
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();

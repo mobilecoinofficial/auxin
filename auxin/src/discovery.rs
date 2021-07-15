@@ -1,7 +1,9 @@
-use std::{collections::HashMap, io::Read};
+use std::{collections::HashMap, convert::TryFrom};
 use libsignal_protocol::{HKDF, PublicKey};
+use log::{debug, warn};
 use serde::{Serialize, Deserialize};
-use crate::Result;
+use crate::{IAS_TRUST_ANCHOR, Result};
+use x509_certificate::{CapturedX509Certificate};
 
 ///Magic string referring to the Intel SGX enclave ID used by Signal.
 pub const ENCLAVE_ID: &str = "c98e00a4e3ff977a56afefe7362a27e4961e4f19e211febfbb19b897e6b80b15";
@@ -55,7 +57,7 @@ pub struct AttestationSignatureBody {
 }
 
 /// (inner) response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}
-/// Will always arrive inside a AttestationResponseList. 
+/// Will always arrive inside an AttestationResponseList. 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AttestationResponse {
@@ -65,9 +67,78 @@ pub struct AttestationResponse {
     pub iv: String,
     pub ciphertext: String,
     pub tag: String,
+    /// Equivalent to an X-IAS-Report-Signature, but sent inline with the json body. 
     pub signature: String,
+    /// Appears to be equivalent to X-IASReport-Signing-Certificate
     pub certificates: String,
-    pub signature_body: AttestationSignatureBody,
+    // A Json string equivalent to AttestationSignatureBody above.
+    pub signature_body: String,
+}
+
+impl AttestationResponse {
+    pub fn verify(&self) -> Result<()> {
+        self.verify_signature() //.and(self.verify_quote())
+    }
+
+    pub fn verify_signature(&self) -> Result<()> { 
+        // ----- Decode/construct our trust anchor.
+        //SHOULD only contain one entity, DER- encoded.
+        //let anchor = webpki::TrustAnchor::try_from_cert_der(IAS_TRUST_ANCHOR)?;
+        let anchor_x509 = CapturedX509Certificate::from_der(IAS_TRUST_ANCHOR)?;
+
+        //Confirm our anchor is self-signing.
+        anchor_x509.verify_signed_by_certificate(&anchor_x509)?;
+
+        let trust_anchors = vec!(anchor_x509.clone());
+
+        // ----- Decode and validate our certificate chain.
+
+        //let response_certs: Vec<&str> = self.certificates.split_inclusive("-----END CERTIFICATE-----\n").collect();
+        let response_certs = CapturedX509Certificate::from_pem_multiple(&self.certificates)?;
+        //For every cert which the server sent us which is *not* the trust anchor, generate a chain.
+        let mut chains: Vec<Vec<&CapturedX509Certificate>> = Vec::default();
+        for cert in response_certs.iter() {
+            // The server sends us a copy of the trust anchor.
+            // Lucky for us, the anchor should be self-signing,
+            // so verifying validity should be very easy: 
+            if cert.serial_number_asn1() == anchor_x509.serial_number_asn1() {
+                cert.verify_signed_by_certificate(&anchor_x509)?;
+            }
+            else {
+                let mut chain = cert.resolve_signing_chain(response_certs.iter().chain( trust_anchors.iter() ) );
+                chain.insert(0, cert);
+                chains.push(chain);
+            }
+        }
+        
+        // TODO: so far, the server hasn't sent more or less than one chain / non-trust-root cert. However, we should be set up to handle that gracefully.
+        if chains.len() > 1 {
+            warn!("More than one certificate chain has been provided. Defaulting to first valid chain.");
+        }
+        let chain = chains.get_mut(0).unwrap();
+        chain.dedup();
+        // This thing needs to end in our trust anchor, or something signed by our trust anchor.
+        chain.last().unwrap().verify_signed_by_certificate(anchor_x509)?;
+        debug!("Confirmed that the provided certificate chain is valid!");
+
+        // ----- Verify signature on response.
+        let cert = *chain.first().unwrap();
+        //Figure out a verification algorithm, which requires both a key algorithm and a signature algorithm.
+        let key_algorithm = x509_certificate::KeyAlgorithm::try_from(cert.key_algorithm().unwrap())?;
+        let signature_algorithm = x509_certificate::SignatureAlgorithm::try_from(cert.signature_algorithm().unwrap())?;
+        let verify_algorithm = signature_algorithm.resolve_verification_algorithm(key_algorithm)?;
+        
+        let cipher = ring::signature::UnparsedPublicKey::new(verify_algorithm, cert.public_key_data());
+
+        let sig: Vec<u8> = base64::decode(&self.signature)?;
+        debug!("Signature received on attestation is {} bytes", sig.len());
+
+        cipher.verify(self.signature_body.as_bytes(), sig.as_slice())?;
+
+        Ok(())
+    }
+
+    // TODO TODO TODO HIGH PRIORITY: Verify the "Quote" !
 }
 
 /// Response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}

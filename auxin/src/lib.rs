@@ -12,6 +12,11 @@ pub mod net;
 pub mod message;
 pub mod discovery;
 
+/// Self-signing root cert for TLS connections to Signal's web API..
+pub const SIGNAL_TLS_CERT : &str = include_str!("../data/whisper.pem");
+/// Trust anchor for IAS - required to validate certificate chains for remote SGX attestation.
+pub const IAS_TRUST_ANCHOR : &[u8] = include_bytes!("../data/ias.der");
+
 
 use rand::{CryptoRng, Rng, RngCore};
 //use serde::{Serialize, Deserialize};

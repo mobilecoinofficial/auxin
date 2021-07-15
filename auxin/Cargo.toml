@@ -35,3 +35,6 @@ serde-protobuf = "0.8.2"
 
 custom_error = "1.9.2"
 http = "0.2.4"
+
+x509-certificate = "0.2.0"
+ring = { version = "0.16", features = ["std"]}
