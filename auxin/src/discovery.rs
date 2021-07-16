@@ -1,35 +1,14 @@
 use std::{collections::HashMap, convert::TryFrom};
-use aes_gcm::Aes256Gcm;
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, NewAead}, aead::Payload};
 use libsignal_protocol::{HKDF, PublicKey};
 use log::{debug, warn};
+use rand::{CryptoRng, Rng, RngCore};
 use serde::{Serialize, Deserialize};
-use crate::{IAS_TRUST_ANCHOR, Result};
+use crate::{IAS_TRUST_ANCHOR, Result, address::{E164, phone_number_to_long}};
 use x509_certificate::{CapturedX509Certificate};
-use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
 
 ///Magic string referring to the Intel SGX enclave ID used by Signal.
 pub const ENCLAVE_ID: &str = "c98e00a4e3ff977a56afefe7362a27e4961e4f19e211febfbb19b897e6b80b15";
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoveryRequestEnvelope {
-    pub request_id: Vec<u8>,
-    pub iv: [u8; 12],
-    pub data: Vec<u8>,
-    pub mac: [u8; 16],
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoveryRequest {
-    pub address_count: usize,
-    pub commitment: [u8; 32],
-    pub iv: [u8; 12],
-    pub data: Vec<u8>,
-    pub mac: [u8; 16],
-    /// There must be between 1 and 3 envelopes.
-    pub envelopes: HashMap<String, DiscoveryRequestEnvelope>,
-}
 
 /// The response body from GET https://textsecure-service.whispersystems.org/v1/directory/auth
 /// when we attempt to upgrade our auth username & password
@@ -57,6 +36,8 @@ pub struct AttestationSignatureBody {
     pub isv_enclave_quote_status: String,
     pub isv_enclave_quote_body: String,
 }
+
+pub type AttestationRequestId = Vec<u8>;
 
 /// (inner) response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}
 /// Will always arrive inside an AttestationResponseList. 
@@ -146,11 +127,11 @@ impl AttestationResponse {
         Ok(())
     }
 
-    pub fn decode_request_id(&self, our_ephemeral_keys: &libsignal_protocol::KeyPair) -> Result<Vec<u8>> {
+    pub fn decode_request_id(&self, our_ephemeral_keys: &libsignal_protocol::KeyPair) -> Result<AttestationRequestId> {
         self.decode_request_id_with_keys(&self.make_remote_attestation_keys(our_ephemeral_keys)?)
     }
 
-    pub fn decode_request_id_with_keys(&self, keys: &AttestationKeys) -> Result<Vec<u8>> {
+    pub fn decode_request_id_with_keys(&self, keys: &AttestationKeys) -> Result<AttestationRequestId> {
         let server_key = aes_gcm::Key::from_slice(&keys.server_key);
         let cipher = Aes256Gcm::new(server_key);
         let mut ciphertext_bytes = base64::decode(&self.ciphertext)?;
@@ -192,7 +173,30 @@ pub struct AttestationResponseList {
     pub attestations: HashMap<String, AttestationResponse>,
 }
 
+impl AttestationResponseList  { 
+    pub fn verify_attestations(&self) -> Result<()> { 
+        for (_, a) in self.attestations.iter() { 
+            a.verify()?;
+        }
+        return Ok(());
+    }
+
+    /// Decodes request IDs and also generates attestation keys for each attestation we have received.
+    /// Also returns the serial number of each attestation, for convenience. 
+    /// Requires the temporary keys we made our attestation request with to decode this.
+    pub fn decode_attestations(&self, local_keys: &libsignal_protocol::KeyPair) -> Result<Vec<(String, AttestationKeys, AttestationRequestId)>> { 
+        let mut result = Vec::default();
+        for (aid, attest) in self.attestations.iter() {
+            let keys = attest.make_remote_attestation_keys(local_keys)?;
+            let req = attest.decode_request_id_with_keys(&keys)?;
+            result.push((aid.clone(), keys, req));
+        }
+        return Ok(result);
+    }
+}
+
 /// For use decrypting attestation responses.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Copy)]
 pub struct AttestationKeys {
     pub client_key: [u8; 32],
     pub server_key: [u8; 32],
@@ -230,4 +234,127 @@ pub fn gen_remote_attestation_keys(local_keys: &libsignal_protocol::KeyPair, ser
         client_key,
         server_key
     })
+}
+
+//Every "String" field here is a base64-encoded byte vector.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryEnvelope {
+    pub request_id: String, 
+    // Initialization Vector
+    pub iv: String, 
+    pub data: String, 
+    pub mac: String, 
+}
+
+//Every "String" field here is a base64-encoded byte vector (except the key for the envelopes map)
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryRequest {
+    pub address_count: i64,
+    pub commitment: String,
+    // Initialization Vector
+    pub iv: String,
+    pub data: String,
+    pub mac: String,
+
+    /// There must be between 1 and 3 envelopes.
+    pub envelopes: HashMap<String, QueryEnvelope>,
+
+    #[serde(skip)]
+    pub query_key: [u8;32],
+}
+
+/// Serialize the "plaintext" which will end up in a QueryEnvelope
+pub fn build_query_data<R>(phone_numbers: &Vec<E164>, rand: &mut R) -> Result<Vec<u8>> 
+    where R: RngCore + CryptoRng {
+
+    let mut res: Vec<u8> = Vec::default();
+    let nonce: [u8;32] = rand.gen();
+    //Write the nonce (TODO: Find a more graceful way to copy an entire array into a Vec.
+    for b in nonce { res.push(b); }
+
+    for addr in phone_numbers {
+        let num = phone_number_to_long(addr)?;
+        //The java function org.whispersystems.libsignal.util.ByteUtil::longToByteArray
+        //appears to be taking a little-endian value and making it big-endian.
+        let bytes = num.to_be_bytes();
+        //AGAIN, todo: make this more elegant. 
+        for b in bytes {res.push(b);}
+    }
+    return Ok(res);
+}
+
+impl DiscoveryRequest {
+    /// Create a discovery request. With the use of remote attestations, this should allow you to get a Signal user's UUID from their phone number.
+    ///
+    /// # Arguments
+    ///
+    /// * `phone_numbers` - Addresses to request UUIDs for from the server. Must be E164 format i.e. +12345678910
+    /// * `attestations` - A list of decoded attestation responses. Probably generated with AttestationResponseList::decode_attestations().
+    /// * `rand` - Randomness provider..
+    pub fn new<R>(phone_numbers: &Vec<E164>, attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>, rand: &mut R) -> Result<Self>
+        where R: RngCore + CryptoRng {
+
+        let mut envelopes: HashMap<String, QueryEnvelope> = HashMap::with_capacity(attestations.len());
+
+        // Query key - used both in the envelopes and the request.
+        let query_key: [u8;32] = rand.gen();
+        
+        //Iterate attestations and build an "envelope" for each. 
+        for (attestation_id, keys, req) in attestations.iter() {
+            //Inner cipher 
+            //Build cipher
+            let envl_key = aes_gcm::Key::from_slice(&keys.client_key);
+            let envl_cipher = Aes256Gcm::new(envl_key);
+            // IMPORTANT NOTE - Request ID is the "AAD" here.
+            // and the "plaintext to be enciphered is our query key (?)"
+            let envl_payload = Payload{ msg: &query_key, aad: req.as_slice() };
+            let envl_nonce_bytes: [u8;12] = rand.gen();
+            let envl_nonce = Nonce::from_slice(&envl_nonce_bytes);
+            let envl_ciphertext = envl_cipher.encrypt(envl_nonce, envl_payload)?;
+
+            //Assumes 16-byte tag
+            let (envl_data, envl_tag) = envl_ciphertext.split_at(envl_ciphertext.len()-16); 
+
+            let envl = QueryEnvelope {
+                request_id: base64::encode(&req),
+                iv: base64::encode(&envl_nonce_bytes),
+                data: base64::encode(envl_data),
+                mac: base64::encode(envl_tag),
+            };
+            envelopes.insert(attestation_id.clone(), envl);
+        }
+
+        // There must be between 1 and 3 envelopes.
+        assert!( (4 > envelopes.len()) && (envelopes.len() > 0) ); //TODO: Better error handling here.
+
+        //Generate the unencrypted binary request for contact discovery.
+        let query_data = build_query_data(phone_numbers, rand)?;
+
+        //Build cipher for request.
+        let qk = aes_gcm::Key::from_slice(&query_key);
+        let cipher = Aes256Gcm::new(qk);
+        let payload = Payload{ msg: &query_data, aad: b"" };
+        let nonce_bytes: [u8;12] = rand.gen();
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher.encrypt(nonce, payload)?;
+
+        //Hash the query plaintext. 
+        let commitment = ring::digest::digest(&ring::digest::SHA256, &query_data);
+        let commitment = Vec::from(commitment.as_ref());
+        
+        //Assumes 16-byte tag
+        let (data, tag) = ciphertext.split_at(ciphertext.len()-16); 
+
+        Ok(Self{
+            address_count: phone_numbers.len() as i64,
+            commitment: base64::encode(&commitment),
+            iv: base64::encode(&nonce_bytes),
+            data: base64::encode(data),
+            mac: base64::encode(tag),
+            envelopes,
+            query_key,
+        })
+    }
 }

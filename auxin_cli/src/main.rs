@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
-use auxin::discovery::{AttestationResponseList, DirectoryAuthResponse, ENCLAVE_ID};
+use auxin::discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, ENCLAVE_ID};
 use auxin::message::{AuxinMessageList, MessageContent, MessageIn, MessageOut, fix_protobuf_buf};
 use auxin::net::common_http_headers;
 use auxin::state::PeerStore;
@@ -222,7 +222,8 @@ pub async fn main() -> Result<()> {
 	debug!("Upgraded authorization header: {}", upgraded_auth_header);
 
 	//Temporary Keypair for discovery
-	let attestation_keys = libsignal_protocol::KeyPair::generate(&mut OsRng::default());
+	let mut rng = OsRng::default();
+	let attestation_keys = libsignal_protocol::KeyPair::generate(&mut rng);
 	let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
 	let attestation_request= json!({
 		"clientPublic": base64::encode(attestation_keys.public_key.public_key_bytes()?),
@@ -241,22 +242,15 @@ pub async fn main() -> Result<()> {
 	let buf: Vec<u8> = read_body_stream_to_buf(&mut attestation_response).await?;
 
 	let json_structure = String::from_utf8_lossy(buf.as_slice());
-	let mut attestation_response_body: AttestationResponseList = serde_json::from_str(&json_structure)?;
-	let mut first_key = None;
-	for (name, attest) in attestation_response_body.attestations.iter_mut() { 
-		if first_key.is_none() {
-			first_key = Some(name.clone());
-		}
-		attest.certificates = attest.certificates.replace("\\n", "\n");
-	}
+	let attestation_response_body: AttestationResponseList = serde_json::from_str(&json_structure)?;
 
-	let attest = attestation_response_body.attestations.get(&first_key.unwrap()).unwrap();
-	attest.verify()?;
-
-	let res = attest.decode_request_id(&attestation_keys);
-	debug!("{:?}", res); 
-	let res = res?;
+	attestation_response_body.verify_attestations()?;
+	let att_list = attestation_response_body.decode_attestations(&attestation_keys)?;
 	
+	let test_phone_number_vec = vec![our_phone_number.clone()];
+	let query = DiscoveryRequest::new(&test_phone_number_vec, &att_list, &mut rng)?;
+	let query_str = serde_json::to_string_pretty(&query)?;
+	debug!("Built discovery request {}", query_str);
 	/*for pem in x509_parser::pem::Pem::iter_from_buffer(&attest.certificates.as_bytes()) {
 		let pem = pem.expect("Reading next PEM block failed");
 		let x509 = pem.parse_x509().expect("X.509: decoding DER failed");

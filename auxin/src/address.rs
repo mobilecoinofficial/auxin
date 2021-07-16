@@ -183,3 +183,19 @@ mod tests {
         assert_eq!(dev_addr2.address, addr2);
     }
 }
+
+/// Converts an E164-formatted phone number to an i64 - corresponding to a Java "long", which is what Signal uses internally when decoding certain messages.
+pub fn phone_number_to_long(phone: &E164) -> Result<i64> {
+    // Snip out the standard E164 + here and any other likely special characters.
+    // TODO: Regex phone numbers to ensure validity somewhere.
+    let phone = phone.replace("+", "");
+    let phone = phone.replace("-", "");
+    let phone = phone.replace(".", "");
+    let phone = phone.replace("/", "");
+    let phone = phone.replace("(", "");
+    let phone = phone.replace(")", "");
+    let phone = phone.replace(" ", "");
+
+    // Radix of 10 to ensure we match Java.lang.Long exactly.
+    return Ok(i64::from_str_radix(phone.as_str(), 10)?);
+}
