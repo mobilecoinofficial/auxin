@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
-use auxin::discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, ENCLAVE_ID};
+use auxin::discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID};
 use auxin::message::{AuxinMessageList, MessageContent, MessageIn, MessageOut, fix_protobuf_buf};
 use auxin::net::common_http_headers;
 use auxin::state::PeerStore;
@@ -10,10 +10,11 @@ use auxin::{AuxinConfig, LocalIdentity, SIGNAL_TLS_CERT, generate_timestamp};
 use auxin::{Result};
 use auxin_protos::WebSocketMessage_Type;
 use futures::{StreamExt, TryFutureExt};
+use http::HeaderValue;
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
 use hyper_tls::TlsStream;
-use log::{LevelFilter, debug, info};
+use log::{LevelFilter, debug, info, warn};
 use rand::rngs::OsRng;
 use serde_json::json;
 use simple_logger::SimpleLogger;
@@ -26,6 +27,7 @@ use tokio_native_tls::native_tls::Certificate;
 use tokio_native_tls::native_tls::TlsConnector;
 
 use clap::{App, Arg, SubCommand};
+use uuid::Uuid;
 
 pub mod state;
 
@@ -199,58 +201,6 @@ pub async fn main() -> Result<()> {
 		panic!("Invalid sender certificate!");
 	}
 
-	//Get upgraded auth for discovery / directory.
-	let auth = local_identity.make_auth_header();
-	let req = common_http_headers(http::Method::GET, 
-		"https://textsecure-service.whispersystems.org/v1/directory/auth",
-		auth.as_str())?;
-	let req = req.body(hyper::Body::default())?;
-
-	let mut auth_upgrade_response = client.request(req).await?;
-	assert!(auth_upgrade_response.status().is_success());
-	let buf: Vec<u8> = read_body_stream_to_buf(&mut auth_upgrade_response).await?;
-	let upgraded_auth_json_str = String::from_utf8_lossy(buf.as_slice());
-	debug!("Upgraded authorization response: {}", upgraded_auth_json_str);
-	let upgraded_auth : DirectoryAuthResponse = serde_json::from_str(&*upgraded_auth_json_str)?;
-	let mut upgraded_auth_token = upgraded_auth.username.clone();
-	upgraded_auth_token.push_str(":");
-	upgraded_auth_token.push_str(&upgraded_auth.password);
-	upgraded_auth_token = base64::encode(upgraded_auth_token);
-	debug!("Upgraded authorization token: {}", upgraded_auth_token);
-	let mut upgraded_auth_header = String::from("Basic ");
-	upgraded_auth_header.push_str(&upgraded_auth_token);
-	debug!("Upgraded authorization header: {}", upgraded_auth_header);
-
-	//Temporary Keypair for discovery
-	let mut rng = OsRng::default();
-	let attestation_keys = libsignal_protocol::KeyPair::generate(&mut rng);
-	let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
-	let attestation_request= json!({
-		"clientPublic": base64::encode(attestation_keys.public_key.public_key_bytes()?),
-	});
-	let mut req = common_http_headers(http::Method::PUT, 
-		&attestation_path,
-		upgraded_auth_header.as_str())?;
-	let attestation_request = attestation_request.to_string();
-	req = req.header("Content-Type", "application/json; charset=utf-8");
-	req = req.header("Content-Length", attestation_request.len());
-	let req = req.body(hyper::Body::try_from(attestation_request)?)?;
-
-	debug!("Sending attestation request: {:?}", req);
-
-	let mut attestation_response = client.request(req).await?;
-	let buf: Vec<u8> = read_body_stream_to_buf(&mut attestation_response).await?;
-
-	let json_structure = String::from_utf8_lossy(buf.as_slice());
-	let attestation_response_body: AttestationResponseList = serde_json::from_str(&json_structure)?;
-
-	attestation_response_body.verify_attestations()?;
-	let att_list = attestation_response_body.decode_attestations(&attestation_keys)?;
-	
-	let test_phone_number_vec = vec![our_phone_number.clone()];
-	let query = DiscoveryRequest::new(&test_phone_number_vec, &att_list, &mut rng)?;
-	let query_str = serde_json::to_string_pretty(&query)?;
-	debug!("Built discovery request {}", query_str);
 	/*for pem in x509_parser::pem::Pem::iter_from_buffer(&attest.certificates.as_bytes()) {
 		let pem = pem.expect("Reading next PEM block failed");
 		let x509 = pem.parse_x509().expect("X.509: decoding DER failed");
@@ -262,7 +212,7 @@ pub async fn main() -> Result<()> {
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();
 		let recipient_addr = AuxinAddress::try_from(dest)?;
-		let recipient_addr = context.peer_cache.complete_address(&recipient_addr).unwrap();
+		let recipient_addr = context.peer_cache.complete_address(&recipient_addr).or(Some(recipient_addr.clone())).unwrap();
 		let recipient = context.peer_cache.get(&recipient_addr);
 		if let Some(_recipient) = recipient {
 			let message_text = send_command.value_of("MESSAGE").unwrap();
@@ -287,7 +237,112 @@ pub async fn main() -> Result<()> {
 			println!("Response body is: {:?}", reply_string);
 
 		} else { 
-			panic!("Currently this application cannot send to unfamiliar peers. Please send a message to this peer via signal-cli first.");
+			//Get upgraded auth for discovery / directory.
+			let auth = local_identity.make_auth_header();
+			let req = common_http_headers(http::Method::GET, 
+				"https://textsecure-service.whispersystems.org/v1/directory/auth",
+				auth.as_str())?;
+			let req = req.body(hyper::Body::default())?;
+
+			let mut auth_upgrade_response = client.request(req).await?;
+			assert!(auth_upgrade_response.status().is_success());
+			let buf: Vec<u8> = read_body_stream_to_buf(&mut auth_upgrade_response).await?;
+			let upgraded_auth_json_str = String::from_utf8_lossy(buf.as_slice());
+			debug!("Upgraded authorization response: {}", upgraded_auth_json_str);
+			let upgraded_auth : DirectoryAuthResponse = serde_json::from_str(&*upgraded_auth_json_str)?;
+			let mut upgraded_auth_token = upgraded_auth.username.clone();
+			upgraded_auth_token.push_str(":");
+			upgraded_auth_token.push_str(&upgraded_auth.password);
+			upgraded_auth_token = base64::encode(upgraded_auth_token);
+			debug!("Upgraded authorization token: {}", upgraded_auth_token);
+			let mut upgraded_auth_header = String::from("Basic ");
+			upgraded_auth_header.push_str(&upgraded_auth_token);
+			debug!("Upgraded authorization header: {}", upgraded_auth_header);
+
+			//Temporary Keypair for discovery
+			let mut rng = OsRng::default();
+			let attestation_keys = libsignal_protocol::KeyPair::generate(&mut rng);
+			let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
+			let attestation_request= json!({
+				"clientPublic": base64::encode(attestation_keys.public_key.public_key_bytes()?),
+			});
+			let mut req = common_http_headers(http::Method::PUT, 
+				&attestation_path,
+				upgraded_auth_header.as_str())?;
+			let attestation_request = attestation_request.to_string();
+			req = req.header("Content-Type", "application/json; charset=utf-8");
+			req = req.header("Content-Length", attestation_request.len());
+			let req = req.body(hyper::Body::try_from(attestation_request)?)?;
+
+			debug!("Sending attestation request: {:?}", req);
+
+			let mut attestation_response = client.request(req).await?;
+			let buf: Vec<u8> = read_body_stream_to_buf(&mut attestation_response).await?;
+
+			let json_structure = String::from_utf8_lossy(buf.as_slice());
+			let attestation_response_body: AttestationResponseList = serde_json::from_str(&json_structure)?;
+
+			attestation_response_body.verify_attestations()?;
+			let att_list = attestation_response_body.decode_attestations(&attestation_keys)?;
+			
+			let receiver_vec = vec![dest.to_string()];
+			let query = DiscoveryRequest::new(&receiver_vec, &att_list, &mut rng)?;
+			let query_str = serde_json::to_string_pretty(&query)?;
+			debug!("Built discovery request {}", query_str);
+
+
+			//we will need these cookies
+			let cookies: Vec<&str> = attestation_response.headers().iter().filter_map(| (name, value )| {
+				if name.as_str().eq_ignore_ascii_case("Set-Cookie") { 
+					value.to_str().ok()
+				}
+				else {
+					None
+				}
+			}).collect();
+			println!("{:?}", cookies);
+
+			let mut filtered_cookies : Vec<String> = Vec::default();
+			for cookie in cookies { 
+				let spl = cookie.split(";");
+				for elem in spl { 
+					if elem.contains("ApplicationGatewayAffinityCORS") || elem.contains("ApplicationGatewayAffinity") {
+						filtered_cookies.push(elem.to_string());
+					}
+				}
+			}
+			
+			let mut resulting_cookie_string = String::default();
+			if !filtered_cookies.is_empty() {
+				for elem in filtered_cookies.iter() {
+					resulting_cookie_string.push_str(elem.as_str());
+					if elem != filtered_cookies.last().unwrap() { 
+						resulting_cookie_string.push_str("; ");
+					}
+				}	
+			}
+			println!("{:?}", resulting_cookie_string);
+
+			let discovery_path = format!("https://api.directory.signal.org/v1/discovery/{}", ENCLAVE_ID);
+
+			let mut req = common_http_headers(http::Method::PUT, 
+				&discovery_path,
+				upgraded_auth_header.as_str())?;
+
+			req = req.header("Content-Type", "application/json; charset=utf-8");
+			req = req.header("Content-Length", query_str.len());
+			req = req.header("Cookie", resulting_cookie_string);
+			let req = req.body(hyper::Body::try_from(query_str)?)?;
+
+			let mut response = client.request(req).await?;
+			let buf: Vec<u8> = read_body_stream_to_buf(&mut response).await?;
+			debug!("{:?}", response);
+			debug!("{:?}", String::from_utf8_lossy(buf.as_slice()));
+
+			let discovery_response: DiscoveryResponse = serde_json::from_slice(&buf)?;
+			let decrypted = discovery_response.decrypt(&att_list)?;
+			let uuid = Uuid::from_slice(decrypted.as_slice())?;
+			debug!("Successfully decoded discovery response! The recipient's UUID is: {:?}", uuid);
 		}
 	}
 
@@ -304,7 +359,7 @@ pub async fn main() -> Result<()> {
 				Err(e ) => {
 					match e { 
 						tungstenite::Error::Protocol(ProtocolError::ResetWithoutClosingHandshake) => {
-							debug!("Reset without closing handshake - we're probably at the end of the incoming messages list with {} messages.", count);
+							warn!("Reset without closing handshake - we're probably at the end of the incoming messages list with {} messages.", count);
 							break;
 						}, 
 						_ => {break;},//panic!("Encountered error in websocket polling loop: {}", e),

@@ -358,3 +358,40 @@ impl DiscoveryRequest {
         })
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryResponse { 
+    pub request_id: String,
+    pub iv: String,
+    pub data: String,
+    pub mac: String,
+}
+
+impl DiscoveryResponse { 
+    pub fn decrypt(&self, attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>) -> Result<Vec<u8>> { 
+        let our_request_id: Vec<u8> = base64::decode(self.request_id.clone())?;
+        for (name, keys, req_id) in attestations { 
+            debug!("Comparing incoming discovery response with request ID {:?} against attestation request ID {:?}", our_request_id, req_id); 
+            if &our_request_id == req_id { 
+                let key = aes_gcm::Key::from_slice(&keys.server_key);
+                let iv_not_sized = base64::decode(self.iv.clone())?;
+                let mut iv: [u8;12] = [0; 12];
+                iv.copy_from_slice(&iv_not_sized.as_slice()[0..12]);
+                let mut ciphertext_bytes = base64::decode(self.data.clone())?;
+                let tag_bytes = base64::decode(self.mac.clone())?;
+                ciphertext_bytes.extend_from_slice(tag_bytes.as_slice()); 
+                
+                let nonce = Nonce::from_slice(&iv);
+                let cipher = Aes256Gcm::new(key);
+                let payload = Payload{ msg: &ciphertext_bytes, aad: b"" };
+
+                let decrypted = cipher.decrypt(nonce, payload)?;
+                return Ok(decrypted);
+            }
+        }
+
+        // TODO: ERROR HANDLING HERE.
+        Ok(Vec::default())
+    } 
+}
