@@ -293,11 +293,11 @@ pub struct OutgoingPushMessageList {
 }
 
 impl OutgoingPushMessageList { 
-	pub fn build_http_request<Body, Rng>(&self, peer_address: &AuxinAddress, context :&mut AuxinContext<Rng>) -> Result<http::Request<Body>> 
+	pub fn build_http_request<Body, Rng>(&self, peer_address: &AuxinAddress, context: &mut AuxinContext, rng: &mut Rng) -> Result<http::Request<Body>> 
 			where Body: From<String>, Rng: RngCore + CryptoRng { 
 		let json_message = serde_json::to_string(&self)?;
 
-		let unidentified_access_key = context.get_unidentified_access_for(&peer_address)?;
+		let unidentified_access_key = context.get_unidentified_access_for(&peer_address, rng)?;
 
 		let unidentified_access_key = base64::encode(unidentified_access_key);
 		debug!("Attempting to send with unidentified access key {}", unidentified_access_key);
@@ -380,23 +380,30 @@ impl MessageContent {
     }
 }
 
+
+
 /// The abstract representation of a message we are sending or receiving
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MessageOut {
     pub content: MessageContent,
 }
 
+custom_error!{ pub MessageOutError
+	NoSenderCertificate{msg:String} = "Could not generate a sealed-sender message for {msg}: no \"Sender Certificate\" has been retrieved for this AuxinContext!",
+}
+
 impl MessageOut {
 	//Encrypts our_message string and builds an OutgoingPushMessage from it.
-	pub async fn generate_sealed_message<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext<Rng>, address_to: &AuxinDeviceAddress, timestamp: u64)-> Result<OutgoingPushMessage>{
+	pub async fn generate_sealed_message<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext, rng: &mut Rng, address_to: &AuxinDeviceAddress, timestamp: u64)-> Result<OutgoingPushMessage>{
 
+		let signal_ctx = context.get_signal_ctx(); 
 		//Make sure it has both UUID and phone number. 
 		let mut address_to = address_to.clone();
 		address_to.address = context.peer_cache.complete_address(&address_to.address).unwrap();
 		//Get a valid protocol address with name=uuid
 		let their_address = address_to.uuid_protocol_address()?;
 		
-		let sess = match context.session_store.load_session(&their_address, context.signal_ctx).await {
+		let sess = match context.session_store.load_session(&their_address, context.get_signal_ctx()).await {
 			Ok(s) => s.unwrap(),
 			Err(e) => return Err(Box::new(e)),
 		};
@@ -421,16 +428,19 @@ impl MessageOut {
 
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len() );
+
+		//Make sure the sender certificate has actually been gotten already, or else throw an error. 
+		let sender_cert = context.our_sender_certificate.as_ref().ok_or(MessageOutError::NoSenderCertificate{msg: format!("{:?}", &self)} )?;
 		
 		//Encipher the content we just encoded.
 		let cyphertext_message = sealed_sender_encrypt(
 			&their_address,
-			&context.our_sender_certificate,
+			sender_cert,
 			our_message_bytes.as_slice(),
 			&mut context.session_store,
 			&mut context.identity_store,
-			context.signal_ctx,
-			&mut context.rng).await?;
+			signal_ctx,
+			rng).await?;
 		debug!("Cyphertext message bytes: {}", cyphertext_message.len() );
 
 		//Serialize our cyphertext.
@@ -447,7 +457,8 @@ impl MessageOut {
 
 
 
-pub async fn decrypt_unidentified_sender<Rng: RngCore + CryptoRng>(envelope: &Envelope, context: &mut AuxinContext<Rng>) -> Result<(Content, AuxinDeviceAddress)> {
+pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut AuxinContext) -> Result<(Content, AuxinDeviceAddress)> {
+	let signal_ctx = context.get_signal_ctx();
 	let decrypted = sealed_sender_decrypt(
 		envelope.get_content(),
 		&sealed_sender_trust_root(),
@@ -459,7 +470,7 @@ pub async fn decrypt_unidentified_sender<Rng: RngCore + CryptoRng>(envelope: &En
 		&mut context.session_store,
 		&mut context.pre_key_store,
 		&mut context.signed_pre_key_store,
-		context.signal_ctx,
+		signal_ctx,
 	).await?;
 
 	debug!("Length of decrypted message: {:?}", decrypted.message.len());
@@ -503,7 +514,7 @@ impl MessageIn {
 		}
 	}
 
-	pub async fn decode_envelope<Rng: RngCore + CryptoRng>(envelope: Envelope, context: &mut AuxinContext<Rng>) -> Result<MessageIn> {
+	pub async fn decode_envelope(envelope: Envelope, context: &mut AuxinContext) -> Result<MessageIn> {
 		// Build our remote address if this is not a sealed sender message.
 		Ok(match envelope.get_field_type() {
 			auxin_protos::Envelope_Type::UNKNOWN => todo!(),
@@ -548,7 +559,7 @@ impl MessageIn {
 		})
 	}
 
-	pub async fn decode_envelope_bin<Rng: RngCore + CryptoRng>(bin: &[u8], context: &mut AuxinContext<Rng>) -> Result<Self> {
+	pub async fn decode_envelope_bin(bin: &[u8], context: &mut AuxinContext) -> Result<Self> {
 		let envelope = read_envelope_from_bin(bin)?;
 		MessageIn::decode_envelope(envelope, context).await
 	}
@@ -562,7 +573,7 @@ pub struct AuxinMessageList {
 
 impl AuxinMessageList {
 	///Encrypts our_message string and builds an OutgoingPushMessage from it - One for each of remote_address's devices on file.
-	pub async fn generate_sealed_messages_to_all_devices<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext<Rng>, timestamp: u64)-> Result<OutgoingPushMessageList>{
+	pub async fn generate_sealed_messages_to_all_devices<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext, rng: &mut Rng, timestamp: u64)-> Result<OutgoingPushMessageList>{
 
 		let mut messages_to_send: Vec<OutgoingPushMessage> = Vec::default();
 		//TODO: Better error handling here. 
@@ -574,7 +585,7 @@ impl AuxinMessageList {
 			debug!("Send to ProtocolAddress {:?} owned by UUID {:?}", remote_address, dest_uuid);
 
 			for message_plaintext in self.messages.iter() { 
-				let message = message_plaintext.generate_sealed_message(context, 
+				let message = message_plaintext.generate_sealed_message(context, rng,
 					&AuxinDeviceAddress {
 						address: self.remote_address.clone(),
 						device_id: *i}, timestamp).await?;

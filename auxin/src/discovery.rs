@@ -371,7 +371,7 @@ pub struct DiscoveryResponse {
 impl DiscoveryResponse { 
     pub fn decrypt(&self, attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>) -> Result<Vec<u8>> { 
         let our_request_id: Vec<u8> = base64::decode(self.request_id.clone())?;
-        for (name, keys, req_id) in attestations { 
+        for (_name, keys, req_id) in attestations { 
             debug!("Comparing incoming discovery response with request ID {:?} against attestation request ID {:?}", our_request_id, req_id); 
             if &our_request_id == req_id { 
                 let key = aes_gcm::Key::from_slice(&keys.server_key);

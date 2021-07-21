@@ -33,7 +33,7 @@ pub mod state;
 
 use crate::state::*;
 
-pub type Context = auxin::AuxinContext<OsRng>;
+pub type Context = auxin::AuxinContext;
 
 // TODO: Refactor net stuff here.
 
@@ -161,6 +161,8 @@ pub async fn main() -> Result<()> {
 							.author(AUTHOR_STR))
 						.get_matches();
 
+	let mut rng = OsRng::default();
+
 	let our_phone_number = args.value_of("USER").unwrap();
 	let our_phone_number = our_phone_number.to_string();
 
@@ -225,9 +227,9 @@ pub async fn main() -> Result<()> {
 				messages: vec![message],
 				remote_address: recipient_addr.clone(),
 			};
-			let outgoing_push_list = message_list.generate_sealed_messages_to_all_devices(&mut context, generate_timestamp()).await?;
+			let outgoing_push_list = message_list.generate_sealed_messages_to_all_devices(&mut context, &mut rng, generate_timestamp()).await?;
 
-			let request = outgoing_push_list.build_http_request(&recipient_addr, &mut context)?;
+			let request = outgoing_push_list.build_http_request(&recipient_addr, &mut context, &mut rng)?;
 			debug!("Attempting to send message: {:?}", request);
 			let mut message_response = client.request(request).await?;
 		
@@ -260,7 +262,6 @@ pub async fn main() -> Result<()> {
 			debug!("Upgraded authorization header: {}", upgraded_auth_header);
 
 			//Temporary Keypair for discovery
-			let mut rng = OsRng::default();
 			let attestation_keys = libsignal_protocol::KeyPair::generate(&mut rng);
 			let attestation_path = format!("https://api.directory.signal.org/v1/attestation/{}", ENCLAVE_ID);
 			let attestation_request= json!({

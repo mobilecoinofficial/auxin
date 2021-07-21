@@ -2,6 +2,7 @@ use address::{AuxinAddress, AuxinDeviceAddress};
 use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
 use libsignal_protocol::{IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PublicKey, SenderCertificate};
 use log::debug;
+use net::AuxinNetManager;
 use uuid::Uuid;
 use std::{error::Error, time::{SystemTime, UNIX_EPOCH}};
 use custom_error::custom_error;
@@ -87,9 +88,9 @@ impl LocalIdentity {
 
 #[allow(unused)] // TODO: Remove this after we can send/remove a message.
 // This is the structure that an AuxinStateHandler builds and saves.
-pub struct AuxinContext<R> where R: RngCore + CryptoRng {
+pub struct AuxinContext {
     pub our_identity: LocalIdentity,
-    pub our_sender_certificate: SenderCertificate,
+    pub our_sender_certificate: Option<SenderCertificate>,
 
     pub peer_cache: PeerRecordStructure,
     pub session_store: InMemSessionStore,
@@ -97,10 +98,8 @@ pub struct AuxinContext<R> where R: RngCore + CryptoRng {
     pub signed_pre_key_store: InMemSignedPreKeyStore,
     pub identity_store: InMemIdentityKeyStore,
     pub sender_key_store: InMemSenderKeyStore,
-    pub rng: R,
 
     pub config: AuxinConfig,
-    pub signal_ctx: libsignal_protocol::Context,
     pub report_as_online: bool,
 }
 
@@ -126,14 +125,14 @@ custom_error!{ pub UnidentifiedaccessError
     NoProfile{uuid: Uuid} = "Attempted to generate an unidenttified access key for peer {uuid}, but this user has no profile field whatsoever on record with this Auxin instance. We cannot retrieve their profile key.",
 }
 
-impl<R> AuxinContext<R> where R: RngCore + CryptoRng { 
-    fn get_unidentified_access_unrestricted(&mut self) -> Result<Vec<u8>> {
-        let bytes: [u8; 16] = self.rng.gen();
+impl AuxinContext { 
+    fn get_unidentified_access_unrestricted<R>(&mut self, rng: &mut R) -> Result<Vec<u8>> where R: RngCore + CryptoRng {
+        let bytes: [u8; 16] = rng.gen();
     
         Ok(Vec::from(bytes))
     }
 
-    pub fn get_unidentified_access_for(&mut self, peer_address: &AuxinAddress) -> Result<Vec<u8>> {
+    pub fn get_unidentified_access_for<R>(&mut self, peer_address: &AuxinAddress, rng: &mut R) -> Result<Vec<u8>> where R: RngCore + CryptoRng {
         let peer = self.peer_cache.get(peer_address);
         if peer.is_none() {
             return Err(Box::new(UnidentifiedaccessError::UnrecognizedUser{ address: peer_address.clone() } ))
@@ -144,7 +143,7 @@ impl<R> AuxinContext<R> where R: RngCore + CryptoRng {
             Some(p) => match p.unidentified_access_mode {
                 UnidentifiedAccessMode::UNRESTRICTED => {
                     debug!("User {} has unrestricted unidentified access, generating random key.", peer.uuid);
-                    Ok(self.get_unidentified_access_unrestricted()?)
+                    Ok(self.get_unidentified_access_unrestricted(rng)?)
                 },
                 UnidentifiedAccessMode::ENABLED => {
                     debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", peer.uuid);
@@ -158,4 +157,11 @@ impl<R> AuxinContext<R> where R: RngCore + CryptoRng {
             None => Err(Box::new(UnidentifiedaccessError::NoProfile{ uuid: peer.uuid } )),
         }
     }
+    pub fn get_signal_ctx(&self) -> libsignal_protocol::Context { 
+        None
+    }
 }
+/*
+pub struct AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager {
+
+}*/

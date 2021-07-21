@@ -417,7 +417,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 			
 		
 		debug!("Session lookup for {:?}", address);
-		let session = context.session_store.load_session(&address.1, context.signal_ctx).await?;
+		let session = context.session_store.load_session(&address.1, context.get_signal_ctx()).await?;
 		let session = match session { 
 			Some(s) => s, 
 			None => { 
@@ -469,16 +469,14 @@ pub async fn make_context(base_dir: &str, local_identity: LocalIdentity, sender_
 
 	Ok(Context {
 		our_identity: local_identity,
-		our_sender_certificate: sender_cert,
+		our_sender_certificate: Some(sender_cert),
 		peer_cache: peers,
 		session_store: sessions,
 		pre_key_store: pre_keys,
 		signed_pre_key_store: signed_pre_keys,
 		identity_store: identity_store,
 		sender_key_store: InMemSenderKeyStore::new(),
-		rng: OsRng,
 		config: config,
-		signal_ctx: ctx,
 		report_as_online: false,
 	})
 }

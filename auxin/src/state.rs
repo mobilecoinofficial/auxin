@@ -6,8 +6,9 @@ use log::{debug};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::{self, Visitor}};
 use serde_json::Value;
 use uuid::Uuid;
+use async_trait::async_trait;
 
-use crate::address::{AuxinAddress, AuxinDeviceAddress, E164};
+use crate::{AuxinContext, LocalIdentity, address::{AuxinAddress, AuxinDeviceAddress, E164}};
 
 #[derive(Debug, Copy, Clone)]
 pub enum UnidentifiedAccessMode {
@@ -238,4 +239,39 @@ pub struct PeerIdentity {
 	pub identity_key : String,
 	pub trust_level : Option<i32>,
 	pub added_timestamp : Option<u64>,
+}
+
+#[async_trait]
+pub trait AuxinStateManager {
+	async fn load_local_identity(&self) -> crate::Result<LocalIdentity>;
+	async fn load_context(&self, credentials: &LocalIdentity) -> crate::Result<LocalIdentity>;
+	/// Save the entire InMemSessionStore from this AuxinContext to wherever state is held
+	async fn save_all_sessions(&mut self, context: &AuxinContext) -> std::result::Result<(), Box<dyn std::error::Error + Send>> { 
+		for peer in context.peer_cache.peers.iter() { 
+			let address = AuxinAddress::Phone(peer.number.clone());
+			self.save_peer_sessions(&address, &context).await?;
+		}
+		Ok(())
+	}
+	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer 
+	async fn save_peer_sessions(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> std::result::Result<(), Box<dyn std::error::Error + Send>> ;
+	/// Save peer record info from all peers.
+	async fn save_all_peer_records(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	/// Save peer record info from a specific peer.
+	async fn save_peer_record(&mut self, peer: &AuxinAddress, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	/// Saves both pre_key_store AND signed_pre_key_store from the context. 
+	async fn save_pre_keys(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
+	async fn save_our_identity(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss. 
+	async fn flush(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	/// Saves absolutely every relevant scrap of data we have loaded
+	async fn save_entire_context(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>> { 
+		self.save_our_identity(&context).await?;
+		self.save_all_peer_records(&context).await?;
+		self.save_pre_keys(&context).await?;
+		self.save_all_sessions(&context).await?;
+		self.flush(&context).await?;
+		Ok(())
+	}
 }
