@@ -415,12 +415,11 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 			.create(true)
 			.open(file_path.clone())?;
 			
-		
 		debug!("Session lookup for {:?}", address);
 		let session = context.session_store.load_session(&address.1, context.get_signal_ctx()).await?;
-		let session = match session { 
-			Some(s) => s, 
-			None => { 
+		let session = match session {
+			Some(s) => s,
+			None => {
 				//todo: Better error handling here.
 				continue;
 			},

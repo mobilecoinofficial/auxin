@@ -243,11 +243,11 @@ pub struct PeerIdentity {
 
 #[async_trait]
 pub trait AuxinStateManager {
-	async fn load_local_identity(&self) -> crate::Result<LocalIdentity>;
-	async fn load_context(&self, credentials: &LocalIdentity) -> crate::Result<LocalIdentity>;
+	async fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
+	async fn load_context(&mut self, credentials: &LocalIdentity) -> crate::Result<AuxinContext>;
 	/// Save the entire InMemSessionStore from this AuxinContext to wherever state is held
-	async fn save_all_sessions(&mut self, context: &AuxinContext) -> std::result::Result<(), Box<dyn std::error::Error + Send>> { 
-		for peer in context.peer_cache.peers.iter() { 
+	async fn save_all_sessions(&mut self, context: &AuxinContext) -> std::result::Result<(), Box<dyn std::error::Error + Send>> {
+		for peer in context.peer_cache.peers.iter() {
 			let address = AuxinAddress::Phone(peer.number.clone());
 			self.save_peer_sessions(&address, &context).await?;
 		}
@@ -274,4 +274,7 @@ pub trait AuxinStateManager {
 		self.flush(&context).await?;
 		Ok(())
 	}
+
+	/// Saves and finalizes all data - must be a blocking operation.
+	fn save_on_quit(&mut self, context: &AuxinContext) -> crate::Result<()>;
 }

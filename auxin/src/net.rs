@@ -1,4 +1,4 @@
-use crate::{LocalIdentity, Result};
+use crate::{AuxinContext, LocalIdentity, Result};
 use async_trait::async_trait;
 
 #[allow(unused_must_use)]
@@ -25,7 +25,7 @@ pub fn common_http_headers(verb: http::Method, uri: &str, auth: &str) -> Result<
 }
 #[async_trait]
 pub trait AuxinHttpsConnection { 
-	async fn request(req: &http::request::Request<String>) -> std::result::Result<http::Response<String>, Box<dyn std::error::Error + Send>>;
+	async fn request(&mut self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Box<dyn std::error::Error + Send>>;
 }
 
 #[async_trait]

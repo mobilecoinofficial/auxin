@@ -10,7 +10,6 @@ use auxin::{AuxinConfig, LocalIdentity, SIGNAL_TLS_CERT, generate_timestamp};
 use auxin::{Result};
 use auxin_protos::WebSocketMessage_Type;
 use futures::{StreamExt, TryFutureExt};
-use http::HeaderValue;
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
 use hyper_tls::TlsStream;
