@@ -4,15 +4,15 @@ use std::path::Path;
 use std::str::FromStr;
 use std::fs::read_dir;
 
-use auxin::{AuxinConfig, PROFILE_KEY_LEN};
+use auxin::{AuxinConfig, AuxinContext, PROFILE_KEY_LEN, SignalCtx};
 use auxin::LocalIdentity;
 use auxin::Result;
 use auxin::address::{AuxinAddress, AuxinDeviceAddress, E164};
-use auxin::state::PeerRecordStructure;
+use auxin::state::{AuxinStateManager, PeerRecordStructure};
 
+use futures::executor::block_on;
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, SenderCertificate, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
 use log::{debug, warn};
-use rand::rngs::OsRng;
 use uuid::Uuid;
 use custom_error::custom_error;
 use serde::{Deserialize, Serialize};
@@ -105,11 +105,11 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
     };
 
     Ok(LocalIdentity {
-        our_address,
+        address: our_address,
         password,
-        our_profile_key: decoded_profile_key,
-        our_identity_keys: IdentityKeyPair::new(IdentityKey::new(public_key), private_key),
-        our_reg_id: registration_id as u32,
+        profile_key: decoded_profile_key,
+        identity_keys: IdentityKeyPair::new(IdentityKey::new(public_key), private_key),
+        reg_id: registration_id as u32,
     })
 }
 
@@ -128,7 +128,7 @@ pub async fn load_known_peers(
 	base_dir: &str,
 	recipients: &PeerRecordStructure,
 	identity_store: &mut InMemIdentityKeyStore,
-	ctx: &libsignal_protocol::Context,
+	ctx: libsignal_protocol::Context,
 ) -> Result<()> {
 	let mut our_path = base_dir.clone().to_string();
 	our_path.push_str("/");
@@ -154,9 +154,9 @@ pub async fn load_known_peers(
 			let id_key = IdentityKey::decode(decoded_key.as_slice())?;
 			for i in recip.device_ids_used.iter() {
 				let addr = ProtocolAddress::new(recip.uuid.to_string(), *i);
-				identity_store.save_identity(&addr, &id_key, *ctx);
+				identity_store.save_identity(&addr, &id_key, ctx);
 				let addr = ProtocolAddress::new(recip.number.clone(), *i);
-				identity_store.save_identity(&addr, &id_key, *ctx);
+				identity_store.save_identity(&addr, &id_key, ctx);
 				debug!("Loaded identity key {:?} for known peer {:?}", id_key, addr);
 			}
 		}
@@ -168,7 +168,7 @@ pub async fn load_known_peers(
 pub async fn load_sessions(
 	our_id: &String,
 	base_dir: &str,
-	ctx: &libsignal_protocol::Context,
+	ctx: libsignal_protocol::Context,
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
 	let mut our_path = base_dir.clone().to_string();
 	our_path.push_str("/");
@@ -263,7 +263,7 @@ pub async fn load_sessions(
 				debug!("Loaded {} bytes from {}", buffer.len(), &file_path );
 
 				//Store as UUID
-				session_store.store_session(&recipient_address, &record, *ctx).await?;
+				session_store.store_session(&recipient_address, &record, ctx).await?;
 
 				
 			}
@@ -277,7 +277,7 @@ pub async fn load_sessions(
 	Ok((session_store, recipient_structure))
 }
 
-pub async fn load_prekeys(our_id: &String, base_dir: &str, ctx: &libsignal_protocol::Context) 
+pub async fn load_prekeys(our_id: &String, base_dir: &str, ctx: libsignal_protocol::Context) 
 				-> Result<(InMemPreKeyStore, InMemSignedPreKeyStore)> {
 
 	let mut pre_key_store = InMemPreKeyStore::default();
@@ -328,7 +328,7 @@ pub async fn load_prekeys(our_id: &String, base_dir: &str, ctx: &libsignal_proto
 
 		let record = PreKeyRecord::deserialize(buffer.as_slice())?;
 
-		pre_key_store.save_pre_key(record.id()?, &record, *ctx).await?;
+		pre_key_store.save_pre_key(record.id()?, &record, ctx).await?;
 	}
 
 	//Iterate through files in signed_pre_keys_path
@@ -367,14 +367,14 @@ pub async fn load_prekeys(our_id: &String, base_dir: &str, ctx: &libsignal_proto
 		let record = SignedPreKeyRecord::deserialize(buffer.as_slice())?;
 		
 		debug!("Loaded a signed pre-key with ID {:?}", id);
-		signed_pre_key_store.save_signed_pre_key(id, &record, *ctx).await?;
+		signed_pre_key_store.save_signed_pre_key(id, &record, ctx).await?;
 	}
 
 	Ok((pre_key_store, signed_pre_key_store))
 }
 
 pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
-	let our_id: String = context.our_identity.our_address.get_phone_number()?.clone();
+	let our_id: String = context.identity.address.get_phone_number()?.clone();
 	//Figure out some directories.
 	let mut our_path = base_dir.to_string();
 	our_path.push_str("/");
@@ -416,7 +416,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 			.open(file_path.clone())?;
 			
 		debug!("Session lookup for {:?}", address);
-		let session = context.session_store.load_session(&address.1, context.get_signal_ctx()).await?;
+		let session = context.session_store.load_session(&address.1, context.get_signal_ctx().get()).await?;
 		let session = match session {
 			Some(s) => s,
 			None => {
@@ -455,20 +455,20 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 
 	Ok(())
 }
-pub async fn make_context(base_dir: &str, local_identity: LocalIdentity, sender_cert: SenderCertificate, config: AuxinConfig, ctx: libsignal_protocol::Context) -> Result<Context> {
-	let our_phone_number = local_identity.our_address.address.get_phone_number().unwrap();
+pub async fn make_context(base_dir: &str, local_identity: LocalIdentity, config: AuxinConfig) -> Result<Context> {
+	let our_phone_number = local_identity.address.address.get_phone_number().unwrap();
 
-	let mut identity_store = InMemIdentityKeyStore::new(local_identity.our_identity_keys.clone(), local_identity.our_reg_id);
+	let mut identity_store = InMemIdentityKeyStore::new(local_identity.identity_keys.clone(), local_identity.reg_id);
 	
 	//Load cached peers and sessions.
-	let (sessions, peers) = load_sessions(&our_phone_number, base_dir, &ctx).await?;
+	let (sessions, peers) = load_sessions(&our_phone_number, base_dir, None).await?;
 	//Load identity keys we saved for peers previously. Writes to the identity store.
-	load_known_peers(&our_phone_number, base_dir, &peers, &mut identity_store, &ctx).await?;
-	let (pre_keys, signed_pre_keys) = load_prekeys(&our_phone_number, base_dir, &ctx).await?;
+	load_known_peers(&our_phone_number, base_dir, &peers, &mut identity_store, None).await?;
+	let (pre_keys, signed_pre_keys) = load_prekeys(&our_phone_number, base_dir, None).await?;
 
 	Ok(Context {
-		our_identity: local_identity,
-		our_sender_certificate: Some(sender_cert),
+		identity: local_identity,
+		sender_certificate: None,
 		peer_cache: peers,
 		session_store: sessions,
 		pre_key_store: pre_keys,
@@ -477,5 +477,135 @@ pub async fn make_context(base_dir: &str, local_identity: LocalIdentity, sender_
 		sender_key_store: InMemSenderKeyStore::new(),
 		config: config,
 		report_as_online: false,
+		ctx: SignalCtx::default(),
 	})
+}
+
+pub struct StateManager { 
+	pub base_dir: String,
+}
+
+impl StateManager { 
+	pub fn new(base_dir: &str) -> Self { 
+		StateManager { 
+			base_dir: base_dir.to_string(),
+		}
+	}
+	pub fn get_protocol_store_path(&self, context: &AuxinContext) -> String { 
+		let our_id: String = context.identity.address.get_phone_number().unwrap().clone();
+		//Figure out some directories.
+		let mut our_path = self.base_dir.clone();
+		our_path.push_str("/");
+		our_path.push_str(our_id.as_str());
+		our_path.push_str(".d/");
+		our_path
+	}
+}
+
+impl AuxinStateManager for StateManager {
+	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
+		let user_json = load_signal_cli_user(self.base_dir.as_str(), &phone_number)?;
+		let local_identity = local_identity_from_json(&user_json)?;
+		return Ok(local_identity);
+	}
+	fn load_context(&mut self, credentials: &LocalIdentity, config: AuxinConfig) -> crate::Result<AuxinContext> {
+		return block_on(make_context(self.base_dir.as_str(), credentials.clone(), config));
+	}
+	
+	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer 
+	fn save_peer_sessions(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()> { 
+		let our_id: String = context.identity.address.get_phone_number()?.clone();
+		//Figure out some directories.
+		let our_path = self.get_protocol_store_path(context);
+
+		let mut session_path = our_path.clone();
+		session_path.push_str("sessions/");
+
+		let mut _known_peers_path = our_path.clone();
+		_known_peers_path.push_str("identities/");
+		
+		//Build a list of all recipient IDs and all recipient-device addresses in our store.
+		let mut addresses : Vec<(u64, ProtocolAddress)> = Vec::default();
+		for r in &context.peer_cache.peers { 
+			for i in r.device_ids_used.iter() {
+				//MUST USE UUID
+				addresses.push( (r.id, ProtocolAddress::new(r.uuid.to_string().clone(), *i)) );
+			}
+		}
+
+		for address in addresses.iter() { 
+			let mut file_path = session_path.clone();
+			let session_file_name = format!("{}_{}", address.0, address.1.device_id());
+			file_path.push_str(session_file_name.as_str());
+
+			let mut file = OpenOptions::new()
+				.truncate(true)
+				.write(true)
+				.create(true)
+				.open(file_path.clone())?;
+				
+			let session = block_on(context.session_store.load_session(&address.1, context.get_signal_ctx().get()))?;
+			let session = match session {
+				Some(s) => s,
+				None => {
+					//todo: Better error handling here.
+					continue;
+				},
+			};
+			let bytes = session.serialize()?;
+			file.write_all(bytes.as_slice())?;
+			file.flush()?;
+			drop(file);
+			debug!("Session file for {} written: {}", &address.1.name(), file_path.clone());
+		}
+		Ok(())
+	}
+	/// Save peer record info from all peers.
+	fn save_all_peer_records(&mut self, context: &AuxinContext) -> crate::Result<()> {
+		let our_path = self.get_protocol_store_path(context);
+
+		let mut recipients_path = our_path.clone();
+		recipients_path.push_str("recipients-store");
+
+		let mut file = OpenOptions::new()
+			.truncate(true)
+			.write(true)
+			.create(true)
+			.open(recipients_path.clone())?;
+
+
+		// Save recipient store: 
+		let json_recipient_structure = serde_json::to_string_pretty(&context.peer_cache)?;
+
+		file.write_all(json_recipient_structure.as_bytes())?;
+		file.flush()?;
+
+		//Ensure file is closed ASAP.
+		drop(file);
+
+		Ok(())
+	}
+	/// Save peer record info from a specific peer.
+	fn save_peer_record(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()> {
+		// Unfortunately I do not see a way to save a single user without saving all users in 
+		// a libsignal-cli style json protocol store.
+		self.save_all_peer_records(context)
+	}
+	/// Saves both pre_key_store AND signed_pre_key_store from the context. 
+	fn save_pre_keys(&mut self, context: &AuxinContext) -> crate::Result<()> {
+		//TODO: Currently there is no circumstance where Auxin mutates pre-keys, so I do not know the specifics of what is necessary. 
+		Ok(())
+	}
+	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
+	fn save_our_identity(&mut self, context: &AuxinContext) -> crate::Result<()> {
+		//TODO: Currently there is no circumstance where Auxin mutates our own identity, so I do not know the specifics of what is necessary. 
+		//Most likely this will be relevant if we need to generate a new profile key.
+		Ok(())
+	}
+
+	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss. 
+	fn flush(&mut self, context: &AuxinContext) ->  crate::Result<()> {
+		// This implementation "Flush"s every time / writes changes immediately rather than queueing them, so this is unnecessary.
+		Ok(())
+	}
 }

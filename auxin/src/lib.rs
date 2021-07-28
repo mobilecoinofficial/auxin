@@ -51,11 +51,11 @@ pub const DEFAULT_DEVICE_ID: u32 = 1;
 #[derive(Clone)]
 /// Basic information about the local Signal node. 
 pub struct LocalIdentity {
-    pub our_address: AuxinDeviceAddress,
+    pub address: AuxinDeviceAddress,
     pub password: String,
-    pub our_profile_key: ProfileKey,
-    pub our_identity_keys: IdentityKeyPair,
-    pub our_reg_id: u32,
+    pub profile_key: ProfileKey,
+    pub identity_keys: IdentityKeyPair,
+    pub reg_id: u32,
 }
 
 impl LocalIdentity {
@@ -68,7 +68,7 @@ impl LocalIdentity {
         let mut our_auth_value = String::default();
         // We have to supply our own address as a phone number
         // It will not accept this if we use our UUID. 
-        our_auth_value.push_str(self.our_address.address.get_phone_number().unwrap());
+        our_auth_value.push_str(self.address.address.get_phone_number().unwrap());
         our_auth_value.push_str(":");
         our_auth_value.push_str(&self.password);
 
@@ -90,11 +90,26 @@ impl LocalIdentity {
     }
 }
 
+/// Wrapper type to force Rust to recognize libsignal ctx as "Send"
+#[derive(Clone, Copy, Default)]
+pub struct SignalCtx {
+    ctx: libsignal_protocol::Context,
+}
+
+impl SignalCtx { 
+    pub fn get(&self) -> libsignal_protocol::Context { 
+        self.ctx.clone()
+    }
+}
+
+// Dark magic! may cause crashes! completely unavoidable! Yay!
+unsafe impl Send for SignalCtx {}
+
 #[allow(unused)] // TODO: Remove this after we can send/remove a message.
 // This is the structure that an AuxinStateHandler builds and saves.
 pub struct AuxinContext {
-    pub our_identity: LocalIdentity,
-    pub our_sender_certificate: Option<SenderCertificate>,
+    pub identity: LocalIdentity,
+    pub sender_certificate: Option<SenderCertificate>,
 
     pub peer_cache: PeerRecordStructure,
     pub session_store: InMemSessionStore,
@@ -105,6 +120,8 @@ pub struct AuxinContext {
 
     pub config: AuxinConfig,
     pub report_as_online: bool,
+
+    pub ctx: SignalCtx,
 }
 
 fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> {
@@ -161,8 +178,8 @@ impl AuxinContext {
             None => Err(Box::new(UnidentifiedaccessError::NoProfile{ uuid: peer.uuid } )),
         }
     }
-    pub fn get_signal_ctx(&self) -> libsignal_protocol::Context { 
-        None
+    pub fn get_signal_ctx(&self) -> &SignalCtx { 
+        &self.ctx
     }
 }
 
@@ -192,10 +209,10 @@ custom_error!{ pub StateSaveError
 }
 
 impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
-    pub async fn new(local_phone_number: E164, mut net: N, mut state_manager: S, rng: R) -> Result<Self> {
+    pub async fn new(local_phone_number: E164, config: AuxinConfig, mut net: N, mut state_manager: S, rng: R) -> Result<Self> {
         let trust_root = sealed_sender_trust_root();
 
-        let local_identity = state_manager.load_local_identity(&local_phone_number).await?;
+        let local_identity = state_manager.load_local_identity(&local_phone_number)?;
 
         let sender_cert_request: http::Request<String> = local_identity.build_sendercert_request()?;
         //TODO: Better error handling here.
@@ -217,8 +234,8 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
             panic!("Invalid sender certificate!");
         }
 
-        let mut context = state_manager.load_context(&local_identity).await?;
-        context.our_sender_certificate = Some(sender_cert);
+        let mut context = state_manager.load_context(&local_identity, config)?;
+        context.sender_certificate = Some(sender_cert);
 
         Ok(Self {
             net,
@@ -252,8 +269,8 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
     
         debug!("Got response to attempt to send message: {:?}", message_response);
         debug!("Response body is: {:?}", message_response.body() );
-        self.state_manager.save_peer_record(&recipient_addr, &self.context).await.map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
-        self.state_manager.save_peer_sessions(&recipient_addr, &self.context).await.map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
+        self.state_manager.save_peer_record(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
+        self.state_manager.save_peer_sessions(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
     
         Ok(())
     }
@@ -279,7 +296,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
 
     pub async fn make_discovery_request(&mut self, recipient_phone:&E164) -> Result<Uuid>{ 
         //Get upgraded auth for discovery / directory.
-        let auth = self.context.our_identity.make_auth_header();
+        let auth = self.context.identity.make_auth_header();
         let req = common_http_headers(http::Method::GET, 
             "https://textsecure-service.whispersystems.org/v1/directory/auth",
             auth.as_str())?;
@@ -387,6 +404,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
 impl<R, N, S> Drop for AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
     fn drop(&mut self) {
         // Make sure all data gets saved first.
-        self.state_manager.save_on_quit(&self.context).unwrap();
+        self.state_manager.save_entire_context(&self.context).unwrap();
+        self.state_manager.flush(&self.context).unwrap();
     }
 }

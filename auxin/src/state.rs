@@ -8,7 +8,7 @@ use serde_json::Value;
 use uuid::Uuid;
 use async_trait::async_trait;
 
-use crate::{AuxinContext, LocalIdentity, address::{AuxinAddress, AuxinDeviceAddress, E164}};
+use crate::{AuxinConfig, AuxinContext, LocalIdentity, address::{AuxinAddress, AuxinDeviceAddress, E164}};
 
 #[derive(Debug, Copy, Clone)]
 pub enum UnidentifiedAccessMode {
@@ -241,40 +241,36 @@ pub struct PeerIdentity {
 	pub added_timestamp : Option<u64>,
 }
 
-#[async_trait]
 pub trait AuxinStateManager {
-	async fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
-	async fn load_context(&mut self, credentials: &LocalIdentity) -> crate::Result<AuxinContext>;
+	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
+	fn load_context(&mut self, credentials: &LocalIdentity, config: AuxinConfig) -> crate::Result<AuxinContext>;
 	/// Save the entire InMemSessionStore from this AuxinContext to wherever state is held
-	async fn save_all_sessions(&mut self, context: &AuxinContext) -> std::result::Result<(), Box<dyn std::error::Error + Send>> {
+	fn save_all_sessions(&mut self, context: &AuxinContext) -> crate::Result<()>{
 		for peer in context.peer_cache.peers.iter() {
 			let address = AuxinAddress::Phone(peer.number.clone());
-			self.save_peer_sessions(&address, &context).await?;
+			self.save_peer_sessions(&address, &context)?;
 		}
 		Ok(())
 	}
 	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer 
-	async fn save_peer_sessions(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> std::result::Result<(), Box<dyn std::error::Error + Send>> ;
+	fn save_peer_sessions(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()>;
 	/// Save peer record info from all peers.
-	async fn save_all_peer_records(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	fn save_all_peer_records(&mut self, context: &AuxinContext) ->  crate::Result<()> ;
 	/// Save peer record info from a specific peer.
-	async fn save_peer_record(&mut self, peer: &AuxinAddress, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	fn save_peer_record(&mut self, peer: &AuxinAddress, context: &AuxinContext) ->  crate::Result<()> ;
 	/// Saves both pre_key_store AND signed_pre_key_store from the context. 
-	async fn save_pre_keys(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	fn save_pre_keys(&mut self, context: &AuxinContext) ->  crate::Result<()> ;
 	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
-	async fn save_our_identity(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	fn save_our_identity(&mut self, context: &AuxinContext) ->  crate::Result<()> ;
 	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss. 
-	async fn flush(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>>  ;
+	fn flush(&mut self, context: &AuxinContext) ->  crate::Result<()> ;
 	/// Saves absolutely every relevant scrap of data we have loaded
-	async fn save_entire_context(&mut self, context: &AuxinContext) ->  std::result::Result<(), Box<dyn std::error::Error + Send>> { 
-		self.save_our_identity(&context).await?;
-		self.save_all_peer_records(&context).await?;
-		self.save_pre_keys(&context).await?;
-		self.save_all_sessions(&context).await?;
-		self.flush(&context).await?;
+	fn save_entire_context(&mut self, context: &AuxinContext) ->  crate::Result<()>{ 
+		self.save_our_identity(&context)?;
+		self.save_all_peer_records(&context)?;
+		self.save_pre_keys(&context)?;
+		self.save_all_sessions(&context)?;
+		self.flush(&context)?;
 		Ok(())
 	}
-
-	/// Saves and finalizes all data - must be a blocking operation.
-	fn save_on_quit(&mut self, context: &AuxinContext) -> crate::Result<()>;
 }

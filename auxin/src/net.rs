@@ -25,7 +25,8 @@ pub fn common_http_headers(verb: http::Method, uri: &str, auth: &str) -> Result<
 }
 #[async_trait]
 pub trait AuxinHttpsConnection { 
-	async fn request(&mut self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Box<dyn std::error::Error + Send>>;
+	type Error: std::error::Error + Send;
+	async fn request(&mut self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Self::Error>;
 }
 
 #[async_trait]
@@ -37,10 +38,12 @@ pub trait AuxinWebsocketConnection {
 pub trait AuxinNetManager { 
 	type C: AuxinHttpsConnection;
 	type W: AuxinWebsocketConnection;
+
+	type Error: std::error::Error + Send;
 	
 	/// Initialize an https connection to Signal which recognizes Signal's self-signed TLS certificate. 
-	async fn connect_to_signal_https(&mut self) -> std::result::Result<Self::C, Box<dyn std::error::Error + Send>>;
+	async fn connect_to_signal_https(&mut self) -> std::result::Result<Self::C, Self::Error>;
 
 	/// Initialize a websocket connection to Signal's "https://textsecure-service.whispersystems.org" address, taking our credentials as an argument. 
-	async fn connect_to_signal_websocket(&mut self, credentials: &LocalIdentity) -> std::result::Result<Self::W, Box<dyn std::error::Error + Send>>;
+	async fn connect_to_signal_websocket(&mut self, credentials: &LocalIdentity) -> std::result::Result<Self::W, Self::Error>;
 }

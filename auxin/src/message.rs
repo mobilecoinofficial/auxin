@@ -305,7 +305,7 @@ impl OutgoingPushMessageList {
 		let mut msg_path = String::from("https://textsecure-service.whispersystems.org/v1/messages/");
 		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
 
-		let mut req = crate::net::common_http_headers(http::Method::GET, msg_path.as_str(), context.our_identity.make_auth_header().as_str())?;
+		let mut req = crate::net::common_http_headers(http::Method::GET, msg_path.as_str(), context.identity.make_auth_header().as_str())?;
 		
 		req = req.header("Unidentified-Access-Key", unidentified_access_key);
 		req = req.header("Content-Type", "application/json; charset=utf-8");
@@ -396,14 +396,14 @@ impl MessageOut {
 	//Encrypts our_message string and builds an OutgoingPushMessage from it.
 	pub async fn generate_sealed_message<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext, rng: &mut Rng, address_to: &AuxinDeviceAddress, timestamp: u64)-> Result<OutgoingPushMessage>{
 
-		let signal_ctx = context.get_signal_ctx(); 
+		let signal_ctx = context.get_signal_ctx().ctx.clone(); 
 		//Make sure it has both UUID and phone number. 
 		let mut address_to = address_to.clone();
 		address_to.address = context.peer_cache.complete_address(&address_to.address).unwrap();
 		//Get a valid protocol address with name=uuid
 		let their_address = address_to.uuid_protocol_address()?;
 		
-		let sess = match context.session_store.load_session(&their_address, context.get_signal_ctx()).await {
+		let sess = match context.session_store.load_session(&their_address, context.get_signal_ctx().ctx).await {
 			Ok(s) => s.unwrap(),
 			Err(e) => return Err(Box::new(e)),
 		};
@@ -415,7 +415,7 @@ impl MessageOut {
 		let mut serialized_message : Vec<u8> = Vec::default();
 		let mut outstream = CodedOutputStream::vec(&mut serialized_message);
 
-		let b64_profile_key = base64::encode(context.our_identity.our_profile_key);
+		let b64_profile_key = base64::encode(context.identity.profile_key);
 		let content_message = self.content.build_signal_content(&b64_profile_key, timestamp)?;
 
 		let sz = protobuf::Message::compute_size(&content_message);
@@ -430,7 +430,7 @@ impl MessageOut {
 		debug!("Padded message length: {}", our_message_bytes.len() );
 
 		//Make sure the sender certificate has actually been gotten already, or else throw an error. 
-		let sender_cert = context.our_sender_certificate.as_ref().ok_or(MessageOutError::NoSenderCertificate{msg: format!("{:?}", &self)} )?;
+		let sender_cert = context.sender_certificate.as_ref().ok_or(MessageOutError::NoSenderCertificate{msg: format!("{:?}", &self)} )?;
 		
 		//Encipher the content we just encoded.
 		let cyphertext_message = sealed_sender_encrypt(
@@ -458,14 +458,14 @@ impl MessageOut {
 
 
 pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut AuxinContext) -> Result<(Content, AuxinDeviceAddress)> {
-	let signal_ctx = context.get_signal_ctx();
+	let signal_ctx = context.get_signal_ctx().ctx.clone();
 	let decrypted = sealed_sender_decrypt(
 		envelope.get_content(),
 		&sealed_sender_trust_root(),
 		generate_timestamp() as u64,
-		context.our_identity.our_address.get_phone_number().ok().map(|s| s.clone()),
-		context.our_identity.our_address.get_uuid()?.to_string(),
-		context.our_identity.our_address.device_id,
+		context.identity.address.get_phone_number().ok().map(|s| s.clone()),
+		context.identity.address.get_uuid()?.to_string(),
+		context.identity.address.device_id,
 		&mut context.identity_store,
 		&mut context.session_store,
 		&mut context.pre_key_store,
