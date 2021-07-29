@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
 use auxin::message::{MessageContent, MessageIn, MessageOut};
-use auxin::{AuxinApp, AuxinConfig, LocalIdentity};
+use auxin::{AuxinApp, AuxinConfig, LocalIdentity, get_unidentified_access_for_key};
 use auxin::{Result};
 use log::{LevelFilter, debug, info, warn};
 use rand::rngs::OsRng;
@@ -26,7 +26,6 @@ pub async fn main() -> Result<()> {
 		.with_level(LevelFilter::Debug)
 		.init()
 		.unwrap();
-
 	const AUTHOR_STR: &str = "Millie C. <gyrocoder@gmail.com>";
 	const VERSION_STR: &str = "PRE-RELEASE DO NOT USE";
 

@@ -1,16 +1,16 @@
 use core::fmt;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashMap};
 
+use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey};
 //use libsignal_protocol::{Context, IdentityKey, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, ProtocolAddress, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
 use log::{debug};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::{self, Visitor}};
 use serde_json::Value;
 use uuid::Uuid;
-use async_trait::async_trait;
 
-use crate::{AuxinConfig, AuxinContext, LocalIdentity, address::{AuxinAddress, AuxinDeviceAddress, E164}};
+use crate::{AuxinConfig, AuxinContext, LocalIdentity, address::{AuxinAddress, AuxinDeviceAddress, E164}, generate_timestamp};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum UnidentifiedAccessMode {
 	ENABLED, 
 	DISABLED, 
@@ -86,6 +86,53 @@ pub struct PeerProfile {
 	pub capabilities: Vec<String>,
 }
 
+/// A peer profile as it comes in from https://textsecure-service.whispersystems.org/v1/profile/[UUID]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ForeignPeerProfile {
+	pub identity_key: String,
+	pub name: String,
+	pub about: Option<String>,
+	pub about_emoji: Option<String>,
+	pub avatar: Option<String>,
+	pub payment_address: Option<String>,
+	// This is definitely base-64 encoded, not that I know *what* it is.
+	pub unidentified_access: Option<String>,
+	pub unrestricted_unidentified_access: bool,
+	pub capabilities: HashMap<String,bool>,
+	pub username: Option<String>,
+	pub uuid: Option<String>,
+	pub credential: Option<String>,
+}
+
+impl ForeignPeerProfile { 
+	pub fn to_local(&self) -> PeerProfile { 
+		let unidentified_access_mode = match (self.unrestricted_unidentified_access, self.unidentified_access.is_some()) {
+			(true, _) => UnidentifiedAccessMode::UNRESTRICTED,
+			(false, true) => UnidentifiedAccessMode::ENABLED,
+			(false, false) => UnidentifiedAccessMode::DISABLED,
+		};
+
+		let mut capabilities: Vec<String> = Vec::default();
+		for (cap, enabled) in self.capabilities.iter() {
+			if *enabled {
+				capabilities.push(cap.clone());
+			}
+		}
+		
+		// Difference between username and name? 
+		PeerProfile {
+			last_update_timestamp: generate_timestamp(),
+			given_name: None,
+			family_name: None,
+			about: self.about.clone(),
+			about_emoji: self.about_emoji.clone(),
+			unidentified_access_mode,
+			capabilities,
+		}
+	}
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerRecord {
@@ -98,6 +145,15 @@ pub struct PeerRecord {
 	pub profile: Option<PeerProfile>,
 	#[serde(skip)]
 	pub device_ids_used: Vec<u32>,
+}
+
+impl PeerRecord { 
+	pub fn supports_sealed_sender(&self) -> bool { 
+		match &self.profile { 
+			Some(profile) => self.profile_key.is_some() && (profile.unidentified_access_mode != UnidentifiedAccessMode::DISABLED),
+			None => false,
+		}
+	}
 }
 
 impl Ord for PeerRecord {
@@ -233,12 +289,85 @@ impl PeerStore for PeerRecordStructure {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerIdentity {
 	pub identity_key : String,
 	pub trust_level : Option<i32>,
 	pub added_timestamp : Option<u64>,
+}
+
+/// Represents a foreign Pre Key that the server has sent us.
+/// This is equivalent to a libsignal_protocol::state::PreKeyRecord!
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PreKeyReply { 
+    pub key_id: u32,
+	/// Public key stored as Base64
+	pub public_key: String
+}
+
+/// Represents a foreign Signed Pre Key that the server has sent us.
+/// This is equivalent to a libsignal_protocol::state::SignedPreKeyRecord!
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedPreKeyReply { 
+    pub key_id: u32,
+	/// Public key stored as Base64
+	pub public_key: String, 
+	/// Signature as base-64 
+	pub signature: String, 
+}
+
+/// Info on a particular peer's device as sent to us in a reply to GET https://textsecure-service.whispersystems.org/v2/keys/[UUID]/
+/// This is equivalent to a libsignal_protocol::state::PreKeyBundle!
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerDeviceInfo { 
+    pub device_id: u32,
+	pub registration_id: u32,
+	pub signed_pre_key: SignedPreKeyReply,
+	pub pre_key: Option<PreKeyReply>, 
+}
+
+impl PeerDeviceInfo { 
+	pub fn convert_to_pre_key_bundle(&self, identity_key: &IdentityKey) -> crate::Result<PreKeyBundle> {
+		let pre_key = match &self.pre_key { 
+			Some(reply) => { 
+				let public_key = base64::decode(&reply.public_key)?;
+				Some((reply.key_id, PublicKey::deserialize(public_key.as_slice())?))
+			},
+			None => None,
+		};
+
+		let signed_pre_key_bytes = base64::decode(&self.signed_pre_key.public_key)?;
+		let signed_pre_key_public =  PublicKey::deserialize(&signed_pre_key_bytes)?;
+
+		let signed_pre_key_signature = base64::decode(&self.signed_pre_key.signature)?;
+
+		Ok(PreKeyBundle::new(self.registration_id, self.device_id, pre_key, self.signed_pre_key.key_id, signed_pre_key_public, signed_pre_key_signature, identity_key.clone())?)
+	}
+}
+
+/// Info on a particular peer as sent to us in a reply to GET https://textsecure-service.whispersystems.org/v2/keys/[UUID]/
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerInfoReply {
+	/// Identity key encoded as Base64
+	pub identity_key: String,
+	pub devices: Vec<PeerDeviceInfo>,
+}
+
+impl PeerInfoReply { 
+	pub fn convert_to_pre_key_bundles(self) -> crate::Result<Vec<(u32, PreKeyBundle)>> {
+		let id_key_bytes = base64::decode(&self.identity_key)?;
+		let id_key = IdentityKey::decode(&id_key_bytes)?;
+		let mut out_vec: Vec<(u32, PreKeyBundle)> = Vec::default();
+		for device in self.devices.iter() {
+			out_vec.push( (device.device_id, device.convert_to_pre_key_bundle(&id_key)?) );
+		}
+		return Ok(out_vec);
+	}
 }
 
 pub trait AuxinStateManager {

@@ -1,4 +1,4 @@
-use crate::{AuxinContext, LocalIdentity, Result};
+use crate::{LocalIdentity, Result};
 use async_trait::async_trait;
 
 #[allow(unused_must_use)]
@@ -25,8 +25,8 @@ pub fn common_http_headers(verb: http::Method, uri: &str, auth: &str) -> Result<
 }
 #[async_trait]
 pub trait AuxinHttpsConnection { 
-	type Error: std::error::Error + Send;
-	async fn request(&mut self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Self::Error>;
+	type Error: 'static + std::error::Error + Send;
+	async fn request(&self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Self::Error>;
 }
 
 #[async_trait]
@@ -39,7 +39,7 @@ pub trait AuxinNetManager {
 	type C: AuxinHttpsConnection;
 	type W: AuxinWebsocketConnection;
 
-	type Error: std::error::Error + Send;
+	type Error: 'static + std::error::Error + Send;
 	
 	/// Initialize an https connection to Signal which recognizes Signal's self-signed TLS certificate. 
 	async fn connect_to_signal_https(&mut self) -> std::result::Result<Self::C, Self::Error>;

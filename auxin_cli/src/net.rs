@@ -130,7 +130,7 @@ impl std::error::Error for SendAttemptError {}
 #[async_trait]
 impl AuxinHttpsConnection for AuxinHyperConnection { 
     type Error = SendAttemptError;
-	async fn request(&mut self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Self::Error> {
+	async fn request(&self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Self::Error> {
         let res = self.client.request(AuxinHyperConnection::body_convert_out(req)).await
             .map_err(|e| SendAttemptError::CannotRequest(e.to_string()) )?;
         let converted_res = AuxinHyperConnection::body_convert_in(res).await

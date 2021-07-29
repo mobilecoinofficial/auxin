@@ -8,7 +8,7 @@ use auxin::{AuxinConfig, AuxinContext, PROFILE_KEY_LEN, SignalCtx};
 use auxin::LocalIdentity;
 use auxin::Result;
 use auxin::address::{AuxinAddress, AuxinDeviceAddress, E164};
-use auxin::state::{AuxinStateManager, PeerRecordStructure};
+use auxin::state::{AuxinStateManager, PeerRecordStructure, PeerStore};
 
 use futures::executor::block_on;
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, SenderCertificate, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
@@ -294,80 +294,85 @@ pub async fn load_prekeys(our_id: &String, base_dir: &str, ctx: libsignal_protoc
 	signed_pre_keys_path.push_str("signed-pre-keys/");
 
 	//Iterate through files in pre_keys_path
-	let directory_contents = read_dir(pre_keys_path.clone())?;
 
-	let mut pre_key_file_list: Vec<String> = Vec::default();
+	if Path::new(pre_keys_path.as_str()).exists() {
+		let directory_contents = read_dir(pre_keys_path.clone())?;
 
-	for item in directory_contents {
-		match item {
-			Ok(inner) => match inner.file_type() {
-				Ok(ty) => {
-					if ty.is_file() {
-						pre_key_file_list.push(String::from(inner.file_name().to_str().unwrap()));
+		let mut pre_key_file_list: Vec<String> = Vec::default();
+
+		for item in directory_contents {
+			match item {
+				Ok(inner) => match inner.file_type() {
+					Ok(ty) => {
+						if ty.is_file() {
+							pre_key_file_list.push(String::from(inner.file_name().to_str().unwrap()));
+						}
 					}
-				}
+					Err(e) => {
+						warn!("Suppressing directory traversal error: {}", e);
+					}
+				},
 				Err(e) => {
 					warn!("Suppressing directory traversal error: {}", e);
 				}
-			},
-			Err(e) => {
-				warn!("Suppressing directory traversal error: {}", e);
 			}
+		}
+
+		for file_name in pre_key_file_list {
+			let mut file_path = pre_keys_path.clone();
+			file_path.push_str(file_name.as_str());
+			//These files should be named 0, 1, 2, etc...
+			let _id: u32 = file_name.parse()?;
+			
+			let mut buffer = Vec::new();
+			let mut f = File::open(file_path.as_str())?;
+			f.read_to_end(&mut buffer)?;
+
+			let record = PreKeyRecord::deserialize(buffer.as_slice())?;
+
+			pre_key_store.save_pre_key(record.id()?, &record, ctx).await?;
 		}
 	}
 
-	for file_name in pre_key_file_list {
-		let mut file_path = pre_keys_path.clone();
-		file_path.push_str(file_name.as_str());
-		//These files should be named 0, 1, 2, etc...
-		let _id: u32 = file_name.parse()?;
-		
-		let mut buffer = Vec::new();
-		let mut f = File::open(file_path.as_str())?;
-		f.read_to_end(&mut buffer)?;
+	if Path::new(signed_pre_keys_path.as_str()).exists() {
+		//Iterate through files in signed_pre_keys_path
+		let directory_contents = read_dir(signed_pre_keys_path.clone())?;
 
-		let record = PreKeyRecord::deserialize(buffer.as_slice())?;
+		let mut signed_pre_key_file_list: Vec<String> = Vec::default();
 
-		pre_key_store.save_pre_key(record.id()?, &record, ctx).await?;
-	}
-
-	//Iterate through files in signed_pre_keys_path
-	let directory_contents = read_dir(signed_pre_keys_path.clone())?;
-
-	let mut signed_pre_key_file_list: Vec<String> = Vec::default();
-
-	for item in directory_contents {
-		match item {
-			Ok(inner) => match inner.file_type() {
-				Ok(ty) => {
-					if ty.is_file() {
-						signed_pre_key_file_list.push(String::from(inner.file_name().to_str().unwrap()));
+		for item in directory_contents {
+			match item {
+				Ok(inner) => match inner.file_type() {
+					Ok(ty) => {
+						if ty.is_file() {
+							signed_pre_key_file_list.push(String::from(inner.file_name().to_str().unwrap()));
+						}
 					}
-				}
+					Err(e) => {
+						warn!("Suppressing directory traversal error: {}", e);
+					}
+				},
 				Err(e) => {
 					warn!("Suppressing directory traversal error: {}", e);
 				}
-			},
-			Err(e) => {
-				warn!("Suppressing directory traversal error: {}", e);
 			}
 		}
-	}
 
-	for file_name in signed_pre_key_file_list {
-		let mut file_path = signed_pre_keys_path.clone();
-		file_path.push_str(file_name.as_str());
-		//These files should be named 0, 1, 2, etc...
-		let id: u32 = file_name.parse()?;
-		
-		let mut buffer = Vec::new();
-		let mut f = File::open(file_path.as_str())?;
-		f.read_to_end(&mut buffer)?;
+		for file_name in signed_pre_key_file_list {
+			let mut file_path = signed_pre_keys_path.clone();
+			file_path.push_str(file_name.as_str());
+			//These files should be named 0, 1, 2, etc...
+			let id: u32 = file_name.parse()?;
+			
+			let mut buffer = Vec::new();
+			let mut f = File::open(file_path.as_str())?;
+			f.read_to_end(&mut buffer)?;
 
-		let record = SignedPreKeyRecord::deserialize(buffer.as_slice())?;
-		
-		debug!("Loaded a signed pre-key with ID {:?}", id);
-		signed_pre_key_store.save_signed_pre_key(id, &record, ctx).await?;
+			let record = SignedPreKeyRecord::deserialize(buffer.as_slice())?;
+			
+			debug!("Loaded a signed pre-key with ID {:?}", id);
+			signed_pre_key_store.save_signed_pre_key(id, &record, ctx).await?;
+		}
 	}
 
 	Ok((pre_key_store, signed_pre_key_store))
@@ -514,28 +519,30 @@ impl AuxinStateManager for StateManager {
 	
 	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer 
 	fn save_peer_sessions(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()> { 
-		let our_id: String = context.identity.address.get_phone_number()?.clone();
+		let peer_record = context.peer_cache.get(peer).unwrap();
 		//Figure out some directories.
 		let our_path = self.get_protocol_store_path(context);
 
 		let mut session_path = our_path.clone();
 		session_path.push_str("sessions/");
 
-		let mut _known_peers_path = our_path.clone();
-		_known_peers_path.push_str("identities/");
-		
-		//Build a list of all recipient IDs and all recipient-device addresses in our store.
-		let mut addresses : Vec<(u64, ProtocolAddress)> = Vec::default();
-		for r in &context.peer_cache.peers { 
-			for i in r.device_ids_used.iter() {
-				//MUST USE UUID
-				addresses.push( (r.id, ProtocolAddress::new(r.uuid.to_string().clone(), *i)) );
-			}
-		}
+		let mut known_peers_path = our_path.clone();
+		known_peers_path.push_str("identities/");
 
-		for address in addresses.iter() { 
+		if !Path::new(&session_path).exists() {
+			std::fs::create_dir(&session_path)?;
+		}
+		if !Path::new(&known_peers_path).exists() {
+			std::fs::create_dir(&known_peers_path)?;
+		}
+		
+		for device_id in peer_record.device_ids_used.iter() {
+
+			//MUST USE UUID
+			let address = ProtocolAddress::new(peer_record.uuid.to_string().clone(), *device_id);
+
 			let mut file_path = session_path.clone();
-			let session_file_name = format!("{}_{}", address.0, address.1.device_id());
+			let session_file_name = format!("{}_{}", peer_record.id, device_id);
 			file_path.push_str(session_file_name.as_str());
 
 			let mut file = OpenOptions::new()
@@ -544,7 +551,7 @@ impl AuxinStateManager for StateManager {
 				.create(true)
 				.open(file_path.clone())?;
 				
-			let session = block_on(context.session_store.load_session(&address.1, context.get_signal_ctx().get()))?;
+			let session = block_on(context.session_store.load_session(&address, context.get_signal_ctx().get()))?;
 			let session = match session {
 				Some(s) => s,
 				None => {
@@ -556,7 +563,7 @@ impl AuxinStateManager for StateManager {
 			file.write_all(bytes.as_slice())?;
 			file.flush()?;
 			drop(file);
-			debug!("Session file for {} written: {}", &address.1.name(), file_path.clone());
+			debug!("Session file for {} written: {}", &address.name(), file_path.clone());
 		}
 		Ok(())
 	}

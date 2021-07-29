@@ -1,6 +1,6 @@
 use address::{AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
-use libsignal_protocol::{IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PublicKey, SenderCertificate};
+use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, process_prekey_bundle};
 use log::debug;
 use message::MessageOut;
 use net::{AuxinNetManager, AuxinHttpsConnection};
@@ -23,9 +23,9 @@ pub const IAS_TRUST_ANCHOR : &[u8] = include_bytes!("../data/ias.der");
 
 use rand::{CryptoRng, Rng, RngCore};
 //use serde::{Serialize, Deserialize};
-use state::{AuxinStateManager, PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode};
+use state::{AuxinStateManager, PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode, PeerInfoReply};
 
-use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::AuxinMessageList, net::common_http_headers};
+use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::{AuxinMessageList, MessageSendMode}, net::common_http_headers, state::ForeignPeerProfile};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -124,7 +124,7 @@ pub struct AuxinContext {
     pub ctx: SignalCtx,
 }
 
-fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> {
+pub fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> {
     let profile_key_bytes = base64::decode(profile_key)?;
     let profile_key = aes_gcm::Key::from_slice(profile_key_bytes.as_slice());
     let cipher = aes_gcm::Aes256Gcm::new(profile_key);
@@ -184,6 +184,7 @@ impl AuxinContext {
 }
 
 pub struct AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
+    #[allow(dead_code)]
     net: N, 
     state_manager: S, 
     context: AuxinContext, 
@@ -210,17 +211,27 @@ custom_error!{ pub StateSaveError
 
 impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
     pub async fn new(local_phone_number: E164, config: AuxinConfig, mut net: N, mut state_manager: S, rng: R) -> Result<Self> {
+        let local_identity = state_manager.load_local_identity(&local_phone_number)?;
+        //TODO: Better error handling here.
+        let http_client = net.connect_to_signal_https().await.map_err(|e| Box::new(AuxinInitError::CannotConnect{msg: format!("{:?}", e)}))?;
+
+        let context = state_manager.load_context(&local_identity, config)?;
+
+        Ok(Self {
+            net,
+            state_manager,
+            context,
+            rng,
+            http_client,
+        })
+    }
+
+    pub async fn retrieve_sender_cert(&mut self) -> Result<()> {
         let trust_root = sealed_sender_trust_root();
 
-        let local_identity = state_manager.load_local_identity(&local_phone_number)?;
-
-        let sender_cert_request: http::Request<String> = local_identity.build_sendercert_request()?;
+        let sender_cert_request: http::Request<String> = self.context.identity.build_sendercert_request()?;
         //TODO: Better error handling here.
-        let mut http_client = net.connect_to_signal_https().await.map_err(|e| Box::new(AuxinInitError::CannotConnect{msg: format!("{:?}", e)}))?;
-        
-        //TODO: Better error handling here.
-        let sender_cert_response = http_client.request(sender_cert_request).await.map_err(|e| Box::new(AuxinInitError::CannotRequestSenderCert{msg: format!("{:?}", e)}))?;
-
+        let sender_cert_response = self.http_client.request(sender_cert_request).await.map_err(|e| Box::new(AuxinInitError::CannotRequestSenderCert{msg: format!("{:?}", e)}))?;
         assert!(sender_cert_response.status().is_success());
 
         let cert_structure : serde_json::Value = serde_json::from_str(sender_cert_response.body())?;
@@ -233,17 +244,9 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         } else {
             panic!("Invalid sender certificate!");
         }
+        self.context.sender_certificate = Some(sender_cert);
 
-        let mut context = state_manager.load_context(&local_identity, config)?;
-        context.sender_certificate = Some(sender_cert);
-
-        Ok(Self {
-            net,
-            state_manager,
-            context,
-            rng,
-            http_client,
-        })
+        Ok(())
     }
 
     pub async fn send_message(&mut self, recipient_addr: &AuxinAddress, message: MessageOut) -> Result<()> {
@@ -252,31 +255,111 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
 
         //If this is an unknown peer, retrieve their UUID and store an entry.
         if recipient.is_none() {
-            self.retrieve_and_store_peer_info(recipient_addr.get_phone_number().unwrap()).await?;
+            self.retrieve_and_store_peer(recipient_addr.get_phone_number().unwrap()).await?;
         }
 		//let recipient = self.context.peer_cache.get(&recipient_addr).unwrap();
         let recipient_addr = self.context.peer_cache.complete_address(&recipient_addr).unwrap();
+        let recipient = self.context.peer_cache.get(&recipient_addr).unwrap();
+        let device_count = recipient.device_ids_used.len();
+        // Corrupt data / missing device list! 
+        if (device_count == 0) || recipient.profile.is_none() {
+            self.fill_peer_info(&recipient_addr).await?;
+        }
+        
         let message_list = AuxinMessageList {
             messages: vec![message],
             remote_address: recipient_addr.clone(),
         };
 
-        let outgoing_push_list = message_list.generate_sealed_messages_to_all_devices(&mut self.context, &mut self.rng, generate_timestamp()).await?;
+        // Can we do sealed sender messages here? 
+        let sealed_sender: bool = self.context.peer_cache.get(&recipient_addr).unwrap().supports_sealed_sender();
 
-        let request: http::Request<String> = outgoing_push_list.build_http_request(&recipient_addr, &mut self.context, &mut self.rng)?;
+        let mode = match sealed_sender { 
+            true => { 
+                // Make sure we have a sender certificate to do this stuff with.
+                self.retrieve_sender_cert().await?;
+                MessageSendMode::SealedSender
+            }
+            false => {
+                MessageSendMode::Standard
+            }
+        };
+
+        let outgoing_push_list = message_list.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, generate_timestamp()).await?;
+
+        let request: http::Request<String> = outgoing_push_list.build_http_request(&recipient_addr, mode, &mut self.context, &mut self.rng)?;
         debug!("Attempting to send message: {:?}", request);
         let message_response = self.http_client.request(request).await.map_err(|e| Box::new(SendMessageError::CannotMakeMessageRequest{msg: format!("{:?}", e)}))?;
     
         debug!("Got response to attempt to send message: {:?}", message_response);
         debug!("Response body is: {:?}", message_response.body() );
-        self.state_manager.save_peer_record(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
+        //Only necessary if fill_peer_info is called, and we do it in there. 
+        //self.state_manager.save_peer_record(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
         self.state_manager.save_peer_sessions(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
     
         Ok(())
     }
 
-    pub async fn retrieve_and_store_peer_info(&mut self, recipient_phone:&E164) -> Result<()>{ 
+    /// Retrieves and fills in core information about a peer that is necessary to send a mmessage to them.
+    pub async fn fill_peer_info(&mut self, recipient_addr: &AuxinAddress) -> Result<()> { 
+        let signal_ctx = self.context.get_signal_ctx().get().clone();
+
+        let uuid = self.context.peer_cache.get(recipient_addr).unwrap().uuid.clone();
+
+        {
+            let mut profile_path: String = "https://textsecure-service.whispersystems.org/v1/profile/".to_string();
+            profile_path.push_str(uuid.to_string().as_str());
+            profile_path.push_str("/");
+
+            let auth = self.context.identity.make_auth_header();
+            
+            let req = common_http_headers(http::Method::GET, 
+                profile_path.as_str(),
+                auth.as_str())?;
+            let req = req.body(String::default())?;
+            
+            let res = self.http_client.request(req).await?;
+            debug!("Profile response: {:?}", res);
+            let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
+
+            let prof: ForeignPeerProfile = serde_json::from_str(res.body())?;
+
+            recipient.profile = Some(prof.to_local());
+        }
+
+        let peer_info = self.request_peer_info(&uuid).await?.clone();
+        let decoded_key = base64::decode(&peer_info.identity_key)?;
+        let identity_key = IdentityKey::decode(decoded_key.as_slice())?; 
+
+        for device in peer_info.devices.iter() { 
+            let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap(); 
+            //Track device IDs used.
+            recipient.device_ids_used.push(device.device_id);
+            //Note that we are aware of this peer.
+            let addr = ProtocolAddress::new(uuid.to_string(), device.device_id);
+            self.context.identity_store.save_identity(&addr, &identity_key, signal_ctx).await?;
+        }
+
+        let pre_key_bundles = peer_info.convert_to_pre_key_bundles()?;
+
+        for (device_id, keys) in pre_key_bundles {
+			let peer_address = ProtocolAddress::new(uuid.to_string(), device_id);
+            // Initiate a session using foreign PreKey.
+            process_prekey_bundle(&peer_address, 
+                &mut self.context.session_store, 
+                &mut self.context.identity_store, 
+                &keys, 
+                &mut self.rng,
+                signal_ctx).await?;
+        }
+
+        self.state_manager.save_peer_record(recipient_addr, &self.context)?;
+        Ok(())
+    }
+
+    pub async fn retrieve_and_store_peer(&mut self, recipient_phone:&E164) -> Result<()>{ 
         let uuid = self.make_discovery_request(recipient_phone).await?;
+
         let new_id = self.context.peer_cache.last_id + 1; 
         self.context.peer_cache.last_id = new_id;
         // TODO: Retrieve device IDs and such.
@@ -290,8 +373,33 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
             profile: None,
             device_ids_used: Vec::default(),
         };
+
         self.context.peer_cache.push(peer_record);
+
+        let address = AuxinAddress::Uuid(uuid);
+
+        self.fill_peer_info(&address).await?;
+
         Ok(())
+    }
+
+    pub async fn request_peer_info(&self, uuid: &Uuid) -> Result<PeerInfoReply> { 
+
+        let mut path: String = "https://textsecure-service.whispersystems.org/v2/keys/".to_string();
+        path.push_str(uuid.to_string().as_str());
+        path.push_str("/*");
+
+        let auth = self.context.identity.make_auth_header();
+        
+        let req = common_http_headers(http::Method::GET, 
+            path.as_str(),
+            auth.as_str())?;
+        let req = req.body(String::default())?;
+        
+        let res = self.http_client.request(req).await?;
+        debug!("Peer keys response: {:?}", res);
+        let info: PeerInfoReply = serde_json::from_str(res.body().as_str())?;
+        Ok(info)
     }
 
     pub async fn make_discovery_request(&mut self, recipient_phone:&E164) -> Result<Uuid>{ 

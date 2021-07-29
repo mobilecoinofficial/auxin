@@ -3,7 +3,7 @@ use std::{convert::TryFrom, str::FromStr};
 use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
 use auxin_protos::{Content, Envelope};
 use custom_error::custom_error;
-use libsignal_protocol::{ProtocolAddress, SessionStore, sealed_sender_decrypt, sealed_sender_encrypt};
+use libsignal_protocol::{CiphertextMessageType, ProtocolAddress, SessionStore, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
 use log::{debug};
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
@@ -12,6 +12,9 @@ use uuid::Uuid;
 use std::error::Error;
 
 pub type Timestamp = u64;
+
+// CiphertextMessageType.PreKey goes to Envelope.Type.PREKEY_BUNDLE
+// CiphertextMessageType.Whisper goes to Envelope.Type.CIPHERTEXT
 
 pub mod envelope_types {
 	custom_error!{ pub EnvelopeTypeError
@@ -293,21 +296,21 @@ pub struct OutgoingPushMessageList {
 }
 
 impl OutgoingPushMessageList { 
-	pub fn build_http_request<Body, Rng>(&self, peer_address: &AuxinAddress, context: &mut AuxinContext, rng: &mut Rng) -> Result<http::Request<Body>> 
+	pub fn build_http_request<Body, Rng>(&self, peer_address: &AuxinAddress, mode: MessageSendMode, context: &mut AuxinContext, rng: &mut Rng) -> Result<http::Request<Body>> 
 			where Body: From<String>, Rng: RngCore + CryptoRng { 
 		let json_message = serde_json::to_string(&self)?;
-
-		let unidentified_access_key = context.get_unidentified_access_for(&peer_address, rng)?;
-
-		let unidentified_access_key = base64::encode(unidentified_access_key);
-		debug!("Attempting to send with unidentified access key {}", unidentified_access_key);
 		
 		let mut msg_path = String::from("https://textsecure-service.whispersystems.org/v1/messages/");
 		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
 
-		let mut req = crate::net::common_http_headers(http::Method::GET, msg_path.as_str(), context.identity.make_auth_header().as_str())?;
+		let mut req = crate::net::common_http_headers(http::Method::PUT, msg_path.as_str(), context.identity.make_auth_header().as_str())?;
 		
-		req = req.header("Unidentified-Access-Key", unidentified_access_key);
+		if mode == MessageSendMode::SealedSender { 
+			let unidentified_access_key = context.get_unidentified_access_for(&peer_address, rng)?;
+			let unidentified_access_key = base64::encode(unidentified_access_key);
+			debug!("Attempting to send with unidentified access key {}", unidentified_access_key);
+			req = req.header("Unidentified-Access-Key", unidentified_access_key);
+		}
 		req = req.header("Content-Type", "application/json; charset=utf-8");
 		req = req.header("Content-Length", json_message.len());
 
@@ -332,6 +335,18 @@ pub enum MessageDirection {
 impl Default for MessageDirection {
     fn default() -> Self {
         MessageDirection::Received
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
+pub enum MessageSendMode {
+	Standard, 
+	SealedSender,
+}
+
+impl Default for MessageSendMode {
+    fn default() -> Self {
+        MessageSendMode::Standard
     }
 }
 
@@ -380,8 +395,6 @@ impl MessageContent {
     }
 }
 
-
-
 /// The abstract representation of a message we are sending or receiving
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MessageOut {
@@ -393,9 +406,8 @@ custom_error!{ pub MessageOutError
 }
 
 impl MessageOut {
-	//Encrypts our_message string and builds an OutgoingPushMessage from it.
-	pub async fn generate_sealed_message<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext, rng: &mut Rng, address_to: &AuxinDeviceAddress, timestamp: u64)-> Result<OutgoingPushMessage>{
 
+	pub async fn encrypt_message<Rng: RngCore + CryptoRng>(&self, address_to: &AuxinDeviceAddress, mode: MessageSendMode, context: &mut AuxinContext, rng: &mut Rng, timestamp: u64) -> Result<OutgoingPushMessage> {
 		let signal_ctx = context.get_signal_ctx().ctx.clone(); 
 		//Make sure it has both UUID and phone number. 
 		let mut address_to = address_to.clone();
@@ -429,33 +441,60 @@ impl MessageOut {
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len() );
 
-		//Make sure the sender certificate has actually been gotten already, or else throw an error. 
-		let sender_cert = context.sender_certificate.as_ref().ok_or(MessageOutError::NoSenderCertificate{msg: format!("{:?}", &self)} )?;
-		
-		//Encipher the content we just encoded.
-		let cyphertext_message = sealed_sender_encrypt(
-			&their_address,
-			sender_cert,
-			our_message_bytes.as_slice(),
-			&mut context.session_store,
-			&mut context.identity_store,
-			signal_ctx,
-			rng).await?;
-		debug!("Cyphertext message bytes: {}", cyphertext_message.len() );
+		Ok(match mode {
+			MessageSendMode::Standard => {
+				//It is critically important that, at the very least, process_prekey_bundle (or something else that can start a session) 
+				//is called before this. In Auxin, process_prekey_bundle is called in AuxinApp.fill_peer_info()
+				let cyphertext_message = message_encrypt(
+					&our_message_bytes, 
+					&their_address,
+					&mut context.session_store,
+					&mut context.identity_store,
+					signal_ctx).await?;
+				let envelope_type = match cyphertext_message.message_type() {
+					CiphertextMessageType::Whisper => envelope_types::CIPHERTEXT,
+					CiphertextMessageType::PreKey => envelope_types::PREKEY_BUNDLE,
+					_ => todo!(),
+				};
 
-		//Serialize our cyphertext.
-		let b64_content = base64::encode(cyphertext_message);
-		debug!("Encoded to {} bytes of bas64", b64_content.len() );
-		Ok(OutgoingPushMessage {
-			envelope_type: envelope_types::UNIDENTIFIED_SENDER,
-			destination_device_id: their_address.device_id(),
-			destination_registration_id: reg_id,
-			content: b64_content,
+				let content = base64::encode(cyphertext_message.serialize());
+				debug!("Encoded to {} bytes of bas64", content.len() );
+
+				OutgoingPushMessage {
+					envelope_type,
+					destination_device_id: their_address.device_id(),
+					destination_registration_id: reg_id,
+					content: content,
+				}
+			},
+			MessageSendMode::SealedSender => {
+				//Make sure the sender certificate has actually been gotten already, or else throw an error. 
+				let sender_cert = context.sender_certificate.as_ref().ok_or(MessageOutError::NoSenderCertificate{msg: format!("{:?}", &self)} )?;
+				
+				//Encipher the content we just encoded.
+				let cyphertext_message = sealed_sender_encrypt(
+					&their_address,
+					sender_cert,
+					our_message_bytes.as_slice(),
+					&mut context.session_store,
+					&mut context.identity_store,
+					signal_ctx,
+					rng).await?;
+
+				//Serialize our cyphertext.
+				let content = base64::encode(cyphertext_message);
+
+				debug!("Encoded to {} bytes of bas64", content.len() );
+				OutgoingPushMessage {
+					envelope_type: envelope_types::UNIDENTIFIED_SENDER,
+					destination_device_id: their_address.device_id(),
+					destination_registration_id: reg_id,
+					content,
+				}
+			},
 		})
 	}
 }
-
-
 
 pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut AuxinContext) -> Result<(Content, AuxinDeviceAddress)> {
 	let signal_ctx = context.get_signal_ctx().ctx.clone();
@@ -573,7 +612,7 @@ pub struct AuxinMessageList {
 
 impl AuxinMessageList {
 	///Encrypts our_message string and builds an OutgoingPushMessage from it - One for each of remote_address's devices on file.
-	pub async fn generate_sealed_messages_to_all_devices<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext, rng: &mut Rng, timestamp: u64)-> Result<OutgoingPushMessageList>{
+	pub async fn generate_messages_to_all_devices<Rng: RngCore + CryptoRng>(&self, context: &mut AuxinContext, mode: MessageSendMode, rng: &mut Rng, timestamp: u64)-> Result<OutgoingPushMessageList>{
 
 		let mut messages_to_send: Vec<OutgoingPushMessage> = Vec::default();
 		//TODO: Better error handling here. 
@@ -585,10 +624,12 @@ impl AuxinMessageList {
 			debug!("Send to ProtocolAddress {:?} owned by UUID {:?}", remote_address, dest_uuid);
 
 			for message_plaintext in self.messages.iter() { 
-				let message = message_plaintext.generate_sealed_message(context, rng,
-					&AuxinDeviceAddress {
-						address: self.remote_address.clone(),
-						device_id: *i}, timestamp).await?;
+				let message = message_plaintext.encrypt_message(
+					&AuxinDeviceAddress {address: self.remote_address.clone(), device_id: *i},
+					mode,
+					context,
+					rng,
+					timestamp).await?;
 				
 				messages_to_send.push(message);
 			}
