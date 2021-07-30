@@ -1,12 +1,16 @@
+#![feature(associated_type_bounds)]
+#![feature(generic_associated_types)]
+
 use address::{AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
+use futures::FutureExt;
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, process_prekey_bundle};
 use log::debug;
-use message::MessageOut;
-use net::{AuxinNetManager, AuxinHttpsConnection};
+use message::{MessageIn, MessageOut};
+use net::{AuxinHttpsConnection, AuxinNetManager};
 use serde_json::json;
 use uuid::Uuid;
-use std::{error::Error, time::{SystemTime, UNIX_EPOCH}};
+use std::{error::Error, pin::Pin, time::{SystemTime, UNIX_EPOCH}};
 use custom_error::custom_error;
 
 pub mod address;
@@ -184,11 +188,10 @@ impl AuxinContext {
 }
 
 pub struct AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
-    #[allow(dead_code)]
-    net: N, 
-    state_manager: S, 
-    context: AuxinContext, 
-    rng: R,
+    pub(crate) net: N, 
+    pub(crate) state_manager: S, 
+    pub(crate) context: AuxinContext, 
+    pub(crate) rng: R,
     http_client: N::C,
 }
 
@@ -224,29 +227,6 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
             rng,
             http_client,
         })
-    }
-
-    pub async fn retrieve_sender_cert(&mut self) -> Result<()> {
-        let trust_root = sealed_sender_trust_root();
-
-        let sender_cert_request: http::Request<String> = self.context.identity.build_sendercert_request()?;
-        //TODO: Better error handling here.
-        let sender_cert_response = self.http_client.request(sender_cert_request).await.map_err(|e| Box::new(AuxinInitError::CannotRequestSenderCert{msg: format!("{:?}", e)}))?;
-        assert!(sender_cert_response.status().is_success());
-
-        let cert_structure : serde_json::Value = serde_json::from_str(sender_cert_response.body())?;
-        let encoded_cert_str = cert_structure.get("certificate").unwrap();
-        let temp_vec = base64::decode(encoded_cert_str.as_str().unwrap())?;
-        let sender_cert = libsignal_protocol::SenderCertificate::deserialize(temp_vec.as_slice())?;
-
-        if sender_cert.validate(&trust_root, generate_timestamp() as u64)? { 
-            println!("Confirmed our sender certificate is valid!");
-        } else {
-            panic!("Invalid sender certificate!");
-        }
-        self.context.sender_certificate = Some(sender_cert);
-
-        Ok(())
     }
 
     pub async fn send_message(&mut self, recipient_addr: &AuxinAddress, message: MessageOut) -> Result<()> {
@@ -299,6 +279,30 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
     
         Ok(())
     }
+
+    pub async fn retrieve_sender_cert(&mut self) -> Result<()> {
+        let trust_root = sealed_sender_trust_root();
+
+        let sender_cert_request: http::Request<String> = self.context.identity.build_sendercert_request()?;
+        //TODO: Better error handling here.
+        let sender_cert_response = self.http_client.request(sender_cert_request).await.map_err(|e| Box::new(AuxinInitError::CannotRequestSenderCert{msg: format!("{:?}", e)}))?;
+        assert!(sender_cert_response.status().is_success());
+
+        let cert_structure : serde_json::Value = serde_json::from_str(sender_cert_response.body())?;
+        let encoded_cert_str = cert_structure.get("certificate").unwrap();
+        let temp_vec = base64::decode(encoded_cert_str.as_str().unwrap())?;
+        let sender_cert = libsignal_protocol::SenderCertificate::deserialize(temp_vec.as_slice())?;
+
+        if sender_cert.validate(&trust_root, generate_timestamp() as u64)? { 
+            println!("Confirmed our sender certificate is valid!");
+        } else {
+            panic!("Invalid sender certificate!");
+        }
+        self.context.sender_certificate = Some(sender_cert);
+
+        Ok(())
+    }
+
 
     /// Retrieves and fills in core information about a peer that is necessary to send a mmessage to them.
     pub async fn fill_peer_info(&mut self, recipient_addr: &AuxinAddress) -> Result<()> { 

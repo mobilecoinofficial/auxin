@@ -1,3 +1,5 @@
+#![feature(async_closure)]
+
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;

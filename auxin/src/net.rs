@@ -1,5 +1,8 @@
-use crate::{LocalIdentity, Result};
+use std::fmt::Debug;
+
+use crate::{LocalIdentity, Result, message::MessageContent};
 use async_trait::async_trait;
+use futures::{Sink, Stream, TryStream};
 
 #[allow(unused_must_use)]
 pub mod api_paths { 
@@ -8,9 +11,8 @@ pub mod api_paths {
     pub const MESSAGES: &str = "/v1/messages/";
 }
 
-///For "User-Agent" http header
 pub const USER_AGENT: &str = "auxin";
-///For "X-Signal-Agent" http header
+//For "X-Signal-Agent" http header
 pub const X_SIGNAL_AGENT: &str = "auxin";
 
 pub fn common_http_headers(verb: http::Method, uri: &str, auth: &str) -> Result<http::request::Builder> {
@@ -23,15 +25,22 @@ pub fn common_http_headers(verb: http::Method, uri: &str, auth: &str) -> Result<
 
 	Ok(req)
 }
+
 #[async_trait]
 pub trait AuxinHttpsConnection { 
 	type Error: 'static + std::error::Error + Send;
 	async fn request(&self, req: http::request::Request<String>) -> std::result::Result<http::Response<String>, Self::Error>;
 }
-
-#[async_trait]
 pub trait AuxinWebsocketConnection { 
- // TODO for receive. 
+	type Message: From<auxin_protos::WebSocketMessage> + Into<auxin_protos::WebSocketMessage> + Clone + Debug + Send;
+	type SinkError: Debug;
+	type StreamError: Debug;
+
+	//type OutStream: Sink<Self::Message>;
+	//type InStream: Stream<Item = Result<Self::Message>>;
+
+	///Converts this type into a message sink and a message stream..
+	fn into_streams(self) -> (Box<dyn Sink<Self::Message, Error=Self::SinkError>>, Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>);
 }
 
 #[async_trait]

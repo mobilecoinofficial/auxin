@@ -1,42 +1,48 @@
 use core::fmt;
 
+use auxin::message::fix_protobuf_buf;
 use auxin::{LocalIdentity, SIGNAL_TLS_CERT, net::*};
 use auxin::Result;
 
 use async_trait::async_trait;
-use hyper::client::HttpConnector;
+use futures::{Sink, SinkExt, Stream, StreamExt, TryFutureExt};
+use hyper::client::{HttpConnector};
 use hyper_tls::{HttpsConnector};
 use log::debug;
+use protobuf::CodedOutputStream;
 use tokio_native_tls::native_tls::{TlsConnector, Certificate};
+use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
+use hyper_tls::TlsStream;
+use tokio_tungstenite::WebSocketStream;
 
-
-pub fn load_root_tls_cert() -> Result<Certificate> {
+pub fn load_root_tls_cert() -> std::result::Result<Certificate, EstablishConnectionError> {
 	debug!("Loading Signal's self-signed certificate.");
-	Ok(Certificate::from_pem(SIGNAL_TLS_CERT.as_bytes())?)
+	Certificate::from_pem(SIGNAL_TLS_CERT.as_bytes())
+		.map_err(|e| EstablishConnectionError::TlsCertFailure(format!("{:?}", e)))
 }
 
-async fn build_tls_connector(cert: Certificate) -> Result<tokio_native_tls::TlsConnector> {
+async fn build_tls_connector(cert: Certificate) -> std::result::Result<tokio_native_tls::TlsConnector, EstablishConnectionError> {
 	let mut builder = TlsConnector::builder();
 	// Recognize SIGNAL_SELF_SIGNED_CERT but do not accept other invalid certs.
 	//let cert = load_root_tls_cert().await?;
 	builder.add_root_certificate(cert);
 
-	let connector: tokio_native_tls::native_tls::TlsConnector = builder.build()?;
+	let connector: tokio_native_tls::native_tls::TlsConnector = builder.build().map_err(|e| EstablishConnectionError::CannotTls(format!("{:?}", e)))?;
 	Ok(tokio_native_tls::TlsConnector::from(connector))
 }
-/*
-async fn connect_tls() -> Result<TlsStream<TcpStream> > {
-	let (connector, stream) = tokio::try_join!(
-		build_tls_connector(),
-		TcpStream::connect("textsecure-service.whispersystems.org:443").map_err(|e| Box::new(e))
-	)?;
 
-	Ok(connector.connect("textsecure-service.whispersystems.org", stream).await?)
-}*/
-/*
+async fn connect_tls_for_websocket(cert: Certificate) -> std::result::Result<TlsStream<TcpStream>, EstablishConnectionError> {
+	let first_future = build_tls_connector(cert);
+	let second_future = TcpStream::connect("textsecure-service.whispersystems.org:443").map_err(|e| EstablishConnectionError::CannotTls( format!("{:?}",e)));
+	let (connector, stream) = tokio::try_join!(first_future, second_future)?;
+
+	connector.connect("textsecure-service.whispersystems.org", stream).await.map_err(|e| EstablishConnectionError::CannotTls(format!("{:?}", e)))
+}
+
 // Signal's API lives at textsecure-service.whispersystems.org.
 async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(local_identity: &LocalIdentity, stream: S) 
-		-> Result<(WebSocketStream<S>, Response<()>)> {
+		-> std::result::Result<(WebSocketStream<S>, tungstenite::http::Response<()>), EstablishConnectionError> {
 	let signal_url = "https://textsecure-service.whispersystems.org";
 
 	// Make a websocket URI which has the right protocol.
@@ -48,7 +54,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(local_identity: &L
 	// API arguments to identify ourselves.
 	let mut filled_uri = ws_uri.clone();
 	filled_uri.push_str("?login=");
-	filled_uri.push_str(local_identity.our_address.get_uuid()?.to_string().as_str());
+	filled_uri.push_str(local_identity.address.get_uuid().unwrap().to_string().as_str());
 	filled_uri.push_str("&password=");
 	filled_uri.push_str(&local_identity.password);
 
@@ -71,27 +77,17 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(local_identity: &L
 		headers };
 
 	debug!("Connecting to websocket with request {:?}", req);
-	Ok(client_async(req, stream).await?)
-}*/
-/*
-// (Try to) read a raw byte buffer as a Signal Websocketmessage protobuf.
-fn read_wsmessage(buf: &[u8]) -> Result<auxin_protos::WebSocketMessage> {
-	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
-	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
-	Ok(reader.read_message()?)
+	tokio_tungstenite::client_async(req, stream).await
+		.map_err(|e| EstablishConnectionError::CantStartWebsocketConnect(format!("{:?}", e)))
 }
 
-///Blocking operation to loop on retrieving a Hyper response's body stream and turn it into an ordinary buffer. 
-async fn read_body_stream_to_buf(resp: &mut hyper::Body) -> Result<Vec<u8>> { 
-	let mut buf: Vec<u8> = Vec::default();
-	while let Some(next) = resp.data().await {
-		let chunk = next?;
-		let b: &[u8] = chunk.borrow();
-		let mut v = Vec::from(b);
-		buf.append(&mut v);
-	}
-	Ok(buf)
-}*/
+// (Try to) read a raw byte buffer as a Signal Websocketmessage protobuf.
+fn read_wsmessage(buf: &[u8]) -> std::result::Result<auxin_protos::WebSocketMessage, WebsocketError> {
+	let new_buf = fix_protobuf_buf(&Vec::from(buf))
+		.map_err(|e| WebsocketError::FailedtoDeserialize(format!("{:?}", e)))?;
+	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
+	reader.read_message().map_err(|e| WebsocketError::FailedtoDeserialize(format!("{:?}", e)))
+}
 
 pub struct AuxinHyperConnection { 
     pub client: hyper::Client<HttpsConnector<HttpConnector>, hyper::Body>,
@@ -127,6 +123,31 @@ impl fmt::Display for SendAttemptError {
 
 impl std::error::Error for SendAttemptError {}
 
+#[derive(Debug)]
+pub enum WebsocketError { 
+    FailedtoDeserialize(String),
+	UnderlyingMessageReceive(String),
+	TungsteniteError(tungstenite::Error),
+	StreamClosed(Option<tungstenite::protocol::CloseFrame<'static>>),
+}
+impl fmt::Display for WebsocketError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self { 
+            Self::FailedtoDeserialize(e) => write!(f, "Could not deserialize to a \"Websocket Message\" protobuf: {}", e),
+			Self::UnderlyingMessageReceive(e) => write!(f, "The library Auxin uses for WebSocket connections, Tungstenite, caught an error on polling for new messages: {}", e),
+			Self::TungsteniteError(e) => write!(f, "{:?}", e),
+			Self::StreamClosed(e) => { 
+				match e {
+					Some(frame) => write!(f, "Stream was closed - reason: {:?}", frame),
+					None => write!(f, "Stream was closed with no close frame."),
+				}
+			},
+        }
+    }
+}
+
+impl std::error::Error for WebsocketError {}
+
 #[async_trait]
 impl AuxinHttpsConnection for AuxinHyperConnection { 
     type Error = SendAttemptError;
@@ -139,13 +160,66 @@ impl AuxinHttpsConnection for AuxinHyperConnection {
     }
 }
 
+pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;
 pub struct AuxinTungsteniteConnection { 
-    //TODO
+    client: WsStream,
 }
 
 #[async_trait]
-impl AuxinWebsocketConnection for AuxinTungsteniteConnection { 
-    // TODO for receive. 
+impl AuxinWebsocketConnection for AuxinTungsteniteConnection {
+    type Message = auxin_protos::WebSocketMessage;
+	type SinkError= tungstenite::Error;
+	type StreamError= WebsocketError;
+
+    fn into_streams(self) -> (Box<dyn Sink<Self::Message, Error=Self::SinkError>>, Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>) {
+		let (sink, stream) = self.client.split();
+		
+		// Convert an auxin_protos::WebSocketMessage into a tungstenite::Message here. 
+		let sink = sink.with( async move |m: Self::Message| 
+				-> std::result::Result<tungstenite::Message, tungstenite::Error> {
+			match m.get_field_type() {
+				auxin_protos::WebSocketMessage_Type::UNKNOWN => panic!("Attempted to send a WebSocketMessage_Type::UNKNOWN"),
+				auxin_protos::WebSocketMessage_Type::REQUEST => {
+					let mut buf: Vec<u8> = Vec::default();
+					let mut out_gen = CodedOutputStream::new(&mut buf);
+					out_gen.write_message_no_tag(m.get_request()).expect("Could not write request message.");
+					out_gen.flush().expect("Could not write request message.");
+					drop(out_gen);
+					let msg = tungstenite::Message::Binary(buf);
+					Ok(msg)
+				},
+				auxin_protos::WebSocketMessage_Type::RESPONSE => {
+					let mut buf: Vec<u8> = Vec::default();
+					let mut out_gen = CodedOutputStream::new(&mut buf);
+					out_gen.write_message_no_tag(m.get_response()).expect("Could not write response message.");
+					out_gen.flush().expect("Could not write response message.");
+					drop(out_gen);
+					let msg = tungstenite::Message::Binary(buf);
+					Ok(msg)
+				},
+			}
+		});
+
+		// Convert a tungstenite::Message into an auxin_protos::WebSocketMessage. 
+		let stream = stream.filter_map( |m | async move {
+			match m { 
+				Err(e) => Some(Err(WebsocketError::TungsteniteError(e))),
+				Ok(msg) => { 
+					match msg {
+						tungstenite::Message::Text(_msg) => todo!(), // From json maybe?
+						tungstenite::Message::Binary(buf) => {
+							Some(read_wsmessage(&buf))
+						},
+						tungstenite::Message::Ping(_) => None,
+						tungstenite::Message::Pong(_) => None,
+						tungstenite::Message::Close(frame) => Some(Err(WebsocketError::StreamClosed(frame))),
+					}
+				}
+			}
+		});
+
+        (Box::new(sink), Box::new(stream))
+    }
 }
 
 pub struct NetManager {
@@ -162,17 +236,22 @@ impl NetManager {
 #[derive(Debug, Clone)]
 pub enum EstablishConnectionError { 
     CannotTls(String),
+    TlsCertFailure(String),
     FailedHttpsConnect(String),
+	CantStartWebsocketConnect(String),
+	BadUpgradeResponse(String),
 }
 impl fmt::Display for EstablishConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self { 
             Self::CannotTls(e) => write!(f, "Failed to construct a TLS connector: {}", e),
+            Self::TlsCertFailure(e) => write!(f, "Could not initialize the root Signal web API self-signed certificate: {}", e),
             Self::FailedHttpsConnect(e) => write!(f, "Could not construct an HTTPS stream: {}", e),
+            Self::CantStartWebsocketConnect(e) => write!(f, "Could not initiate a websocket connection: {}", e),
+            Self::BadUpgradeResponse(e) => write!(f, "Failed to connect as Websocket client, got response: {}", e),
         }
     }
 }
-
 impl std::error::Error for EstablishConnectionError {}
 
 #[async_trait]
@@ -201,7 +280,19 @@ impl AuxinNetManager for NetManager {
 
 	/// Initialize a websocket connection to Signal's "https://textsecure-service.whispersystems.org" address, taking our credentials as an argument. 
 	async fn connect_to_signal_websocket(&mut self, credentials: &LocalIdentity) -> std::result::Result<Self::W, Self::Error> {
-        //TODO
-        Ok(AuxinTungsteniteConnection{})
+		let tls_stream = connect_tls_for_websocket(load_root_tls_cert()?).await?;
+        let (websocket_client, connect_response) = connect_websocket(credentials, tls_stream).await?;
+
+		// Check to make sure our status code is success. 
+		if !connect_response.status().is_success() {
+			let r = connect_response.status().as_u16();
+			let s = connect_response.status().to_string();
+			let err = format!("Status {}: {}", r, s);
+			return Err(EstablishConnectionError::BadUpgradeResponse(err));
+		}
+		
+		debug!("Constructed websocket client, got response: {:?}", connect_response);
+
+        Ok(AuxinTungsteniteConnection{client: websocket_client})
     }
 }
