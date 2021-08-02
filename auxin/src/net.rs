@@ -1,8 +1,8 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, pin::Pin};
 
-use crate::{LocalIdentity, Result, message::MessageContent};
+use crate::{LocalIdentity, Result};
 use async_trait::async_trait;
-use futures::{Sink, Stream, TryStream};
+use futures::{Sink, Stream};
 
 #[allow(unused_must_use)]
 pub mod api_paths { 
@@ -33,14 +33,14 @@ pub trait AuxinHttpsConnection {
 }
 pub trait AuxinWebsocketConnection { 
 	type Message: From<auxin_protos::WebSocketMessage> + Into<auxin_protos::WebSocketMessage> + Clone + Debug + Send;
-	type SinkError: Debug;
-	type StreamError: Debug;
+	type SinkError: Debug + std::error::Error;
+	type StreamError: Debug + std::error::Error;
 
 	//type OutStream: Sink<Self::Message>;
 	//type InStream: Stream<Item = Result<Self::Message>>;
 
 	///Converts this type into a message sink and a message stream..
-	fn into_streams(self) -> (Box<dyn Sink<Self::Message, Error=Self::SinkError>>, Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>);
+	fn into_streams(self) -> (Pin<Box<dyn Sink<Self::Message, Error=Self::SinkError>>>, Pin<Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>>);
 }
 
 #[async_trait]

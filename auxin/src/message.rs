@@ -1,9 +1,9 @@
-use std::{convert::TryFrom, str::FromStr};
+use std::{convert::{Infallible, TryFrom}, str::FromStr};
 
 use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
 use auxin_protos::{Content, Envelope};
 use custom_error::custom_error;
-use libsignal_protocol::{CiphertextMessageType, ProtocolAddress, SessionStore, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
+use libsignal_protocol::{CiphertextMessage, CiphertextMessageType, ProtocolAddress, SessionStore, SignalMessage, SignalProtocolError, message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
 use log::{debug};
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
@@ -217,7 +217,7 @@ pub fn pad_message_body(message: &[u8]) -> Vec<u8> {
 
 /// Remove padding from an inbound message. 
 /// For example - you will need to use this on the "message" field of the sealed_sender_decrypt() function. 
-pub fn remove_message_padding(message: &Vec<u8>) -> Result<Vec<u8>> {
+pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>, PaddingError> {
 	for (i, elem) in message.iter().enumerate() {
 		//Only check the final chunk
 		if (i + 160) >= message.len() { 
@@ -232,7 +232,7 @@ pub fn remove_message_padding(message: &Vec<u8>) -> Result<Vec<u8>> {
 			}
 		}
 	}
-	return Err(Box::new(PaddingError::PaddingStartNotFound));
+	return Err(PaddingError::PaddingStartNotFound);
 }
 
 /// Makes the protocol buffers sent by Signal's web API compatible with the Rust "protobuf" library.
@@ -356,7 +356,7 @@ pub enum MessageContent {
     TextMessage(String),
     /// Takes a mode ("Delivered" to mean the inbox got it, "Read" to mean somebody saw it) 
     /// and one or more timestamps of the *messages we are acknowledging we received.*
-    ReceiptMessage(ReceiptMode, Timestamp),
+    ReceiptMessage(ReceiptMode, Vec<Timestamp>),
     Other(auxin_protos::Content),
 }
 
@@ -381,7 +381,7 @@ impl MessageContent {
             MessageContent::ReceiptMessage(mode, acknowledging_timestamp) => {
                 let mut receipt_message = auxin_protos::ReceiptMessage::default();
 				receipt_message.set_field_type(*mode);
-				receipt_message.set_timestamp(vec![*acknowledging_timestamp]);
+				receipt_message.set_timestamp(acknowledging_timestamp.clone());
 
                 let _ = protobuf::Message::compute_size(&receipt_message);
                 let mut content_message = auxin_protos::Content::default();
@@ -496,31 +496,65 @@ impl MessageOut {
 	}
 }
 
-pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut AuxinContext) -> Result<(Content, AuxinDeviceAddress)> {
+#[derive(Debug)]
+pub enum MessageInError { 
+	ProtocolError(SignalProtocolError),
+	PaddingIssue(PaddingError),
+	DecodingProblem(String),
+	Infallible
+}
+impl std::fmt::Display for MessageInError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &self { 
+			Self::ProtocolError(e) => write!(f, "The Signal Protocol encountered an error during encryption: {:?}", e),
+			Self::PaddingIssue(e) => write!(f, "Unable to unpad incoming message: {:?}", e),
+			Self::DecodingProblem(e) => write!(f, "Failed to decode incoming message: {:?}", e),
+			Self::Infallible => write!(f, "This error should be impossible to see."),
+        }
+    }
+}
+
+impl std::error::Error for MessageInError {}
+
+impl From<SignalProtocolError> for MessageInError {
+    fn from(val: SignalProtocolError) -> Self {
+        MessageInError::ProtocolError(val)
+    }
+}
+impl From<Infallible> for MessageInError { 
+	fn from(_: Infallible) -> Self {
+		MessageInError::Infallible
+	}
+} 
+
+pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut AuxinContext) -> std::result::Result<(MessageContent, AuxinDeviceAddress), MessageInError> {
 	let signal_ctx = context.get_signal_ctx().ctx.clone();
 	let decrypted = sealed_sender_decrypt(
 		envelope.get_content(),
 		&sealed_sender_trust_root(),
 		generate_timestamp() as u64,
 		context.identity.address.get_phone_number().ok().map(|s| s.clone()),
-		context.identity.address.get_uuid()?.to_string(),
+		context.identity.address.get_uuid().unwrap().to_string(),
 		context.identity.address.device_id,
 		&mut context.identity_store,
 		&mut context.session_store,
 		&mut context.pre_key_store,
 		&mut context.signed_pre_key_store,
 		signal_ctx,
-	).await?;
+	).await.map_err(|e| { MessageInError::ProtocolError(e) })?;
 
 	debug!("Length of decrypted message: {:?}", decrypted.message.len());
 
-	let unpadded_message = remove_message_padding(&decrypted.message)?;
-	let fixed_buf = fix_protobuf_buf(&unpadded_message)?;
+	let unpadded_message = remove_message_padding(&decrypted.message).map_err(|e | { MessageInError::PaddingIssue(e)})?;
+	let fixed_buf = fix_protobuf_buf(&unpadded_message)
+		.map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?;
 
 	let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
-	let message: auxin_protos::Content = reader.read_message()?;
+	let message: auxin_protos::Content = reader.read_message()
+	.map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?;
 
-	let sender_uuid = Uuid::from_str(decrypted.sender_uuid()?)?;
+	let sender_uuid = Uuid::from_str(decrypted.sender_uuid().unwrap())
+	.map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?;
 	let sender_e164 = decrypted.sender_e164().ok().flatten().map(|s| s.to_string());
 
 	let sender_address = match sender_e164 { 
@@ -531,7 +565,8 @@ pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut Auxi
 	let remote_address = AuxinDeviceAddress{address: sender_address, device_id: decrypted.device_id};
 
 	debug!("Decrypted sealed sender message into: {:?}", &message);
-	return Ok((message, remote_address));
+	return Ok((MessageContent::try_from(message).map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?
+			, remote_address));
 }
 
 /// The abstract representation of a message we are receiving
@@ -549,37 +584,39 @@ impl MessageIn {
 	/// Generate a receipt indicating that we received, or read, this message.
 	pub fn generate_receipt(&self, mode: ReceiptMode) -> MessageOut {
 		MessageOut {
-			content: MessageContent::ReceiptMessage(mode, self.timestamp),
+			content: MessageContent::ReceiptMessage(mode, vec![self.timestamp]),
 		}
 	}
 
-	pub async fn decode_envelope(envelope: Envelope, context: &mut AuxinContext) -> Result<MessageIn> {
+	pub async fn decode_envelope<R: RngCore + CryptoRng>(envelope: Envelope, context: &mut AuxinContext, rng: &mut R) -> std::result::Result<MessageIn, MessageInError> {
 		// Build our remote address if this is not a sealed sender message.
+		let remote_address = address_from_envelope(&envelope);
+		let remote_address = remote_address.map(|a | { 
+			let mut new_addr = a.clone();
+			new_addr.address = context.peer_cache.complete_address(&a.address).unwrap_or(a.address.clone());
+			new_addr
+		});
 		Ok(match envelope.get_field_type() {
 			auxin_protos::Envelope_Type::UNKNOWN => todo!(),
-			auxin_protos::Envelope_Type::CIPHERTEXT => todo!(),
+			auxin_protos::Envelope_Type::CIPHERTEXT => {
+				let remote_address = remote_address.unwrap();
+				let signal_message = SignalMessage::try_from(envelope.get_content())?;
+				let ciph = CiphertextMessage::SignalMessage(signal_message);
+				let decrypted = decrypt_ciphertext(&ciph, context, rng, &remote_address).await?;
+				
+				MessageIn {
+					content: MessageContent::try_from(decrypted)?, 
+					remote_address,
+					timestamp: envelope.get_timestamp(),
+					timestamp_received: generate_timestamp(), //Keep track of when we got it.
+				}
+			},
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
 			auxin_protos::Envelope_Type::PREKEY_BUNDLE => todo!(),
 			auxin_protos::Envelope_Type::RECEIPT => {
-				debug!("{:?}", &envelope);
-				let remote_address = match envelope.has_sourceDevice() {
-					true => {
-						let source_device = envelope.get_sourceDevice();
-						if envelope.has_sourceUuid() {
-							Some(AuxinDeviceAddress{address: AuxinAddress::try_from( envelope.get_sourceUuid())?, device_id: source_device} )
-						}
-						else if envelope.has_sourceE164() {
-							Some(AuxinDeviceAddress{address: AuxinAddress::try_from( envelope.get_sourceE164())?, device_id: source_device} )
-						}
-						else {
-							None
-						}
-					},
-					false => None,
-				};
 				let remote_address = remote_address.unwrap();
 				MessageIn { 
-					content: MessageContent::ReceiptMessage(ReceiptMode::DELIVERY, envelope.get_timestamp()), 
+					content: MessageContent::ReceiptMessage(ReceiptMode::DELIVERY, vec![envelope.get_timestamp()]), 
 					remote_address: remote_address,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(), //Keep track of when we got it.
@@ -589,7 +626,7 @@ impl MessageIn {
 				// Decrypt the sealed sender message and also unpad the 
 				let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;
 				MessageIn {
-					content: MessageContent::try_from(content)?, 
+					content: MessageContent::try_from(content)?,
 					remote_address: sender,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(), //Keep track of when we got it.
@@ -598,10 +635,61 @@ impl MessageIn {
 		})
 	}
 
-	pub async fn decode_envelope_bin(bin: &[u8], context: &mut AuxinContext) -> Result<Self> {
-		let envelope = read_envelope_from_bin(bin)?;
-		MessageIn::decode_envelope(envelope, context).await
+	pub async fn decode_envelope_bin<R: RngCore + CryptoRng>(bin: &[u8], context: &mut AuxinContext, rng: &mut R) -> std::result::Result<Self, MessageInError> {
+		let envelope = read_envelope_from_bin(bin)
+		.map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?;
+		MessageIn::decode_envelope(envelope, context, rng).await
 	}
+
+	pub fn needs_receipt(&self) -> bool {
+		if let MessageContent::ReceiptMessage(_, _) = self.content {
+			false
+		}
+		else {
+			true
+		}
+	}
+}
+
+fn address_from_envelope(envelope: &Envelope) -> Option<AuxinDeviceAddress> {
+	match envelope.has_sourceDevice() {
+		true => {
+			let source_device = envelope.get_sourceDevice();
+			if envelope.has_sourceUuid() {
+				Some(AuxinDeviceAddress{address: AuxinAddress::try_from( envelope.get_sourceUuid()).unwrap(), device_id: source_device} )
+			}
+			else if envelope.has_sourceE164() {
+				Some(AuxinDeviceAddress{address: AuxinAddress::try_from( envelope.get_sourceE164()).unwrap(), device_id: source_device} )
+			}
+			else {
+				None
+			}
+		},
+		false => None,
+	}
+}
+
+async fn decrypt_ciphertext<R: RngCore + CryptoRng>(ciphertext: &CiphertextMessage, context: &mut AuxinContext, rng: &mut R, remote_address: &AuxinDeviceAddress) 
+	-> std::result::Result<auxin_protos::Content, MessageInError> {
+	let signal_ctx = context.get_signal_ctx().get();
+	let decrypted = message_decrypt(
+		ciphertext, 
+		&remote_address.uuid_protocol_address().unwrap(), 
+		&mut context.session_store, 
+		&mut context.identity_store, 
+		&mut context.pre_key_store, 
+		&mut context.signed_pre_key_store, 
+		rng, 
+		signal_ctx).await.map_err(|e| MessageInError::ProtocolError(e))?;
+
+	let unpadded_message = remove_message_padding(&decrypted)
+		.map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?;
+	let fixed_buf = fix_protobuf_buf(&unpadded_message)
+		.map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?;
+
+	let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
+	Ok(reader.read_message()
+		.map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?)
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -645,7 +733,7 @@ impl AuxinMessageList {
 }
 
 impl TryFrom<auxin_protos::Content> for MessageContent {
-    type Error = Box<dyn Error>;
+    type Error = MessageInError;
 
     fn try_from(value: auxin_protos::Content) -> std::result::Result<Self, Self::Error> {
         if value.has_dataMessage() {
@@ -656,8 +744,7 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 		}
 		else if value.has_receiptMessage() { 
 			let receipt_message = value.get_receiptMessage();
-			assert_eq!(receipt_message.get_timestamp().len(), 1);
-			return Ok(MessageContent::ReceiptMessage(receipt_message.get_field_type(), receipt_message.get_timestamp()[0]))
+			return Ok(MessageContent::ReceiptMessage(receipt_message.get_field_type(), receipt_message.get_timestamp().to_vec()))
 		}
 		// TODO: More fine-grained results. 
 		return Ok(MessageContent::Other(value));

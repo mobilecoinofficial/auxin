@@ -8,14 +8,13 @@ use auxin::{AuxinConfig, AuxinContext, PROFILE_KEY_LEN, SignalCtx};
 use auxin::LocalIdentity;
 use auxin::Result;
 use auxin::address::{AuxinAddress, AuxinDeviceAddress, E164};
-use auxin::state::{AuxinStateManager, PeerRecordStructure, PeerStore};
+use auxin::state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore};
 
 use futures::executor::block_on;
-use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, SenderCertificate, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
+use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
 use log::{debug, warn};
 use uuid::Uuid;
 use custom_error::custom_error;
-use serde::{Deserialize, Serialize};
 
 use crate::Context;
 
@@ -113,20 +112,12 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
     })
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct PeerIdentity {
-	pub identity_key : String,
-	pub trust_level : Option<i32>,
-	pub added_timestamp : Option<u64>,
-}
-
 /// Load any identity keys for known peers (recipients) present in our protocol store. These end up in identity_store.known_keys
 #[allow(unused_must_use)]
 pub async fn load_known_peers(
 	our_id: &String,
 	base_dir: &str,
-	recipients: &PeerRecordStructure,
+	recipients: &mut PeerRecordStructure,
 	identity_store: &mut InMemIdentityKeyStore,
 	ctx: libsignal_protocol::Context,
 ) -> Result<()> {
@@ -137,7 +128,7 @@ pub async fn load_known_peers(
 	let mut known_peers_path = our_path.clone();
 	known_peers_path.push_str("identities/");
 
-	for recip in recipients.peers.iter() {
+	for recip in recipients.peers.iter_mut() {
 		let mut this_peer_path = known_peers_path.clone();
 		this_peer_path.push_str(format!("{}", recip.id).as_str());
 		debug!("Attempting to load peer identity from {}", this_peer_path);
@@ -150,15 +141,16 @@ pub async fn load_known_peers(
 			}
 
 			let peer_identity: PeerIdentity = serde_json::from_str(peer_string.as_str())?;
-			let decoded_key: Vec<u8> = base64::decode(peer_identity.identity_key)?;
+
+			let decoded_key: Vec<u8> = base64::decode(&peer_identity.identity_key)?;
 			let id_key = IdentityKey::decode(decoded_key.as_slice())?;
 			for i in recip.device_ids_used.iter() {
 				let addr = ProtocolAddress::new(recip.uuid.to_string(), *i);
 				identity_store.save_identity(&addr, &id_key, ctx);
 				let addr = ProtocolAddress::new(recip.number.clone(), *i);
 				identity_store.save_identity(&addr, &id_key, ctx);
-				debug!("Loaded identity key {:?} for known peer {:?}", id_key, addr);
 			}
+			recip.identity = Some(peer_identity);
 		}
 	}
 
@@ -466,9 +458,9 @@ pub async fn make_context(base_dir: &str, local_identity: LocalIdentity, config:
 	let mut identity_store = InMemIdentityKeyStore::new(local_identity.identity_keys.clone(), local_identity.reg_id);
 	
 	//Load cached peers and sessions.
-	let (sessions, peers) = load_sessions(&our_phone_number, base_dir, None).await?;
+	let (sessions, mut peers) = load_sessions(&our_phone_number, base_dir, None).await?;
 	//Load identity keys we saved for peers previously. Writes to the identity store.
-	load_known_peers(&our_phone_number, base_dir, &peers, &mut identity_store, None).await?;
+	load_known_peers(&our_phone_number, base_dir, &mut peers, &mut identity_store, None).await?;
 	let (pre_keys, signed_pre_keys) = load_prekeys(&our_phone_number, base_dir, None).await?;
 
 	Ok(Context {
@@ -589,6 +581,24 @@ impl AuxinStateManager for StateManager {
 
 		//Ensure file is closed ASAP.
 		drop(file);
+
+		let mut identities_path = our_path.clone();
+		identities_path.push_str("identities/");
+		for recip in context.peer_cache.peers.iter() {
+			if let Some(ident) = &recip.identity {
+				let id = recip.id;
+				let file_path = format!("{}/{}", identities_path, id);
+				let mut file = OpenOptions::new()
+					.truncate(true)
+					.write(true)
+					.create(true)
+					.open(file_path.clone())?;
+				let json_identity = serde_json::to_string(ident)?;
+				file.write_all(json_identity.as_bytes())?;
+				file.flush()?;
+				drop(file);
+			}
+		}
 
 		Ok(())
 	}

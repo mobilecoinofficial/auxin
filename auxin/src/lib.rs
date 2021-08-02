@@ -1,17 +1,19 @@
 #![feature(associated_type_bounds)]
-#![feature(generic_associated_types)]
 
 use address::{AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
-use futures::FutureExt;
-use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, process_prekey_bundle};
-use log::debug;
-use message::{MessageIn, MessageOut};
-use net::{AuxinHttpsConnection, AuxinNetManager};
+use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketResponseMessage};
+use futures::{Sink, SinkExt, Stream, StreamExt};
+use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, SignalProtocolError, process_prekey_bundle};
+use log::{debug, warn};
+use message::{MessageIn, MessageInError, MessageOut};
+use net::{AuxinHttpsConnection, AuxinNetManager, AuxinWebsocketConnection};
+use protobuf::error;
 use serde_json::json;
 use uuid::Uuid;
 use std::{error::Error, pin::Pin, time::{SystemTime, UNIX_EPOCH}};
 use custom_error::custom_error;
+use std::fmt::Debug;
 
 pub mod address;
 pub mod state;
@@ -27,7 +29,7 @@ pub const IAS_TRUST_ANCHOR : &[u8] = include_bytes!("../data/ias.der");
 
 use rand::{CryptoRng, Rng, RngCore};
 //use serde::{Serialize, Deserialize};
-use state::{AuxinStateManager, PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode, PeerInfoReply};
+use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode};
 
 use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::{AuxinMessageList, MessageSendMode}, net::common_http_headers, state::ForeignPeerProfile};
 
@@ -188,10 +190,10 @@ impl AuxinContext {
 }
 
 pub struct AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
-    pub(crate) net: N, 
-    pub(crate) state_manager: S, 
-    pub(crate) context: AuxinContext, 
-    pub(crate) rng: R,
+    pub net: N, 
+    pub state_manager: S, 
+    pub context: AuxinContext, 
+    pub rng: R,
     http_client: N::C,
 }
 
@@ -334,7 +336,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         let peer_info = self.request_peer_info(&uuid).await?.clone();
         let decoded_key = base64::decode(&peer_info.identity_key)?;
         let identity_key = IdentityKey::decode(decoded_key.as_slice())?; 
-
+    
         for device in peer_info.devices.iter() { 
             let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap(); 
             //Track device IDs used.
@@ -342,6 +344,18 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
             //Note that we are aware of this peer.
             let addr = ProtocolAddress::new(uuid.to_string(), device.device_id);
             self.context.identity_store.save_identity(&addr, &identity_key, signal_ctx).await?;
+        }
+
+        {
+            //And now for our own, signal-cli-compatible "Identity Store"
+            let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap(); 
+            if recipient.identity.is_none() {
+                recipient.identity = Some(PeerIdentity{
+                    identity_key: peer_info.identity_key.clone(),
+                    trust_level: Some(1),
+                    added_timestamp: Some(generate_timestamp()),
+                });
+            }
         }
 
         let pre_key_bundles = peer_info.convert_to_pre_key_bundles()?;
@@ -376,6 +390,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
             contact: None,
             profile: None,
             device_ids_used: Vec::default(),
+            identity: None,
         };
 
         self.context.peer_cache.push(peer_record);
@@ -518,5 +533,106 @@ impl<R, N, S> Drop for AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinN
         // Make sure all data gets saved first.
         self.state_manager.save_entire_context(&self.context).unwrap();
         self.state_manager.flush(&self.context).unwrap();
+    }
+}
+
+
+#[derive(Debug)]
+pub enum ReceiveError { 
+    NetSpecific(String),
+    SendErr(String),
+    InError(MessageInError),
+    StoreStateError(String),
+    UnknownWebsocketTy,
+}
+impl std::fmt::Display for ReceiveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self { 
+            Self::NetSpecific(e) => write!(f, "Net manager implementation produced an error: {:?}", e),
+            Self::SendErr(e) => write!(f, "Net manager errored while attempting to send a response: {:?}", e),
+            Self::InError(e) => write!(f, "Unable to decode or decrypt message: {:?}", e),
+            Self::StoreStateError(e) => write!(f, "Unable to store state after receiving message: {:?}", e),
+            Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
+        }
+    }
+}
+
+impl std::error::Error for ReceiveError {}
+
+impl From<MessageInError> for ReceiveError {
+    fn from(val: MessageInError) -> Self {
+        Self::InError(val)
+    }
+}
+
+pub struct AuxinReceiver<'a, R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
+    pub(crate) app: &'a mut AuxinApp<R, N, S>,
+    //Disregard these type signatures. They are weird and gnarly for unavoidable reasons. 
+    pub(crate) outstream: Pin<Box<dyn Sink<<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message, Error=<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::SinkError>>>, 
+    pub(crate) instream: Pin<Box<dyn Stream<Item = std::result::Result<<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message, <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::StreamError>>>>,    
+}
+
+impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
+    pub async fn new(app: &'a mut AuxinApp<R,N,S>) -> Result<AuxinReceiver<'a, R, N, S>> {
+        let ws = app.net.connect_to_signal_websocket(&app.context.identity).await?;
+        let (sink, stream) = ws.into_streams(); 
+        Ok(AuxinReceiver { 
+            app,
+            outstream:sink,
+            instream:stream,
+        })
+    }
+    async fn next_inner(&mut self, msg: <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message) -> std::result::Result<MessageIn, ReceiveError> {
+        let wsmessage: auxin_protos::WebSocketMessage = msg.into();
+        match wsmessage.get_field_type() {
+            auxin_protos::WebSocketMessage_Type::UNKNOWN => Err(ReceiveError::UnknownWebsocketTy),
+            auxin_protos::WebSocketMessage_Type::REQUEST => {
+                let req = wsmessage.get_request();
+                let msg = MessageIn::decode_envelope_bin(req.get_body(), &mut self.app.context, &mut self.app.rng).await?;
+                
+                let reply_id = req.get_id();
+                let mut res = WebSocketResponseMessage::default();
+                res.set_id(reply_id);
+                res.set_status(200); // Success
+                res.set_message(String::from("OK"));
+                let mut res_m = WebSocketMessage::default();
+                res_m.set_response(res);
+                res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
+
+                self.outstream.send(res_m.into()).await
+                    .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+
+                if msg.needs_receipt() { 
+                    let receipt = msg.generate_receipt(auxin_protos::ReceiptMessage_Type::DELIVERY);
+                    self.app.send_message(&msg.remote_address.address, receipt).await
+                        .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+                }
+                self.app.state_manager.save_peer_sessions(&msg.remote_address.address, &self.app.context)
+                    .map_err(|e| ReceiveError::StoreStateError(format!("{:?}", e)))?;
+                Ok(msg)
+            },
+            auxin_protos::WebSocketMessage_Type::RESPONSE => todo!(),
+        }
+    }
+    ///Awaits on next available message.  Returns none for end of stream. 
+    pub async fn next(&mut self) -> Option<std::result::Result<MessageIn, ReceiveError>> {
+        //Try up to 64 times if necessary.
+        for _ in 0..64 {
+            let msg = self.instream.next().await;
+            match msg {
+                None => {return None;},
+                Some(Err(e)) => {return Some(Err(ReceiveError::NetSpecific(format!("{:?}",e))));},
+                Some(Ok(m)) => {
+                    match self.next_inner(m).await {
+                        Ok(message) => {return Some(Ok(message))},
+                        Err(ReceiveError::InError(MessageInError::ProtocolError(e))) => {
+                            warn!("Message failed to decode - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+                        },
+                        Err(e) => {return Some(Err(e))},
+                    }
+                },
+            }
+        }
+        None 
     }
 }

@@ -4,7 +4,8 @@ use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
 use auxin::message::{MessageContent, MessageIn, MessageOut};
-use auxin::{AuxinApp, AuxinConfig, LocalIdentity, get_unidentified_access_for_key};
+use auxin::state::AuxinStateManager;
+use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, LocalIdentity, get_unidentified_access_for_key};
 use auxin::{Result};
 use log::{LevelFilter, debug, info, warn};
 use rand::rngs::OsRng;
@@ -25,7 +26,7 @@ pub type Context = auxin::AuxinContext;
 #[tokio::main]
 pub async fn main() -> Result<()> {
 	SimpleLogger::new()
-		.with_level(LevelFilter::Debug)
+		.with_level(LevelFilter::Error)
 		.init()
 		.unwrap();
 	const AUTHOR_STR: &str = "Millie C. <gyrocoder@gmail.com>";
@@ -85,6 +86,20 @@ pub async fn main() -> Result<()> {
 
 		app.send_message(&recipient_addr, message).await?;
 	}
+
+	if let Some(_) = args.subcommand_matches("receive") { 
+		let mut receiver = AuxinReceiver::new(&mut app).await?;
+		while let Some(msg) = receiver.next().await {
+			let msg = msg?;
+			println!("{:?}", msg);
+			match msg.content {
+				MessageContent::TextMessage(msg) => info!("Message received with text {}", msg),
+				MessageContent::ReceiptMessage(_, _) => {},
+				MessageContent::Other(_) => {},
+			}
+		}
+	}
+	app.state_manager.save_entire_context(&app.context)?;
 	
     Ok(())
 }

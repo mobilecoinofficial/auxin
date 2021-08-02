@@ -145,6 +145,8 @@ pub struct PeerRecord {
 	pub profile: Option<PeerProfile>,
 	#[serde(skip)]
 	pub device_ids_used: Vec<u32>,
+	#[serde(skip)] 
+	pub identity: Option<PeerIdentity>,
 }
 
 impl PeerRecord { 
@@ -289,7 +291,7 @@ impl PeerStore for PeerRecordStructure {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerIdentity {
 	pub identity_key : String,

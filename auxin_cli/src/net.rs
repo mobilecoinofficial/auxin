@@ -1,4 +1,5 @@
 use core::fmt;
+use std::pin::Pin;
 
 use auxin::message::fix_protobuf_buf;
 use auxin::{LocalIdentity, SIGNAL_TLS_CERT, net::*};
@@ -171,7 +172,7 @@ impl AuxinWebsocketConnection for AuxinTungsteniteConnection {
 	type SinkError= tungstenite::Error;
 	type StreamError= WebsocketError;
 
-    fn into_streams(self) -> (Box<dyn Sink<Self::Message, Error=Self::SinkError>>, Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>) {
+    fn into_streams(self) -> (Pin<Box<dyn Sink<Self::Message, Error=Self::SinkError>>>, Pin<Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>>) {
 		let (sink, stream) = self.client.split();
 		
 		// Convert an auxin_protos::WebSocketMessage into a tungstenite::Message here. 
@@ -203,7 +204,11 @@ impl AuxinWebsocketConnection for AuxinTungsteniteConnection {
 		// Convert a tungstenite::Message into an auxin_protos::WebSocketMessage. 
 		let stream = stream.filter_map( |m | async move {
 			match m { 
-				Err(e) => Some(Err(WebsocketError::TungsteniteError(e))),
+				Err(e) => match e { 
+					tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake) => None,
+					tungstenite::Error::ConnectionClosed => None,
+					_ => Some(Err(WebsocketError::TungsteniteError(e)))
+				},
 				Ok(msg) => { 
 					match msg {
 						tungstenite::Message::Text(_msg) => todo!(), // From json maybe?
@@ -218,7 +223,7 @@ impl AuxinWebsocketConnection for AuxinTungsteniteConnection {
 			}
 		});
 
-        (Box::new(sink), Box::new(stream))
+        (Box::pin(sink), Box::pin(stream))
     }
 }
 
@@ -284,7 +289,7 @@ impl AuxinNetManager for NetManager {
         let (websocket_client, connect_response) = connect_websocket(credentials, tls_stream).await?;
 
 		// Check to make sure our status code is success. 
-		if !connect_response.status().is_success() {
+		if !((connect_response.status().as_u16() == 200) || (connect_response.status().as_u16() == 101)) {
 			let r = connect_response.status().as_u16();
 			let s = connect_response.status().to_string();
 			let err = format!("Status {}: {}", r, s);
