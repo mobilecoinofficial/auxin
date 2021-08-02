@@ -2,7 +2,7 @@
 
 use address::{AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
-use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketResponseMessage};
+use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, SignalProtocolError, process_prekey_bundle};
 use log::{debug, warn};
@@ -582,33 +582,55 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
             instream:stream,
         })
     }
-    async fn next_inner(&mut self, msg: <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message) -> std::result::Result<MessageIn, ReceiveError> {
+
+    // Notify the server that we have received a message. If it is a non-receipt Signal message, we will send our receipt indicating we got this message.
+    async fn acknowledge_message(&mut self, msg: &Option<MessageIn>, req: &WebSocketRequestMessage) -> std::result::Result<(), ReceiveError> {
+        // Sending responses goes here. 
+        let reply_id = req.get_id();
+        let mut res = WebSocketResponseMessage::default();
+        res.set_id(reply_id);
+        res.set_status(200); // Success
+        res.set_message(String::from("OK"));
+        let mut res_m = WebSocketMessage::default();
+        res_m.set_response(res);
+        res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
+        
+        self.outstream.send(res_m.into()).await
+        .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+
+        if let Some(msg) = msg {
+            if msg.needs_receipt() { 
+                let receipt = msg.generate_receipt(auxin_protos::ReceiptMessage_Type::DELIVERY);
+                self.app.send_message(&msg.remote_address.address, receipt).await
+                    .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+            }
+
+        }
+        Ok(())
+    }
+    async fn next_inner(&mut self, msg: <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message) -> std::result::Result<Option<MessageIn>, ReceiveError> {
         let wsmessage: auxin_protos::WebSocketMessage = msg.into();
         match wsmessage.get_field_type() {
             auxin_protos::WebSocketMessage_Type::UNKNOWN => Err(ReceiveError::UnknownWebsocketTy),
             auxin_protos::WebSocketMessage_Type::REQUEST => {
                 let req = wsmessage.get_request();
-                let msg = MessageIn::decode_envelope_bin(req.get_body(), &mut self.app.context, &mut self.app.rng).await?;
-                
-                let reply_id = req.get_id();
-                let mut res = WebSocketResponseMessage::default();
-                res.set_id(reply_id);
-                res.set_status(200); // Success
-                res.set_message(String::from("OK"));
-                let mut res_m = WebSocketMessage::default();
-                res_m.set_response(res);
-                res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
 
-                self.outstream.send(res_m.into()).await
-                    .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+                // Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
+                let msg = match MessageIn::decode_envelope_bin(req.get_body(), &mut self.app.context, &mut self.app.rng).await {
+                    Err(MessageInError::ProtocolError(e)) => {
+                        warn!("Message failed to decode - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+                        None
+                    },
+                    Err(e) => { return Err(e.into());},
+                    Ok(m) => Some(m),
+                };
+                //This will at least acknowledge to WebSocket that we have received this message.
+                self.acknowledge_message(&msg, &req).await?;
 
-                if msg.needs_receipt() { 
-                    let receipt = msg.generate_receipt(auxin_protos::ReceiptMessage_Type::DELIVERY);
-                    self.app.send_message(&msg.remote_address.address, receipt).await
-                        .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+                if let Some(msg) = &msg {
+                    self.app.state_manager.save_peer_sessions(&msg.remote_address.address, &self.app.context)
+                        .map_err(|e| ReceiveError::StoreStateError(format!("{:?}", e)))?;
                 }
-                self.app.state_manager.save_peer_sessions(&msg.remote_address.address, &self.app.context)
-                    .map_err(|e| ReceiveError::StoreStateError(format!("{:?}", e)))?;
                 Ok(msg)
             },
             auxin_protos::WebSocketMessage_Type::RESPONSE => todo!(),
@@ -624,10 +646,8 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
                 Some(Err(e)) => {return Some(Err(ReceiveError::NetSpecific(format!("{:?}",e))));},
                 Some(Ok(m)) => {
                     match self.next_inner(m).await {
-                        Ok(message) => {return Some(Ok(message))},
-                        Err(ReceiveError::InError(MessageInError::ProtocolError(e))) => {
-                            warn!("Message failed to decode - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
-                        },
+                        Ok(Some(message)) => {return Some(Ok(message))},
+                        Ok(None) => /*Message failed to decode - ignoring error and continuing to receive messages to clear out prior bad state*/ {},
                         Err(e) => {return Some(Err(e))},
                     }
                 },
