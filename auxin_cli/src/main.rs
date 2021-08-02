@@ -3,16 +3,15 @@
 use std::convert::TryFrom;
 
 use auxin::address::AuxinAddress;
-use auxin::message::{MessageContent, MessageIn, MessageOut};
+use auxin::message::{MessageContent, MessageOut};
 use auxin::state::AuxinStateManager;
-use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, LocalIdentity, get_unidentified_access_for_key};
+use auxin::{AuxinApp, AuxinConfig, AuxinReceiver};
 use auxin::{Result};
-use log::{LevelFilter, debug, info, warn};
+use log::{LevelFilter, info};
 use rand::rngs::OsRng;
 use simple_logger::SimpleLogger;
 
 use clap::{App, Arg, SubCommand};
-use uuid::Uuid;
 
 pub mod state;
 pub mod net;

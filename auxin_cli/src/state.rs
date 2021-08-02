@@ -21,8 +21,7 @@ use crate::Context;
 /// Loads the needed information for a LocalIdentity from a json file - intended to be compatible with Libsingal-cli
 pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
     let mut identity_dir = String::from_str(base_dir)?;
-	let f = std::fs::canonicalize(base_dir);
-	
+
     if !base_dir.ends_with("/") {
         identity_dir.push_str("/");
     }
@@ -602,24 +601,27 @@ impl AuxinStateManager for StateManager {
 
 		Ok(())
 	}
+	#[allow(dead_code, unused_variables)]
 	/// Save peer record info from a specific peer.
 	fn save_peer_record(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()> {
 		// Unfortunately I do not see a way to save a single user without saving all users in 
 		// a libsignal-cli style json protocol store.
 		self.save_all_peer_records(context)
 	}
+	#[allow(dead_code, unused_variables)]
 	/// Saves both pre_key_store AND signed_pre_key_store from the context. 
 	fn save_pre_keys(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		//TODO: Currently there is no circumstance where Auxin mutates pre-keys, so I do not know the specifics of what is necessary. 
 		Ok(())
 	}
+	#[allow(dead_code, unused_variables)]
 	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
 	fn save_our_identity(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		//TODO: Currently there is no circumstance where Auxin mutates our own identity, so I do not know the specifics of what is necessary. 
 		//Most likely this will be relevant if we need to generate a new profile key.
 		Ok(())
 	}
-
+	#[allow(dead_code, unused_variables)]
 	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss. 
 	fn flush(&mut self, context: &AuxinContext) ->  crate::Result<()> {
 		// This implementation "Flush"s every time / writes changes immediately rather than queueing them, so this is unnecessary.

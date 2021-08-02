@@ -1,7 +1,7 @@
 use std::{convert::{Infallible, TryFrom}, str::FromStr};
 
 use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
-use auxin_protos::{Content, Envelope};
+use auxin_protos::{Envelope};
 use custom_error::custom_error;
 use libsignal_protocol::{CiphertextMessage, CiphertextMessageType, ProtocolAddress, SessionStore, SignalMessage, SignalProtocolError, message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
 use log::{debug};
@@ -9,7 +9,6 @@ use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use std::error::Error;
 
 pub type Timestamp = u64;
 
