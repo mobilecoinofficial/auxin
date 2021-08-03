@@ -25,7 +25,7 @@ pub type Context = auxin::AuxinContext;
 #[tokio::main]
 pub async fn main() -> Result<()> {
 	SimpleLogger::new()
-		.with_level(LevelFilter::Error)
+		.with_level(LevelFilter::Info)
 		.init()
 		.unwrap();
 	const AUTHOR_STR: &str = "Millie C. <gyrocoder@gmail.com>";
@@ -57,6 +57,10 @@ pub async fn main() -> Result<()> {
 						).subcommand(SubCommand::with_name("receive")
 							.about("Polls for incoming messages.")
 							.version(VERSION_STR)
+							.author(AUTHOR_STR)
+						).subcommand(SubCommand::with_name("echoserver")
+							.about("A simple echo server for demonstration purposes.")
+							.version(VERSION_STR)
 							.author(AUTHOR_STR))
 						.get_matches();
 
@@ -71,7 +75,7 @@ pub async fn main() -> Result<()> {
 	let net = NetManager::new(cert);
 	let state = StateManager::new(base_dir);
 	// Get it to all come together.
-	let mut app = AuxinApp::new(our_phone_number, AuxinConfig{}, net, state, OsRng::default()).await?;
+	let mut app = AuxinApp::new(our_phone_number, AuxinConfig{ }, net, state, OsRng::default()).await?;
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();
@@ -95,6 +99,30 @@ pub async fn main() -> Result<()> {
 				MessageContent::TextMessage(msg) => info!("Message received with text {}", msg),
 				MessageContent::ReceiptMessage(_, _) => {},
 				MessageContent::Other(_) => {},
+			}
+		}
+	}
+
+	if let Some(_) = args.subcommand_matches("echoserver") { 
+		let mut exit = false;
+		while !exit {
+			let mut receiver = AuxinReceiver::new(&mut app).await?;
+			while let Some(msg) = receiver.next().await {
+				let msg = msg?;
+				println!("{:?}", msg);
+				match msg.content {
+					MessageContent::TextMessage(st) => {
+
+						if st.eq_ignore_ascii_case("/quit") {
+							exit = true;
+						}
+						else {
+							//info!("Message received with text {}, replying...", st);
+							receiver.send_message(&msg.remote_address.address, MessageOut{ content: MessageContent::TextMessage(st.clone()) }).await?;
+						}
+					},
+					_ => {},
+				}
 			}
 		}
 	}

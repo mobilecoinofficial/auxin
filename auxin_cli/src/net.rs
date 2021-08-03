@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use futures::{Sink, SinkExt, Stream, StreamExt, TryFutureExt};
 use hyper::client::{HttpConnector};
 use hyper_tls::{HttpsConnector};
-use log::debug;
-use protobuf::CodedOutputStream;
+use log::{debug, trace};
+use protobuf::{CodedOutputStream, Message};
 use tokio_native_tls::native_tls::{TlsConnector, Certificate};
 use tokio::net::TcpStream;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -18,7 +18,7 @@ use hyper_tls::TlsStream;
 use tokio_tungstenite::WebSocketStream;
 
 pub fn load_root_tls_cert() -> std::result::Result<Certificate, EstablishConnectionError> {
-	debug!("Loading Signal's self-signed certificate.");
+	trace!("Loading Signal's self-signed certificate.");
 	Certificate::from_pem(SIGNAL_TLS_CERT.as_bytes())
 		.map_err(|e| EstablishConnectionError::TlsCertFailure(format!("{:?}", e)))
 }
@@ -77,7 +77,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(local_identity: &L
 		version: Some(11),
 		headers };
 
-	debug!("Connecting to websocket with request {:?}", req);
+	trace!("Connecting to websocket with request {:?}", req);
 	tokio_tungstenite::client_async(req, stream).await
 		.map_err(|e| EstablishConnectionError::CantStartWebsocketConnect(format!("{:?}", e)))
 }
@@ -178,27 +178,15 @@ impl AuxinWebsocketConnection for AuxinTungsteniteConnection {
 		// Convert an auxin_protos::WebSocketMessage into a tungstenite::Message here. 
 		let sink = sink.with( async move |m: Self::Message| 
 				-> std::result::Result<tungstenite::Message, tungstenite::Error> {
-			match m.get_field_type() {
-				auxin_protos::WebSocketMessage_Type::UNKNOWN => panic!("Attempted to send a WebSocketMessage_Type::UNKNOWN"),
-				auxin_protos::WebSocketMessage_Type::REQUEST => {
-					let mut buf: Vec<u8> = Vec::default();
-					let mut out_gen = CodedOutputStream::new(&mut buf);
-					out_gen.write_message_no_tag(m.get_request()).expect("Could not write request message.");
-					out_gen.flush().expect("Could not write request message.");
-					drop(out_gen);
-					let msg = tungstenite::Message::Binary(buf);
-					Ok(msg)
-				},
-				auxin_protos::WebSocketMessage_Type::RESPONSE => {
-					let mut buf: Vec<u8> = Vec::default();
-					let mut out_gen = CodedOutputStream::new(&mut buf);
-					out_gen.write_message_no_tag(m.get_response()).expect("Could not write response message.");
-					out_gen.flush().expect("Could not write response message.");
-					drop(out_gen);
-					let msg = tungstenite::Message::Binary(buf);
-					Ok(msg)
-				},
-			}
+
+			let mut buf: Vec<u8> = Vec::default();
+			let mut out_gen = CodedOutputStream::new(&mut buf);
+			let _ = m.compute_size();
+			m.write_to_with_cached_sizes(&mut out_gen).expect("Could not write websocket message.");
+			out_gen.flush().expect("Could not write websocket message.");
+			drop(out_gen);
+			let msg = tungstenite::Message::Binary(buf);
+			Ok(msg)
 		});
 
 		// Convert a tungstenite::Message into an auxin_protos::WebSocketMessage. 

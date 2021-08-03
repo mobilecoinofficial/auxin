@@ -411,7 +411,6 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 			.create(true)
 			.open(file_path.clone())?;
 			
-		debug!("Session lookup for {:?}", address);
 		let session = context.session_store.load_session(&address.1, context.get_signal_ctx().get()).await?;
 		let session = match session {
 			Some(s) => s,
@@ -423,7 +422,6 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 		let bytes = session.serialize()?;
 		file.write_all(bytes.as_slice())?;
 		file.flush()?;
-		debug!("Session file for {} written: {}", &address.1.name(), file_path.clone());
 	}
 
 	// Save recipient store: 
@@ -510,7 +508,14 @@ impl AuxinStateManager for StateManager {
 	
 	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer 
 	fn save_peer_sessions(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()> { 
-		let peer_record = context.peer_cache.get(peer).unwrap();
+
+		let peer = &context.peer_cache.complete_address(peer).unwrap_or(peer.clone());
+		
+		let peer_record = match context.peer_cache.get(peer) {
+			Some(a) => a,
+			// We do not need to save what is not there. 
+			None => {return Ok(());},
+		};
 		//Figure out some directories.
 		let our_path = self.get_protocol_store_path(context);
 
@@ -554,7 +559,6 @@ impl AuxinStateManager for StateManager {
 			file.write_all(bytes.as_slice())?;
 			file.flush()?;
 			drop(file);
-			debug!("Session file for {} written: {}", &address.name(), file_path.clone());
 		}
 		Ok(())
 	}

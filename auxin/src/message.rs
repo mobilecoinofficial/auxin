@@ -256,7 +256,7 @@ pub fn read_wsmessage_from_bin(buf: &[u8]) -> Result<auxin_protos::WebSocketMess
 }
 
 // (Try to) read a raw byte buffer as a Signal Envelope protobuf.
-fn read_envelope_from_bin(buf: &[u8]) -> Result<auxin_protos::Envelope> {
+pub fn read_envelope_from_bin(buf: &[u8]) -> Result<auxin_protos::Envelope> {
 	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
 	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
 	Ok(reader.read_message()?)
@@ -577,6 +577,7 @@ pub struct MessageIn {
 	pub timestamp: u64,
 	/// Timestamp for when we got this message. Technically this is when it was *decoded*, not *received,* but it should be close enough for any metric we're worried about. 
 	pub timestamp_received: u64, 
+	pub server_guid: String,
 }
 
 impl MessageIn {
@@ -588,6 +589,7 @@ impl MessageIn {
 	}
 
 	pub async fn decode_envelope<R: RngCore + CryptoRng>(envelope: Envelope, context: &mut AuxinContext, rng: &mut R) -> std::result::Result<MessageIn, MessageInError> {
+		debug!("Decoding envelope from source: (E164: {}, UUID: {})", envelope.get_sourceE164(), envelope.get_sourceUuid());
 		// Build our remote address if this is not a sealed sender message.
 		let remote_address = address_from_envelope(&envelope);
 		let remote_address = remote_address.map(|a | { 
@@ -596,7 +598,7 @@ impl MessageIn {
 			new_addr
 		});
 		Ok(match envelope.get_field_type() {
-			auxin_protos::Envelope_Type::UNKNOWN => todo!(),
+			auxin_protos::Envelope_Type::UNKNOWN => { return Err(MessageInError::DecodingProblem(format!("Received an \"Unknown\" message type from Websocket! Envelope is: {:?}", envelope)));},
 			auxin_protos::Envelope_Type::CIPHERTEXT => {
 				let remote_address = remote_address.unwrap();
 				let signal_message = SignalMessage::try_from(envelope.get_content())?;
@@ -608,6 +610,7 @@ impl MessageIn {
 					remote_address,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(), //Keep track of when we got it.
+					server_guid: envelope.get_serverGuid().to_string(),
 				}
 			},
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
@@ -619,6 +622,7 @@ impl MessageIn {
 					remote_address: remote_address,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(), //Keep track of when we got it.
+					server_guid: envelope.get_serverGuid().to_string(),
 				}
 			},
 			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => {
@@ -629,6 +633,7 @@ impl MessageIn {
 					remote_address: sender,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(), //Keep track of when we got it.
+					server_guid: envelope.get_serverGuid().to_string(),
 				}
 			},
 		})

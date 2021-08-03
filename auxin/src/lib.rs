@@ -37,7 +37,7 @@ pub const PROFILE_KEY_LEN: usize = 32;
 pub type ProfileKey = [u8; PROFILE_KEY_LEN];
 
 #[derive(Clone, Debug, Default)]
-pub struct AuxinConfig { /* TODO */ }
+pub struct AuxinConfig { }
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -193,7 +193,7 @@ pub struct AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S
     pub state_manager: S, 
     pub context: AuxinContext, 
     pub rng: R,
-    http_client: N::C,
+    pub(crate) http_client: N::C,
 }
 
 
@@ -590,6 +590,7 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
         res.set_id(reply_id);
         res.set_status(200); // Success
         res.set_message(String::from("OK"));
+        res.set_headers(req.get_headers().clone().into());
         let mut res_m = WebSocketMessage::default();
         res_m.set_response(res);
         res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
@@ -598,17 +599,41 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
         .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
 
         if let Some(msg) = msg {
+            // Send receipts if we have to.
             if msg.needs_receipt() { 
                 let receipt = msg.generate_receipt(auxin_protos::ReceiptMessage_Type::DELIVERY);
                 self.app.send_message(&msg.remote_address.address, receipt).await
                     .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
             }
-
         }
+
+        /*
+        // Delete the mssage if we don't need it. 
+        if self.app.context.config.clear_queue && (req.get_body().len() > 0 ) {
+            // Because I have painted myself into a corner with this architecture I have to do it this way. 
+            let envelope = read_envelope_from_bin(req.get_body())
+                .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+            let message_identifier = format!("{}/{}", envelope.get_sourceUuid(), envelope.get_serverGuid() );
+
+            let mut new_req = WebSocketRequestMessage::default();
+            
+            new_req.set_id(self.app.rng.next_u64());
+            new_req.set_verb("DELETE".to_string());
+            new_req.set_path(format!("/v1/messages/{}", message_identifier)); 
+            let mut new_req_m = WebSocketMessage::default();
+            new_req_m.set_request(new_req);
+            new_req_m.set_field_type(WebSocketMessage_Type::REQUEST);
+
+            self.outstream.send(new_req_m.into()).await
+            .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+        }*/
+
+        self.outstream.flush().await
+            .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
         Ok(())
     }
-    async fn next_inner(&mut self, msg: <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message) -> std::result::Result<Option<MessageIn>, ReceiveError> {
-        let wsmessage: auxin_protos::WebSocketMessage = msg.into();
+    async fn next_inner(&mut self, wsmessage: &auxin_protos::WebSocketMessage) -> std::result::Result<Option<MessageIn>, ReceiveError> {
+
         match wsmessage.get_field_type() {
             auxin_protos::WebSocketMessage_Type::UNKNOWN => Err(ReceiveError::UnknownWebsocketTy),
             auxin_protos::WebSocketMessage_Type::REQUEST => {
@@ -617,7 +642,11 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
                 // Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
                 let msg = match MessageIn::decode_envelope_bin(req.get_body(), &mut self.app.context, &mut self.app.rng).await {
                     Err(MessageInError::ProtocolError(e)) => {
-                        warn!("Message failed to decode - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+                        warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+                        None
+                    },
+                    Err(MessageInError::DecodingProblem(e)) => {
+                        warn!("Message failed to decode (bad envelope?) - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
                         None
                     },
                     Err(e) => { return Err(e.into());},
@@ -640,18 +669,47 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
         //Try up to 64 times if necessary.
         for _ in 0..64 {
             let msg = self.instream.next().await;
+            
             match msg {
                 None => {return None;},
                 Some(Err(e)) => {return Some(Err(ReceiveError::NetSpecific(format!("{:?}",e))));},
                 Some(Ok(m)) => {
-                    match self.next_inner(m).await {
+                    let wsmessage: WebSocketMessage = m.into();
+                    //Check to see if we're done.
+                    if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST  { 
+                        let req = wsmessage.get_request();
+                        if req.has_path() { 
+                            // The server has sent us all the messages it has waiting for us.
+                            if req.get_path().contains("/api/v1/queue/empty") {
+                                debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
+                                //Acknowledge we received the end-of-queue and do many clunky error-handling things:
+                                let res = self.acknowledge_message(&None, &req).await
+                                    .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
+                                let res = match res {
+                                    Ok(()) => None,
+                                    Err(e) => Some(Err(e)),
+                                };
+                                
+                                // Receive operation is done. Indicate there are no further messages left to poll for.
+                                return res; //Usually this returns None.
+                            }
+                        }
+                    }
+
+                    //Actually parse our message otherwise.
+                    match self.next_inner(&wsmessage).await {
                         Ok(Some(message)) => {return Some(Ok(message))},
                         Ok(None) => /*Message failed to decode - ignoring error and continuing to receive messages to clear out prior bad state*/ {},
                         Err(e) => {return Some(Err(e))},
                     }
+
                 },
             }
         }
         None 
+    }
+    ///Convenience method so we don't have to work around the borrow checker to call send_message on our app when the Receiver has an &mut app 
+    pub async fn send_message(&mut self, recipient_addr: &AuxinAddress, message: MessageOut) -> Result<()> {
+        self.app.send_message(recipient_addr, message).await
     }
 }
