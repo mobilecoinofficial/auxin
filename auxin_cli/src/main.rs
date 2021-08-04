@@ -116,7 +116,7 @@ pub async fn main() -> Result<()> {
 							exit = true;
 						}
 						else {
-							//info!("Message received with text {}, replying...", st);
+							info!("Message received with text \"{}\", replying...", st);
 							receiver.send_message(&msg.remote_address.address, MessageOut{ content: MessageContent::TextMessage(st.clone()) }).await?;
 						}
 					},
