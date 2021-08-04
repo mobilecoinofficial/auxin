@@ -109,7 +109,6 @@ pub async fn main() -> Result<()> {
 			let mut receiver = AuxinReceiver::new(&mut app).await?;
 			while let Some(msg) = receiver.next().await {
 				let msg = msg?;
-				println!("{:?}", msg);
 				match msg.content {
 					MessageContent::TextMessage(st) => {
 
