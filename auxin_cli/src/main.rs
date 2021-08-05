@@ -7,9 +7,8 @@ use auxin::message::{MessageContent, MessageOut};
 use auxin::state::AuxinStateManager;
 use auxin::{AuxinApp, AuxinConfig, AuxinReceiver};
 use auxin::{Result};
-use log::{LevelFilter, info};
+use log::info;
 use rand::rngs::OsRng;
-use simple_logger::SimpleLogger;
 
 use clap::{App, Arg, SubCommand};
 
@@ -24,10 +23,7 @@ pub type Context = auxin::AuxinContext;
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
-	SimpleLogger::new()
-		.with_level(LevelFilter::Info)
-		.init()
-		.unwrap();
+
 	const AUTHOR_STR: &str = "Millie C. <gyrocoder@gmail.com>";
 	const VERSION_STR: &str = "PRE-RELEASE DO NOT USE";
 
@@ -35,6 +31,13 @@ pub async fn main() -> Result<()> {
 						.version(VERSION_STR)
 						.author(AUTHOR_STR)
 						.about("[TODO]")
+						.arg(Arg::with_name("VERBOSE")
+							.short("v")
+							.long("verbose")
+							.value_name("PHONE_NUMBER")
+							.required(false)
+							.takes_value(false)
+							.help("Print logs to stderr (verbosely)"))
 						.arg(Arg::with_name("USER")
 							.short("u")
 							.long("user")
@@ -68,10 +71,18 @@ pub async fn main() -> Result<()> {
 		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number]");
 	let our_phone_number = our_phone_number.to_string();
 
+	let mut logger = stderrlog::new();
+	let mut logger = logger.module(module_path!()).timestamp(stderrlog::Timestamp::Second);
+	if args.is_present("VERBOSE") {
+		logger = logger.verbosity(3);
+	}
+	else  {
+		logger = logger.verbosity(2);
+	}
+	logger.init().unwrap();
+
     let base_dir = "state/data/";
-
 	let cert = load_root_tls_cert()?;
-
 	let net = NetManager::new(cert);
 	let state = StateManager::new(base_dir);
 	// Get it to all come together.
@@ -82,7 +93,7 @@ pub async fn main() -> Result<()> {
 		let recipient_addr = AuxinAddress::try_from(dest)?;
 
 		let message_text = send_command.value_of("MESSAGE").unwrap();
-		let message_content = MessageContent::TextMessage(message_text.to_string());
+		let message_content = MessageContent::default().with_text(message_text.to_string());
 		let message = MessageOut {
 			content: message_content,
 		};
@@ -94,12 +105,12 @@ pub async fn main() -> Result<()> {
 		let mut receiver = AuxinReceiver::new(&mut app).await?;
 		while let Some(msg) = receiver.next().await {
 			let msg = msg?;
-			println!("{:?}", msg);
-			match msg.content {
-				MessageContent::TextMessage(msg) => info!("Message received with text {}", msg),
-				MessageContent::ReceiptMessage(_, _) => {},
-				MessageContent::Other(_) => {},
+			if let Some(msg) = &msg.content.text_message {
+				info!("Message received with text {}", msg);
 			}
+			let msg_json = serde_json::to_string_pretty(&msg)?;
+			println!("[MESSAGE]");
+			println!("{}",  msg_json);
 		}
 	}
 
@@ -109,18 +120,19 @@ pub async fn main() -> Result<()> {
 			let mut receiver = AuxinReceiver::new(&mut app).await?;
 			while let Some(msg) = receiver.next().await {
 				let msg = msg?;
-				match msg.content {
-					MessageContent::TextMessage(st) => {
 
-						if st.eq_ignore_ascii_case("/quit") {
-							exit = true;
-						}
-						else {
-							info!("Message received with text \"{}\", replying...", st);
-							receiver.send_message(&msg.remote_address.address, MessageOut{ content: MessageContent::TextMessage(st.clone()) }).await?;
-						}
-					},
-					_ => {},
+				let msg_json = serde_json::to_string_pretty(&msg)?;
+				println!("[MESSAGE]");
+				println!("{}",  msg_json);
+
+				if let Some(st) = msg.content.text_message {
+					if st.eq_ignore_ascii_case("/stop") {
+						exit = true;
+					}
+					else {
+						info!("Message received with text \"{}\", replying...", st);
+						receiver.send_message(&msg.remote_address.address, MessageOut{ content: MessageContent::default().with_text(st.clone()) }).await?;
+					}
 				}
 			}
 		}

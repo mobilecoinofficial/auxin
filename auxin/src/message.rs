@@ -1,7 +1,7 @@
 use std::{convert::{Infallible, TryFrom}, str::FromStr};
 
-use crate::{AuxinContext, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
-use auxin_protos::{Envelope};
+use crate::{AuxinContext, ProfileKey, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
+use auxin_protos::{DataMessage_Quote, Envelope};
 use custom_error::custom_error;
 use libsignal_protocol::{CiphertextMessage, CiphertextMessageType, ProtocolAddress, SessionStore, SignalMessage, SignalProtocolError, message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
 use log::{debug};
@@ -350,47 +350,66 @@ impl Default for MessageSendMode {
 }
 
 /// Content we can send / receive over the network, represented abstractly.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum MessageContent {
-    TextMessage(String),
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
+pub struct MessageContent {
+    pub text_message: Option<String>,
     /// Takes a mode ("Delivered" to mean the inbox got it, "Read" to mean somebody saw it) 
     /// and one or more timestamps of the *messages we are acknowledging we received.*
-    ReceiptMessage(ReceiptMode, Vec<Timestamp>),
-    Other(auxin_protos::Content),
+    pub receipt_message: Option<(ReceiptMode, Vec<Timestamp>)>,
+	pub quote: Option<DataMessage_Quote>,
+	/// The Signal "content" this was deserialized from. Will only be None if this is an outgoing message.
+    #[serde(skip_serializing)]
+    pub source: Option<auxin_protos::Content>,
 }
 
 impl MessageContent {
+	pub fn with_text(self, value: String) -> MessageContent { 
+		MessageContent { 
+			text_message: Some(value),
+			receipt_message: self.receipt_message, 
+			quote: self.quote,
+			source: self.source,
+		}
+	}
+
     /// Construct an auxin_protos::Content out of this message.
     pub fn build_signal_content(&self, our_profile_key: &String, timestamp: Timestamp) -> Result<auxin_protos::Content> {
-        match self {
-            MessageContent::TextMessage(msg) => {
-                let mut data_message = auxin_protos::DataMessage::default();
-                data_message.set_body(msg.clone());
-                data_message.set_timestamp(timestamp);
-                let pk = base64::decode(our_profile_key.as_str())?;
-                data_message.set_profileKey(pk);
-                let _ = protobuf::Message::compute_size(&data_message);
-            
-                let mut content_message = auxin_protos::Content::default();
-                content_message.set_dataMessage(data_message);
-                let _ = protobuf::Message::compute_size(&content_message);
+		// Did we create this message using a content message directly?
+		if let Some(content) = &self.source {
+			return Ok(content.clone())
+		}
 
-                Ok(content_message)
-            },
-            MessageContent::ReceiptMessage(mode, acknowledging_timestamp) => {
-                let mut receipt_message = auxin_protos::ReceiptMessage::default();
-				receipt_message.set_field_type(*mode);
-				receipt_message.set_timestamp(acknowledging_timestamp.clone());
+		// Otherwise, build from typical Auxin data. 
+		let mut result = auxin_protos::Content::default();
 
-                let _ = protobuf::Message::compute_size(&receipt_message);
-                let mut content_message = auxin_protos::Content::default();
-                content_message.set_receiptMessage(receipt_message);
-                let _ = protobuf::Message::compute_size(&content_message);
+		let mut use_data_message: bool = false;
+		let mut data_message = auxin_protos::DataMessage::default();
+		data_message.set_timestamp(timestamp);
+		let pk = base64::decode(our_profile_key.as_str())?;
+		data_message.set_profileKey(pk);
 
-                Ok(content_message)
-			},
-            MessageContent::Other(content) => Ok(content.clone()),
+        if let Some(msg) = &self.text_message {
+			use_data_message = true;
+			
+			data_message.set_body(msg.clone());
+			let _ = protobuf::Message::compute_size(&data_message);
         }
+
+        if let Some((mode, acknowledging_timestamp)) = &self.receipt_message {
+			let mut receipt_message = auxin_protos::ReceiptMessage::default();
+			receipt_message.set_field_type(*mode);
+			receipt_message.set_timestamp(acknowledging_timestamp.clone());
+
+			let _ = protobuf::Message::compute_size(&receipt_message);
+			result.set_receiptMessage(receipt_message);
+		}
+
+		if use_data_message {
+			result.set_dataMessage(data_message);
+			let _ = protobuf::Message::compute_size(&result);
+		}
+
+		Ok(result)
     }
 }
 
@@ -584,8 +603,31 @@ impl MessageIn {
 	/// Generate a receipt indicating that we received, or read, this message.
 	pub fn generate_receipt(&self, mode: ReceiptMode) -> MessageOut {
 		MessageOut {
-			content: MessageContent::ReceiptMessage(mode, vec![self.timestamp]),
+			content: MessageContent { 
+				receipt_message: Some((mode, vec![self.timestamp])),
+				text_message: None,
+				source: None,
+				quote: None,
+			}
 		}
+	}
+
+	pub fn update_profile_key_from( content: &auxin_protos::Content, remote_address: &AuxinAddress, context: &mut AuxinContext) -> std::result::Result<(), MessageInError> { 
+		let remote_address = context.peer_cache.complete_address(remote_address).unwrap_or(remote_address.clone());
+		
+		if content.has_dataMessage() { 
+			if content.get_dataMessage().has_profileKey() { 
+				let mut pk : ProfileKey = ProfileKey::default();
+				let pk_slice = content.get_dataMessage().get_profileKey(); 
+				pk.copy_from_slice(pk_slice); 
+
+				let peer = context.peer_cache.get_mut(&remote_address); 
+				if let Some(peer) = peer { 
+					peer.profile_key = Some( base64::encode(pk) ); 
+				}
+			}
+		}
+		Ok(())
 	}
 
 	pub async fn decode_envelope<R: RngCore + CryptoRng>(envelope: Envelope, context: &mut AuxinContext, rng: &mut R) -> std::result::Result<MessageIn, MessageInError> {
@@ -605,6 +647,8 @@ impl MessageIn {
 				let ciph = CiphertextMessage::SignalMessage(signal_message);
 				let decrypted = decrypt_ciphertext(&ciph, context, rng, &remote_address).await?;
 				
+				Self::update_profile_key_from(&decrypted, &remote_address.address, context)?;
+
 				MessageIn {
 					content: MessageContent::try_from(decrypted)?, 
 					remote_address,
@@ -618,7 +662,12 @@ impl MessageIn {
 			auxin_protos::Envelope_Type::RECEIPT => {
 				let remote_address = remote_address.unwrap();
 				MessageIn { 
-					content: MessageContent::ReceiptMessage(ReceiptMode::DELIVERY, vec![envelope.get_timestamp()]), 
+					content: MessageContent { 
+						receipt_message: Some((ReceiptMode::DELIVERY, vec![envelope.get_timestamp()])),
+						text_message: None,
+						source: None,
+						quote: None,
+					},
 					remote_address: remote_address,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(), //Keep track of when we got it.
@@ -628,6 +677,7 @@ impl MessageIn {
 			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => {
 				// Decrypt the sealed sender message and also unpad the 
 				let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;
+
 				MessageIn {
 					content: MessageContent::try_from(content)?,
 					remote_address: sender,
@@ -646,7 +696,8 @@ impl MessageIn {
 	}
 
 	pub fn needs_receipt(&self) -> bool {
-		if let MessageContent::ReceiptMessage(_, _) = self.content {
+		// TODO: Evaluate if Receipt Messages are ever delivered alongside anything else in the same envelope. 
+		if let Some(_) = self.content.receipt_message {
 			false
 		}
 		else {
@@ -740,17 +791,20 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
     type Error = MessageInError;
 
     fn try_from(value: auxin_protos::Content) -> std::result::Result<Self, Self::Error> {
+		let mut result = MessageContent::default();
         if value.has_dataMessage() {
 			let data_message= value.get_dataMessage();
 			if data_message.has_body() {
-				return Ok(MessageContent::TextMessage(data_message.get_body().to_string()));
+				result.text_message = Some(data_message.get_body().to_string());
 			}
 		}
-		else if value.has_receiptMessage() { 
+		if value.has_receiptMessage() { 
 			let receipt_message = value.get_receiptMessage();
-			return Ok(MessageContent::ReceiptMessage(receipt_message.get_field_type(), receipt_message.get_timestamp().to_vec()))
+			result.receipt_message = Some((receipt_message.get_field_type(), receipt_message.get_timestamp().to_vec()));
 		}
+
+		result.source = Some(value);
 		// TODO: More fine-grained results. 
-		return Ok(MessageContent::Other(value));
+		return Ok(result);
     }
 }

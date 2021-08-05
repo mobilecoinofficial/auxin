@@ -607,27 +607,6 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
             }
         }
 
-        /*
-        // Delete the mssage if we don't need it. 
-        if self.app.context.config.clear_queue && (req.get_body().len() > 0 ) {
-            // Because I have painted myself into a corner with this architecture I have to do it this way. 
-            let envelope = read_envelope_from_bin(req.get_body())
-                .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-            let message_identifier = format!("{}/{}", envelope.get_sourceUuid(), envelope.get_serverGuid() );
-
-            let mut new_req = WebSocketRequestMessage::default();
-            
-            new_req.set_id(self.app.rng.next_u64());
-            new_req.set_verb("DELETE".to_string());
-            new_req.set_path(format!("/v1/messages/{}", message_identifier)); 
-            let mut new_req_m = WebSocketMessage::default();
-            new_req_m.set_request(new_req);
-            new_req_m.set_field_type(WebSocketMessage_Type::REQUEST);
-
-            self.outstream.send(new_req_m.into()).await
-            .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-        }*/
-
         self.outstream.flush().await
             .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
         Ok(())
