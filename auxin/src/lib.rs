@@ -5,7 +5,7 @@ use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
 use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, process_prekey_bundle};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{AuxinHttpsConnection, AuxinNetManager, AuxinWebsocketConnection};
 use serde_json::json;
@@ -648,7 +648,7 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
             },
             auxin_protos::WebSocketMessage_Type::RESPONSE => {
                 let res = wsmessage.get_response();
-                println!("{:?}", res);
+                info!("WebSocket response message received: {:?}", res);
                 Ok(None)
             },
         }
