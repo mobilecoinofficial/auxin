@@ -542,6 +542,7 @@ pub enum ReceiveError {
     SendErr(String),
     InError(MessageInError),
     StoreStateError(String),
+    ReconnectErr(String),
     UnknownWebsocketTy,
 }
 impl std::fmt::Display for ReceiveError {
@@ -551,6 +552,7 @@ impl std::fmt::Display for ReceiveError {
             Self::SendErr(e) => write!(f, "Net manager errored while attempting to send a response: {:?}", e),
             Self::InError(e) => write!(f, "Unable to decode or decrypt message: {:?}", e),
             Self::StoreStateError(e) => write!(f, "Unable to store state after receiving message: {:?}", e),
+            Self::ReconnectErr(e) => write!(f, "Error while attempting to reconnect websocket: {:?}", e),
             Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
         }
     }
@@ -564,25 +566,29 @@ impl From<MessageInError> for ReceiveError {
     }
 }
 
+type OutstreamT<N> =Pin<Box<dyn Sink<<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message, Error=<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::SinkError>>>;
+type InstreamT<N> =Pin<Box<dyn Stream<Item = std::result::Result<<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message, <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::StreamError>>>>;
+
 pub struct AuxinReceiver<'a, R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
     pub(crate) app: &'a mut AuxinApp<R, N, S>,
     //Disregard these type signatures. They are weird and gnarly for unavoidable reasons. 
-    pub(crate) outstream: Pin<Box<dyn Sink<<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message, Error=<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::SinkError>>>, 
-    pub(crate) instream: Pin<Box<dyn Stream<Item = std::result::Result<<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message, <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::StreamError>>>>,    
+    pub(crate) outstream: OutstreamT<N>, 
+    pub(crate) instream: InstreamT<N>,
 }
 
 impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
+
     pub async fn new(app: &'a mut AuxinApp<R,N,S>) -> Result<AuxinReceiver<'a, R, N, S>> {
         let ws = app.net.connect_to_signal_websocket(&app.context.identity).await?;
-        let (sink, stream) = ws.into_streams(); 
+        let (outstream, instream) = ws.into_streams();
         Ok(AuxinReceiver { 
             app,
-            outstream:sink,
-            instream:stream,
+            outstream,
+            instream,
         })
     }
 
-    // Notify the server that we have received a message. If it is a non-receipt Signal message, we will send our receipt indicating we got this message.
+    /// Notify the server that we have received a message. If it is a non-receipt Signal message, we will send our receipt indicating we got this message.
     async fn acknowledge_message(&mut self, msg: &Option<MessageIn>, req: &WebSocketRequestMessage) -> std::result::Result<(), ReceiveError> {
         // Sending responses goes here. 
         let reply_id = req.get_id();
@@ -640,10 +646,14 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
                 }
                 Ok(msg)
             },
-            auxin_protos::WebSocketMessage_Type::RESPONSE => todo!(),
+            auxin_protos::WebSocketMessage_Type::RESPONSE => {
+                let res = wsmessage.get_response();
+                println!("{:?}", res);
+                Ok(None)
+            },
         }
     }
-    ///Awaits on next available message.  Returns none for end of stream. 
+    /// Polls for the next available message.  Returns none for end of stream. 
     pub async fn next(&mut self) -> Option<std::result::Result<MessageIn, ReceiveError>> {
         //Try up to 64 times if necessary.
         for _ in 0..64 {
@@ -687,8 +697,40 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
         }
         None 
     }
-    ///Convenience method so we don't have to work around the borrow checker to call send_message on our app when the Receiver has an &mut app 
+
+    /// Convenience method so we don't have to work around the borrow checker to call send_message on our app when the Receiver has an &mut app.
     pub async fn send_message(&mut self, recipient_addr: &AuxinAddress, message: MessageOut) -> Result<()> {
         self.app.send_message(recipient_addr, message).await
+    }
+
+    /// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
+    pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> { 
+        let mut req = WebSocketRequestMessage::default();
+        req.set_id(self.app.rng.next_u64());
+        req.set_verb("GET".to_string()); 
+        req.set_path("/v1/messages/".to_string());
+        let mut req_m = WebSocketMessage::default();
+        req_m.set_request(req);
+        req_m.set_field_type(WebSocketMessage_Type::REQUEST);
+        
+        self.outstream.send(req_m.into()).await
+            .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+
+        self.outstream.flush().await
+            .map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn reconnect(&mut self) -> Result<()> {         
+
+        self.outstream.close().await.map_err(|e| ReceiveError::ReconnectErr(format!("Could not close: {:?}", e)))?;
+        let ws = self.app.net.connect_to_signal_websocket(&self.app.context.identity).await?;
+        let (outstream, instream) = ws.into_streams();
+
+        self.outstream = outstream; 
+        self.instream = instream;
+        
+        Ok(())
     }
 }

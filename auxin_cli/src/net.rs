@@ -284,7 +284,7 @@ impl AuxinNetManager for NetManager {
 			return Err(EstablishConnectionError::BadUpgradeResponse(err));
 		}
 		
-		debug!("Constructed websocket client, got response: {:?}", connect_response);
+		debug!("Constructed websocket client streans, got response: {:?}", connect_response);
 
         Ok(AuxinTungsteniteConnection{client: websocket_client})
     }

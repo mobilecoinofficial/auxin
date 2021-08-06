@@ -1,11 +1,13 @@
 #![feature(async_closure)]
 
+use std::cell::RefCell;
 use std::convert::TryFrom;
+use std::time::Duration;
 
 use auxin::address::AuxinAddress;
 use auxin::message::{MessageContent, MessageOut};
 use auxin::state::AuxinStateManager;
-use auxin::{AuxinApp, AuxinConfig, AuxinReceiver};
+use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
 use auxin::{Result};
 use log::info;
 use rand::rngs::OsRng;
@@ -74,7 +76,7 @@ pub async fn main() -> Result<()> {
 	let mut logger = stderrlog::new();
 	let mut logger = logger.module(module_path!()).timestamp(stderrlog::Timestamp::Second);
 	if args.is_present("VERBOSE") {
-		logger = logger.verbosity(3);
+		logger = logger.verbosity(4);
 	}
 	else  {
 		logger = logger.verbosity(2);
@@ -116,8 +118,11 @@ pub async fn main() -> Result<()> {
 
 	if let Some(_) = args.subcommand_matches("echoserver") { 
 		let mut exit = false;
+		// Ugly hack to get around the multiple ways the borrow checker doesn't recognize what we're trying to do.
+		let receiver_main = RefCell::new( Some( AuxinReceiver::new(&mut app).await? ));
 		while !exit {
-			let mut receiver = AuxinReceiver::new(&mut app).await?;
+			let receiver = receiver_main.take();
+			let mut receiver = receiver.unwrap();
 			while let Some(msg) = receiver.next().await {
 				let msg = msg?;
 
@@ -135,6 +140,16 @@ pub async fn main() -> Result<()> {
 					}
 				}
 			}
+			
+			let sleep_time = Duration::from_millis(100);
+			tokio::time::sleep(sleep_time).await;
+			
+			if let Err(e) = receiver.refresh().await {
+				log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+				receiver.reconnect().await.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))?;
+			}
+			
+			receiver_main.replace(Some(receiver));
 		}
 	}
 	app.state_manager.save_entire_context(&app.context)?;
