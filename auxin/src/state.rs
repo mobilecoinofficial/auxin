@@ -2,8 +2,7 @@ use core::fmt;
 use std::{cmp::Ordering, collections::HashMap};
 
 use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey};
-//use libsignal_protocol::{Context, IdentityKey, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, ProtocolAddress, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore};
-use log::{debug};
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::{self, Visitor}};
 use serde_json::Value;
 use uuid::Uuid;
@@ -64,8 +63,7 @@ impl<'de> Deserialize<'de> for UnidentifiedAccessMode {
 				{
 					Ok(UnidentifiedAccessMode::UNRESTRICTED)
 				} else {
-					debug!("Invalid \"unidentifiedAccessMode\" string. Should be ENABLED, DISABLED, or UNRESTRICTED - we received {}", value);
-					//TODO: Error rather than silently evaluate non-"ENABLED" members to false.
+					warn!("Invalid \"unidentifiedAccessMode\" string. Should be ENABLED, DISABLED, or UNRESTRICTED - we received {}. Evaluating as DISABLED.", value);
 					Ok(UnidentifiedAccessMode::DISABLED)
 				}
 			}
@@ -75,7 +73,7 @@ impl<'de> Deserialize<'de> for UnidentifiedAccessMode {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")] //It's that easy. Serde is magic. God-tier.
+#[serde(rename_all = "camelCase")]
 pub struct PeerProfile {
 	pub last_update_timestamp: u64,
 	pub given_name: Option<String>,
@@ -96,7 +94,6 @@ pub(crate) struct ForeignPeerProfile {
 	pub about_emoji: Option<String>,
 	pub avatar: Option<String>,
 	pub payment_address: Option<String>,
-	// This is definitely base-64 encoded, not that I know *what* it is.
 	pub unidentified_access: Option<String>,
 	pub unrestricted_unidentified_access: bool,
 	pub capabilities: HashMap<String,bool>,

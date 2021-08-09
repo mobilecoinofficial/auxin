@@ -26,7 +26,6 @@ pub fn load_root_tls_cert() -> std::result::Result<Certificate, EstablishConnect
 async fn build_tls_connector(cert: Certificate) -> std::result::Result<tokio_native_tls::TlsConnector, EstablishConnectionError> {
 	let mut builder = TlsConnector::builder();
 	// Recognize SIGNAL_SELF_SIGNED_CERT but do not accept other invalid certs.
-	//let cert = load_root_tls_cert().await?;
 	builder.add_root_certificate(cert);
 
 	let connector: tokio_native_tls::native_tls::TlsConnector = builder.build().map_err(|e| EstablishConnectionError::CannotTls(format!("{:?}", e)))?;

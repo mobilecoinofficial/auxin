@@ -80,7 +80,6 @@ impl AttestationResponse {
 
         // ----- Decode and validate our certificate chain.
 
-        //let response_certs: Vec<&str> = self.certificates.split_inclusive("-----END CERTIFICATE-----\n").collect();
         let response_certs = CapturedX509Certificate::from_pem_multiple(&self.certificates)?;
         //For every cert which the server sent us which is *not* the trust anchor, generate a chain.
         let mut chains: Vec<Vec<&CapturedX509Certificate>> = Vec::default();
@@ -163,8 +162,6 @@ impl AttestationResponse {
 
         gen_remote_attestation_keys(our_ephemeral_keys, &server_ephemeral, &server_static)
     }
-
-    // TODO TODO TODO HIGH PRIORITY: Verify the "Quote" !
 }
 
 /// Response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}

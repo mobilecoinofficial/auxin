@@ -27,7 +27,6 @@ pub const IAS_TRUST_ANCHOR : &[u8] = include_bytes!("../data/ias.der");
 
 
 use rand::{CryptoRng, Rng, RngCore};
-//use serde::{Serialize, Deserialize};
 use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode};
 
 use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::{AuxinMessageList, MessageSendMode}, net::common_http_headers, state::ForeignPeerProfile};

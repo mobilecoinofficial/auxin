@@ -11,6 +11,7 @@ pub mod api_paths {
     pub const MESSAGES: &str = "/v1/messages/";
 }
 
+//For "User-Agent" http header
 pub const USER_AGENT: &str = "auxin";
 //For "X-Signal-Agent" http header
 pub const X_SIGNAL_AGENT: &str = "auxin";
@@ -35,9 +36,6 @@ pub trait AuxinWebsocketConnection {
 	type Message: From<auxin_protos::WebSocketMessage> + Into<auxin_protos::WebSocketMessage> + Clone + Debug + Send;
 	type SinkError: Debug + std::error::Error;
 	type StreamError: Debug + std::error::Error;
-
-	//type OutStream: Sink<Self::Message>;
-	//type InStream: Stream<Item = Result<Self::Message>>;
 
 	///Converts this type into a message sink and a message stream..
 	fn into_streams(self) -> (Pin<Box<dyn Sink<Self::Message, Error=Self::SinkError>>>, Pin<Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>>);

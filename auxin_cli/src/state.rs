@@ -426,7 +426,6 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 
 	// Save recipient store: 
 	let json_recipient_structure = serde_json::to_string_pretty(&context.peer_cache)?;
-	//debug!("Recipient structure {}", json_recipient_structure);
 
 	let mut file = OpenOptions::new()
 		.truncate(true)
@@ -438,14 +437,6 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 	file.flush()?;
 	//Ensure file is closed ASAP.
 	drop(file);
-
-	/*for addr in addresses {
-		let ident = identity_store.get_identity(&addr.1, *ctx).await?;
-		if let Some(ident) = ident { 
-			let mut this_peer_path = known_peers_path.clone();
-			this_peer_path.push_str(format!("{}", addr.0).as_str());
-		}
-	}*/
 
 	Ok(())
 }
