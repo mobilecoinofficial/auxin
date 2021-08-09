@@ -30,6 +30,7 @@ pub mod envelope_types {
 	pub const PREKEY_BUNDLE : u8       = 3;
 	pub const RECEIPT : u8             = 5;
 	pub const UNIDENTIFIED_SENDER : u8 = 6;
+	pub const PLAINTEXT_CONTENT : u8   = 8;
 
 	pub const HIGHEST_VALUE : u8 = UNIDENTIFIED_SENDER;
 
@@ -42,6 +43,7 @@ pub mod envelope_types {
 		PreKeyBundle        = PREKEY_BUNDLE,
 		Recipt              = RECEIPT,
 		UnidentifiedSender  = UNIDENTIFIED_SENDER,
+		PlaintextContent    = PLAINTEXT_CONTENT,
 	}
 
 	impl TryFrom<u8> for EnvelopeType {
@@ -55,6 +57,7 @@ pub mod envelope_types {
 				PREKEY_BUNDLE		=> Ok(EnvelopeType::PreKeyBundle),
 				RECEIPT 			=> Ok(EnvelopeType::Recipt),
 				UNIDENTIFIED_SENDER	=> Ok(EnvelopeType::UnidentifiedSender),
+				PLAINTEXT_CONTENT   => Ok(EnvelopeType::PlaintextContent),
 				_ => Err(EnvelopeTypeError::InvalidTypeId{attempted_value: value as i128})
 			}
 		}
@@ -90,6 +93,7 @@ pub mod envelope_types {
                 auxin_protos::Envelope_Type::PREKEY_BUNDLE => EnvelopeType::PreKeyBundle,
                 auxin_protos::Envelope_Type::RECEIPT => EnvelopeType::Recipt,
                 auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => EnvelopeType::UnidentifiedSender,
+				auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => EnvelopeType::PlaintextContent,
             }
 		}
     }
@@ -103,6 +107,7 @@ pub mod envelope_types {
                 EnvelopeType::PreKeyBundle => auxin_protos::Envelope_Type::PREKEY_BUNDLE,
                 EnvelopeType::Recipt => auxin_protos::Envelope_Type::RECEIPT,
                 EnvelopeType::UnidentifiedSender => auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER,
+                EnvelopeType::PlaintextContent => auxin_protos::Envelope_Type::PLAINTEXT_CONTENT,
             }
 		}
     }
@@ -686,6 +691,7 @@ impl MessageIn {
 					server_guid: envelope.get_serverGuid().to_string(),
 				}
 			},
+			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
 		})
 	}
 

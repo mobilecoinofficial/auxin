@@ -616,6 +616,7 @@ pub enum Envelope_Type {
     PREKEY_BUNDLE = 3,
     RECEIPT = 5,
     UNIDENTIFIED_SENDER = 6,
+    PLAINTEXT_CONTENT = 8,
 }
 
 impl ::protobuf::ProtobufEnum for Envelope_Type {
@@ -631,6 +632,7 @@ impl ::protobuf::ProtobufEnum for Envelope_Type {
             3 => ::std::option::Option::Some(Envelope_Type::PREKEY_BUNDLE),
             5 => ::std::option::Option::Some(Envelope_Type::RECEIPT),
             6 => ::std::option::Option::Some(Envelope_Type::UNIDENTIFIED_SENDER),
+            8 => ::std::option::Option::Some(Envelope_Type::PLAINTEXT_CONTENT),
             _ => ::std::option::Option::None
         }
     }
@@ -643,6 +645,7 @@ impl ::protobuf::ProtobufEnum for Envelope_Type {
             Envelope_Type::PREKEY_BUNDLE,
             Envelope_Type::RECEIPT,
             Envelope_Type::UNIDENTIFIED_SENDER,
+            Envelope_Type::PLAINTEXT_CONTENT,
         ];
         values
     }
@@ -680,6 +683,8 @@ pub struct Content {
     pub nullMessage: ::protobuf::SingularPtrField<NullMessage>,
     pub receiptMessage: ::protobuf::SingularPtrField<ReceiptMessage>,
     pub typingMessage: ::protobuf::SingularPtrField<TypingMessage>,
+    senderKeyDistributionMessage: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    decryptionErrorMessage: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -895,6 +900,78 @@ impl Content {
     pub fn take_typingMessage(&mut self) -> TypingMessage {
         self.typingMessage.take().unwrap_or_else(|| TypingMessage::new())
     }
+
+    // optional bytes senderKeyDistributionMessage = 7;
+
+
+    pub fn get_senderKeyDistributionMessage(&self) -> &[u8] {
+        match self.senderKeyDistributionMessage.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_senderKeyDistributionMessage(&mut self) {
+        self.senderKeyDistributionMessage.clear();
+    }
+
+    pub fn has_senderKeyDistributionMessage(&self) -> bool {
+        self.senderKeyDistributionMessage.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_senderKeyDistributionMessage(&mut self, v: ::std::vec::Vec<u8>) {
+        self.senderKeyDistributionMessage = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_senderKeyDistributionMessage(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.senderKeyDistributionMessage.is_none() {
+            self.senderKeyDistributionMessage.set_default();
+        }
+        self.senderKeyDistributionMessage.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_senderKeyDistributionMessage(&mut self) -> ::std::vec::Vec<u8> {
+        self.senderKeyDistributionMessage.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+
+    // optional bytes decryptionErrorMessage = 8;
+
+
+    pub fn get_decryptionErrorMessage(&self) -> &[u8] {
+        match self.decryptionErrorMessage.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_decryptionErrorMessage(&mut self) {
+        self.decryptionErrorMessage.clear();
+    }
+
+    pub fn has_decryptionErrorMessage(&self) -> bool {
+        self.decryptionErrorMessage.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_decryptionErrorMessage(&mut self, v: ::std::vec::Vec<u8>) {
+        self.decryptionErrorMessage = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_decryptionErrorMessage(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.decryptionErrorMessage.is_none() {
+            self.decryptionErrorMessage.set_default();
+        }
+        self.decryptionErrorMessage.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_decryptionErrorMessage(&mut self) -> ::std::vec::Vec<u8> {
+        self.decryptionErrorMessage.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
 }
 
 impl ::protobuf::Message for Content {
@@ -954,6 +1031,12 @@ impl ::protobuf::Message for Content {
                 6 => {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.typingMessage)?;
                 },
+                7 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.senderKeyDistributionMessage)?;
+                },
+                8 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.decryptionErrorMessage)?;
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -990,6 +1073,12 @@ impl ::protobuf::Message for Content {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
+        if let Some(ref v) = self.senderKeyDistributionMessage.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(7, &v);
+        }
+        if let Some(ref v) = self.decryptionErrorMessage.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(8, &v);
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -1025,6 +1114,12 @@ impl ::protobuf::Message for Content {
             os.write_tag(6, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.senderKeyDistributionMessage.as_ref() {
+            os.write_bytes(7, &v)?;
+        }
+        if let Some(ref v) = self.decryptionErrorMessage.as_ref() {
+            os.write_bytes(8, &v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1094,6 +1189,16 @@ impl ::protobuf::Message for Content {
                 |m: &Content| { &m.typingMessage },
                 |m: &mut Content| { &mut m.typingMessage },
             ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "senderKeyDistributionMessage",
+                |m: &Content| { &m.senderKeyDistributionMessage },
+                |m: &mut Content| { &mut m.senderKeyDistributionMessage },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "decryptionErrorMessage",
+                |m: &Content| { &m.decryptionErrorMessage },
+                |m: &mut Content| { &mut m.decryptionErrorMessage },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<Content>(
                 "Content",
                 fields,
@@ -1116,6 +1221,8 @@ impl ::protobuf::Clear for Content {
         self.nullMessage.clear();
         self.receiptMessage.clear();
         self.typingMessage.clear();
+        self.senderKeyDistributionMessage.clear();
+        self.decryptionErrorMessage.clear();
         self.unknown_fields.clear();
     }
 }
@@ -1139,8 +1246,12 @@ pub struct CallMessage {
     pub offer: ::protobuf::SingularPtrField<CallMessage_Offer>,
     pub answer: ::protobuf::SingularPtrField<CallMessage_Answer>,
     pub iceUpdate: ::protobuf::RepeatedField<CallMessage_IceUpdate>,
-    pub hangup: ::protobuf::SingularPtrField<CallMessage_Hangup>,
+    pub legacyHangup: ::protobuf::SingularPtrField<CallMessage_Hangup>,
     pub busy: ::protobuf::SingularPtrField<CallMessage_Busy>,
+    pub hangup: ::protobuf::SingularPtrField<CallMessage_Hangup>,
+    multiRing: ::std::option::Option<bool>,
+    destinationDeviceId: ::std::option::Option<u32>,
+    pub opaque: ::protobuf::SingularPtrField<CallMessage_Opaque>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -1250,37 +1361,37 @@ impl CallMessage {
         ::std::mem::replace(&mut self.iceUpdate, ::protobuf::RepeatedField::new())
     }
 
-    // optional .signalservice.CallMessage.Hangup hangup = 4;
+    // optional .signalservice.CallMessage.Hangup legacyHangup = 4;
 
 
-    pub fn get_hangup(&self) -> &CallMessage_Hangup {
-        self.hangup.as_ref().unwrap_or_else(|| <CallMessage_Hangup as ::protobuf::Message>::default_instance())
+    pub fn get_legacyHangup(&self) -> &CallMessage_Hangup {
+        self.legacyHangup.as_ref().unwrap_or_else(|| <CallMessage_Hangup as ::protobuf::Message>::default_instance())
     }
-    pub fn clear_hangup(&mut self) {
-        self.hangup.clear();
+    pub fn clear_legacyHangup(&mut self) {
+        self.legacyHangup.clear();
     }
 
-    pub fn has_hangup(&self) -> bool {
-        self.hangup.is_some()
+    pub fn has_legacyHangup(&self) -> bool {
+        self.legacyHangup.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_hangup(&mut self, v: CallMessage_Hangup) {
-        self.hangup = ::protobuf::SingularPtrField::some(v);
+    pub fn set_legacyHangup(&mut self, v: CallMessage_Hangup) {
+        self.legacyHangup = ::protobuf::SingularPtrField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
-    pub fn mut_hangup(&mut self) -> &mut CallMessage_Hangup {
-        if self.hangup.is_none() {
-            self.hangup.set_default();
+    pub fn mut_legacyHangup(&mut self) -> &mut CallMessage_Hangup {
+        if self.legacyHangup.is_none() {
+            self.legacyHangup.set_default();
         }
-        self.hangup.as_mut().unwrap()
+        self.legacyHangup.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_hangup(&mut self) -> CallMessage_Hangup {
-        self.hangup.take().unwrap_or_else(|| CallMessage_Hangup::new())
+    pub fn take_legacyHangup(&mut self) -> CallMessage_Hangup {
+        self.legacyHangup.take().unwrap_or_else(|| CallMessage_Hangup::new())
     }
 
     // optional .signalservice.CallMessage.Busy busy = 5;
@@ -1315,6 +1426,110 @@ impl CallMessage {
     pub fn take_busy(&mut self) -> CallMessage_Busy {
         self.busy.take().unwrap_or_else(|| CallMessage_Busy::new())
     }
+
+    // optional .signalservice.CallMessage.Hangup hangup = 7;
+
+
+    pub fn get_hangup(&self) -> &CallMessage_Hangup {
+        self.hangup.as_ref().unwrap_or_else(|| <CallMessage_Hangup as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_hangup(&mut self) {
+        self.hangup.clear();
+    }
+
+    pub fn has_hangup(&self) -> bool {
+        self.hangup.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_hangup(&mut self, v: CallMessage_Hangup) {
+        self.hangup = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_hangup(&mut self) -> &mut CallMessage_Hangup {
+        if self.hangup.is_none() {
+            self.hangup.set_default();
+        }
+        self.hangup.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_hangup(&mut self) -> CallMessage_Hangup {
+        self.hangup.take().unwrap_or_else(|| CallMessage_Hangup::new())
+    }
+
+    // optional bool multiRing = 8;
+
+
+    pub fn get_multiRing(&self) -> bool {
+        self.multiRing.unwrap_or(false)
+    }
+    pub fn clear_multiRing(&mut self) {
+        self.multiRing = ::std::option::Option::None;
+    }
+
+    pub fn has_multiRing(&self) -> bool {
+        self.multiRing.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_multiRing(&mut self, v: bool) {
+        self.multiRing = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 destinationDeviceId = 9;
+
+
+    pub fn get_destinationDeviceId(&self) -> u32 {
+        self.destinationDeviceId.unwrap_or(0)
+    }
+    pub fn clear_destinationDeviceId(&mut self) {
+        self.destinationDeviceId = ::std::option::Option::None;
+    }
+
+    pub fn has_destinationDeviceId(&self) -> bool {
+        self.destinationDeviceId.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_destinationDeviceId(&mut self, v: u32) {
+        self.destinationDeviceId = ::std::option::Option::Some(v);
+    }
+
+    // optional .signalservice.CallMessage.Opaque opaque = 10;
+
+
+    pub fn get_opaque(&self) -> &CallMessage_Opaque {
+        self.opaque.as_ref().unwrap_or_else(|| <CallMessage_Opaque as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_opaque(&mut self) {
+        self.opaque.clear();
+    }
+
+    pub fn has_opaque(&self) -> bool {
+        self.opaque.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_opaque(&mut self, v: CallMessage_Opaque) {
+        self.opaque = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_opaque(&mut self) -> &mut CallMessage_Opaque {
+        if self.opaque.is_none() {
+            self.opaque.set_default();
+        }
+        self.opaque.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_opaque(&mut self) -> CallMessage_Opaque {
+        self.opaque.take().unwrap_or_else(|| CallMessage_Opaque::new())
+    }
 }
 
 impl ::protobuf::Message for CallMessage {
@@ -1334,12 +1549,22 @@ impl ::protobuf::Message for CallMessage {
                 return false;
             }
         };
-        for v in &self.hangup {
+        for v in &self.legacyHangup {
             if !v.is_initialized() {
                 return false;
             }
         };
         for v in &self.busy {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.hangup {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.opaque {
             if !v.is_initialized() {
                 return false;
             }
@@ -1361,10 +1586,30 @@ impl ::protobuf::Message for CallMessage {
                     ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.iceUpdate)?;
                 },
                 4 => {
-                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.hangup)?;
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.legacyHangup)?;
                 },
                 5 => {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.busy)?;
+                },
+                7 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.hangup)?;
+                },
+                8 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_bool()?;
+                    self.multiRing = ::std::option::Option::Some(tmp);
+                },
+                9 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.destinationDeviceId = ::std::option::Option::Some(tmp);
+                },
+                10 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.opaque)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -1390,11 +1635,25 @@ impl ::protobuf::Message for CallMessage {
             let len = value.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         };
-        if let Some(ref v) = self.hangup.as_ref() {
+        if let Some(ref v) = self.legacyHangup.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
         if let Some(ref v) = self.busy.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(ref v) = self.hangup.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(v) = self.multiRing {
+            my_size += 2;
+        }
+        if let Some(v) = self.destinationDeviceId {
+            my_size += ::protobuf::rt::value_size(9, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
@@ -1419,13 +1678,29 @@ impl ::protobuf::Message for CallMessage {
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         };
-        if let Some(ref v) = self.hangup.as_ref() {
+        if let Some(ref v) = self.legacyHangup.as_ref() {
             os.write_tag(4, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         }
         if let Some(ref v) = self.busy.as_ref() {
             os.write_tag(5, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.hangup.as_ref() {
+            os.write_tag(7, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(v) = self.multiRing {
+            os.write_bool(8, v)?;
+        }
+        if let Some(v) = self.destinationDeviceId {
+            os.write_uint32(9, v)?;
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
+            os.write_tag(10, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         }
@@ -1483,14 +1758,34 @@ impl ::protobuf::Message for CallMessage {
                 |m: &mut CallMessage| { &mut m.iceUpdate },
             ));
             fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<CallMessage_Hangup>>(
-                "hangup",
-                |m: &CallMessage| { &m.hangup },
-                |m: &mut CallMessage| { &mut m.hangup },
+                "legacyHangup",
+                |m: &CallMessage| { &m.legacyHangup },
+                |m: &mut CallMessage| { &mut m.legacyHangup },
             ));
             fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<CallMessage_Busy>>(
                 "busy",
                 |m: &CallMessage| { &m.busy },
                 |m: &mut CallMessage| { &mut m.busy },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<CallMessage_Hangup>>(
+                "hangup",
+                |m: &CallMessage| { &m.hangup },
+                |m: &mut CallMessage| { &mut m.hangup },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeBool>(
+                "multiRing",
+                |m: &CallMessage| { &m.multiRing },
+                |m: &mut CallMessage| { &mut m.multiRing },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "destinationDeviceId",
+                |m: &CallMessage| { &m.destinationDeviceId },
+                |m: &mut CallMessage| { &mut m.destinationDeviceId },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<CallMessage_Opaque>>(
+                "opaque",
+                |m: &CallMessage| { &m.opaque },
+                |m: &mut CallMessage| { &mut m.opaque },
             ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<CallMessage>(
                 "CallMessage",
@@ -1511,8 +1806,12 @@ impl ::protobuf::Clear for CallMessage {
         self.offer.clear();
         self.answer.clear();
         self.iceUpdate.clear();
-        self.hangup.clear();
+        self.legacyHangup.clear();
         self.busy.clear();
+        self.hangup.clear();
+        self.multiRing = ::std::option::Option::None;
+        self.destinationDeviceId = ::std::option::Option::None;
+        self.opaque.clear();
         self.unknown_fields.clear();
     }
 }
@@ -1534,7 +1833,9 @@ impl ::protobuf::reflect::ProtobufValue for CallMessage {
 pub struct CallMessage_Offer {
     // message fields
     id: ::std::option::Option<u64>,
-    description: ::protobuf::SingularField<::std::string::String>,
+    sdp: ::protobuf::SingularField<::std::string::String>,
+    field_type: ::std::option::Option<CallMessage_Offer_Type>,
+    opaque: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -1572,40 +1873,95 @@ impl CallMessage_Offer {
         self.id = ::std::option::Option::Some(v);
     }
 
-    // optional string description = 2;
+    // optional string sdp = 2;
 
 
-    pub fn get_description(&self) -> &str {
-        match self.description.as_ref() {
+    pub fn get_sdp(&self) -> &str {
+        match self.sdp.as_ref() {
             Some(v) => &v,
             None => "",
         }
     }
-    pub fn clear_description(&mut self) {
-        self.description.clear();
+    pub fn clear_sdp(&mut self) {
+        self.sdp.clear();
     }
 
-    pub fn has_description(&self) -> bool {
-        self.description.is_some()
+    pub fn has_sdp(&self) -> bool {
+        self.sdp.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_description(&mut self, v: ::std::string::String) {
-        self.description = ::protobuf::SingularField::some(v);
+    pub fn set_sdp(&mut self, v: ::std::string::String) {
+        self.sdp = ::protobuf::SingularField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
-    pub fn mut_description(&mut self) -> &mut ::std::string::String {
-        if self.description.is_none() {
-            self.description.set_default();
+    pub fn mut_sdp(&mut self) -> &mut ::std::string::String {
+        if self.sdp.is_none() {
+            self.sdp.set_default();
         }
-        self.description.as_mut().unwrap()
+        self.sdp.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_description(&mut self) -> ::std::string::String {
-        self.description.take().unwrap_or_else(|| ::std::string::String::new())
+    pub fn take_sdp(&mut self) -> ::std::string::String {
+        self.sdp.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional .signalservice.CallMessage.Offer.Type type = 3;
+
+
+    pub fn get_field_type(&self) -> CallMessage_Offer_Type {
+        self.field_type.unwrap_or(CallMessage_Offer_Type::OFFER_AUDIO_CALL)
+    }
+    pub fn clear_field_type(&mut self) {
+        self.field_type = ::std::option::Option::None;
+    }
+
+    pub fn has_field_type(&self) -> bool {
+        self.field_type.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_field_type(&mut self, v: CallMessage_Offer_Type) {
+        self.field_type = ::std::option::Option::Some(v);
+    }
+
+    // optional bytes opaque = 4;
+
+
+    pub fn get_opaque(&self) -> &[u8] {
+        match self.opaque.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_opaque(&mut self) {
+        self.opaque.clear();
+    }
+
+    pub fn has_opaque(&self) -> bool {
+        self.opaque.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_opaque(&mut self, v: ::std::vec::Vec<u8>) {
+        self.opaque = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_opaque(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.opaque.is_none() {
+            self.opaque.set_default();
+        }
+        self.opaque.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_opaque(&mut self) -> ::std::vec::Vec<u8> {
+        self.opaque.take().unwrap_or_else(|| ::std::vec::Vec::new())
     }
 }
 
@@ -1626,7 +1982,13 @@ impl ::protobuf::Message for CallMessage_Offer {
                     self.id = ::std::option::Option::Some(tmp);
                 },
                 2 => {
-                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.description)?;
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.sdp)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_proto2_enum_with_unknown_fields_into(wire_type, is, &mut self.field_type, 3, &mut self.unknown_fields)?
+                },
+                4 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.opaque)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -1643,8 +2005,14 @@ impl ::protobuf::Message for CallMessage_Offer {
         if let Some(v) = self.id {
             my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.description.as_ref() {
+        if let Some(ref v) = self.sdp.as_ref() {
             my_size += ::protobuf::rt::string_size(2, &v);
+        }
+        if let Some(v) = self.field_type {
+            my_size += ::protobuf::rt::enum_size(3, v);
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(4, &v);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -1655,8 +2023,14 @@ impl ::protobuf::Message for CallMessage_Offer {
         if let Some(v) = self.id {
             os.write_uint64(1, v)?;
         }
-        if let Some(ref v) = self.description.as_ref() {
+        if let Some(ref v) = self.sdp.as_ref() {
             os.write_string(2, &v)?;
+        }
+        if let Some(v) = self.field_type {
+            os.write_enum(3, ::protobuf::ProtobufEnum::value(&v))?;
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
+            os.write_bytes(4, &v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1702,9 +2076,19 @@ impl ::protobuf::Message for CallMessage_Offer {
                 |m: &mut CallMessage_Offer| { &mut m.id },
             ));
             fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                "description",
-                |m: &CallMessage_Offer| { &m.description },
-                |m: &mut CallMessage_Offer| { &mut m.description },
+                "sdp",
+                |m: &CallMessage_Offer| { &m.sdp },
+                |m: &mut CallMessage_Offer| { &mut m.sdp },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeEnum<CallMessage_Offer_Type>>(
+                "type",
+                |m: &CallMessage_Offer| { &m.field_type },
+                |m: &mut CallMessage_Offer| { &mut m.field_type },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "opaque",
+                |m: &CallMessage_Offer| { &m.opaque },
+                |m: &mut CallMessage_Offer| { &mut m.opaque },
             ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<CallMessage_Offer>(
                 "CallMessage.Offer",
@@ -1723,7 +2107,9 @@ impl ::protobuf::Message for CallMessage_Offer {
 impl ::protobuf::Clear for CallMessage_Offer {
     fn clear(&mut self) {
         self.id = ::std::option::Option::None;
-        self.description.clear();
+        self.sdp.clear();
+        self.field_type = ::std::option::Option::None;
+        self.opaque.clear();
         self.unknown_fields.clear();
     }
 }
@@ -1740,12 +2126,64 @@ impl ::protobuf::reflect::ProtobufValue for CallMessage_Offer {
     }
 }
 
+#[derive(Clone,PartialEq,Eq,Debug,Hash)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum CallMessage_Offer_Type {
+    OFFER_AUDIO_CALL = 0,
+    OFFER_VIDEO_CALL = 1,
+}
+
+impl ::protobuf::ProtobufEnum for CallMessage_Offer_Type {
+    fn value(&self) -> i32 {
+        *self as i32
+    }
+
+    fn from_i32(value: i32) -> ::std::option::Option<CallMessage_Offer_Type> {
+        match value {
+            0 => ::std::option::Option::Some(CallMessage_Offer_Type::OFFER_AUDIO_CALL),
+            1 => ::std::option::Option::Some(CallMessage_Offer_Type::OFFER_VIDEO_CALL),
+            _ => ::std::option::Option::None
+        }
+    }
+
+    fn values() -> &'static [Self] {
+        static values: &'static [CallMessage_Offer_Type] = &[
+            CallMessage_Offer_Type::OFFER_AUDIO_CALL,
+            CallMessage_Offer_Type::OFFER_VIDEO_CALL,
+        ];
+        values
+    }
+
+    fn enum_descriptor_static() -> &'static ::protobuf::reflect::EnumDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::EnumDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            ::protobuf::reflect::EnumDescriptor::new_pb_name::<CallMessage_Offer_Type>("CallMessage.Offer.Type", file_descriptor_proto())
+        })
+    }
+}
+
+impl ::std::marker::Copy for CallMessage_Offer_Type {
+}
+
+impl ::std::default::Default for CallMessage_Offer_Type {
+    fn default() -> Self {
+        CallMessage_Offer_Type::OFFER_AUDIO_CALL
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for CallMessage_Offer_Type {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Enum(::protobuf::ProtobufEnum::descriptor(self))
+    }
+}
+
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct CallMessage_Answer {
     // message fields
     id: ::std::option::Option<u64>,
-    description: ::protobuf::SingularField<::std::string::String>,
+    sdp: ::protobuf::SingularField<::std::string::String>,
+    opaque: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -1783,40 +2221,76 @@ impl CallMessage_Answer {
         self.id = ::std::option::Option::Some(v);
     }
 
-    // optional string description = 2;
+    // optional string sdp = 2;
 
 
-    pub fn get_description(&self) -> &str {
-        match self.description.as_ref() {
+    pub fn get_sdp(&self) -> &str {
+        match self.sdp.as_ref() {
             Some(v) => &v,
             None => "",
         }
     }
-    pub fn clear_description(&mut self) {
-        self.description.clear();
+    pub fn clear_sdp(&mut self) {
+        self.sdp.clear();
     }
 
-    pub fn has_description(&self) -> bool {
-        self.description.is_some()
+    pub fn has_sdp(&self) -> bool {
+        self.sdp.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_description(&mut self, v: ::std::string::String) {
-        self.description = ::protobuf::SingularField::some(v);
+    pub fn set_sdp(&mut self, v: ::std::string::String) {
+        self.sdp = ::protobuf::SingularField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
-    pub fn mut_description(&mut self) -> &mut ::std::string::String {
-        if self.description.is_none() {
-            self.description.set_default();
+    pub fn mut_sdp(&mut self) -> &mut ::std::string::String {
+        if self.sdp.is_none() {
+            self.sdp.set_default();
         }
-        self.description.as_mut().unwrap()
+        self.sdp.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_description(&mut self) -> ::std::string::String {
-        self.description.take().unwrap_or_else(|| ::std::string::String::new())
+    pub fn take_sdp(&mut self) -> ::std::string::String {
+        self.sdp.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional bytes opaque = 3;
+
+
+    pub fn get_opaque(&self) -> &[u8] {
+        match self.opaque.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_opaque(&mut self) {
+        self.opaque.clear();
+    }
+
+    pub fn has_opaque(&self) -> bool {
+        self.opaque.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_opaque(&mut self, v: ::std::vec::Vec<u8>) {
+        self.opaque = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_opaque(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.opaque.is_none() {
+            self.opaque.set_default();
+        }
+        self.opaque.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_opaque(&mut self) -> ::std::vec::Vec<u8> {
+        self.opaque.take().unwrap_or_else(|| ::std::vec::Vec::new())
     }
 }
 
@@ -1837,7 +2311,10 @@ impl ::protobuf::Message for CallMessage_Answer {
                     self.id = ::std::option::Option::Some(tmp);
                 },
                 2 => {
-                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.description)?;
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.sdp)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.opaque)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -1854,8 +2331,11 @@ impl ::protobuf::Message for CallMessage_Answer {
         if let Some(v) = self.id {
             my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.description.as_ref() {
+        if let Some(ref v) = self.sdp.as_ref() {
             my_size += ::protobuf::rt::string_size(2, &v);
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(3, &v);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -1866,8 +2346,11 @@ impl ::protobuf::Message for CallMessage_Answer {
         if let Some(v) = self.id {
             os.write_uint64(1, v)?;
         }
-        if let Some(ref v) = self.description.as_ref() {
+        if let Some(ref v) = self.sdp.as_ref() {
             os.write_string(2, &v)?;
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
+            os.write_bytes(3, &v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1913,9 +2396,14 @@ impl ::protobuf::Message for CallMessage_Answer {
                 |m: &mut CallMessage_Answer| { &mut m.id },
             ));
             fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                "description",
-                |m: &CallMessage_Answer| { &m.description },
-                |m: &mut CallMessage_Answer| { &mut m.description },
+                "sdp",
+                |m: &CallMessage_Answer| { &m.sdp },
+                |m: &mut CallMessage_Answer| { &mut m.sdp },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "opaque",
+                |m: &CallMessage_Answer| { &m.opaque },
+                |m: &mut CallMessage_Answer| { &mut m.opaque },
             ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<CallMessage_Answer>(
                 "CallMessage.Answer",
@@ -1934,7 +2422,8 @@ impl ::protobuf::Message for CallMessage_Answer {
 impl ::protobuf::Clear for CallMessage_Answer {
     fn clear(&mut self) {
         self.id = ::std::option::Option::None;
-        self.description.clear();
+        self.sdp.clear();
+        self.opaque.clear();
         self.unknown_fields.clear();
     }
 }
@@ -1956,9 +2445,10 @@ impl ::protobuf::reflect::ProtobufValue for CallMessage_Answer {
 pub struct CallMessage_IceUpdate {
     // message fields
     id: ::std::option::Option<u64>,
-    sdpMid: ::protobuf::SingularField<::std::string::String>,
-    sdpMLineIndex: ::std::option::Option<u32>,
+    mid: ::protobuf::SingularField<::std::string::String>,
+    line: ::std::option::Option<u32>,
     sdp: ::protobuf::SingularField<::std::string::String>,
+    opaque: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -1996,59 +2486,59 @@ impl CallMessage_IceUpdate {
         self.id = ::std::option::Option::Some(v);
     }
 
-    // optional string sdpMid = 2;
+    // optional string mid = 2;
 
 
-    pub fn get_sdpMid(&self) -> &str {
-        match self.sdpMid.as_ref() {
+    pub fn get_mid(&self) -> &str {
+        match self.mid.as_ref() {
             Some(v) => &v,
             None => "",
         }
     }
-    pub fn clear_sdpMid(&mut self) {
-        self.sdpMid.clear();
+    pub fn clear_mid(&mut self) {
+        self.mid.clear();
     }
 
-    pub fn has_sdpMid(&self) -> bool {
-        self.sdpMid.is_some()
+    pub fn has_mid(&self) -> bool {
+        self.mid.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_sdpMid(&mut self, v: ::std::string::String) {
-        self.sdpMid = ::protobuf::SingularField::some(v);
+    pub fn set_mid(&mut self, v: ::std::string::String) {
+        self.mid = ::protobuf::SingularField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
-    pub fn mut_sdpMid(&mut self) -> &mut ::std::string::String {
-        if self.sdpMid.is_none() {
-            self.sdpMid.set_default();
+    pub fn mut_mid(&mut self) -> &mut ::std::string::String {
+        if self.mid.is_none() {
+            self.mid.set_default();
         }
-        self.sdpMid.as_mut().unwrap()
+        self.mid.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_sdpMid(&mut self) -> ::std::string::String {
-        self.sdpMid.take().unwrap_or_else(|| ::std::string::String::new())
+    pub fn take_mid(&mut self) -> ::std::string::String {
+        self.mid.take().unwrap_or_else(|| ::std::string::String::new())
     }
 
-    // optional uint32 sdpMLineIndex = 3;
+    // optional uint32 line = 3;
 
 
-    pub fn get_sdpMLineIndex(&self) -> u32 {
-        self.sdpMLineIndex.unwrap_or(0)
+    pub fn get_line(&self) -> u32 {
+        self.line.unwrap_or(0)
     }
-    pub fn clear_sdpMLineIndex(&mut self) {
-        self.sdpMLineIndex = ::std::option::Option::None;
+    pub fn clear_line(&mut self) {
+        self.line = ::std::option::Option::None;
     }
 
-    pub fn has_sdpMLineIndex(&self) -> bool {
-        self.sdpMLineIndex.is_some()
+    pub fn has_line(&self) -> bool {
+        self.line.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_sdpMLineIndex(&mut self, v: u32) {
-        self.sdpMLineIndex = ::std::option::Option::Some(v);
+    pub fn set_line(&mut self, v: u32) {
+        self.line = ::std::option::Option::Some(v);
     }
 
     // optional string sdp = 4;
@@ -2086,6 +2576,42 @@ impl CallMessage_IceUpdate {
     pub fn take_sdp(&mut self) -> ::std::string::String {
         self.sdp.take().unwrap_or_else(|| ::std::string::String::new())
     }
+
+    // optional bytes opaque = 5;
+
+
+    pub fn get_opaque(&self) -> &[u8] {
+        match self.opaque.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_opaque(&mut self) {
+        self.opaque.clear();
+    }
+
+    pub fn has_opaque(&self) -> bool {
+        self.opaque.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_opaque(&mut self, v: ::std::vec::Vec<u8>) {
+        self.opaque = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_opaque(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.opaque.is_none() {
+            self.opaque.set_default();
+        }
+        self.opaque.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_opaque(&mut self) -> ::std::vec::Vec<u8> {
+        self.opaque.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
 }
 
 impl ::protobuf::Message for CallMessage_IceUpdate {
@@ -2105,17 +2631,20 @@ impl ::protobuf::Message for CallMessage_IceUpdate {
                     self.id = ::std::option::Option::Some(tmp);
                 },
                 2 => {
-                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.sdpMid)?;
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.mid)?;
                 },
                 3 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint32()?;
-                    self.sdpMLineIndex = ::std::option::Option::Some(tmp);
+                    self.line = ::std::option::Option::Some(tmp);
                 },
                 4 => {
                     ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.sdp)?;
+                },
+                5 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.opaque)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -2132,14 +2661,17 @@ impl ::protobuf::Message for CallMessage_IceUpdate {
         if let Some(v) = self.id {
             my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.sdpMid.as_ref() {
+        if let Some(ref v) = self.mid.as_ref() {
             my_size += ::protobuf::rt::string_size(2, &v);
         }
-        if let Some(v) = self.sdpMLineIndex {
+        if let Some(v) = self.line {
             my_size += ::protobuf::rt::value_size(3, v, ::protobuf::wire_format::WireTypeVarint);
         }
         if let Some(ref v) = self.sdp.as_ref() {
             my_size += ::protobuf::rt::string_size(4, &v);
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(5, &v);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -2150,14 +2682,17 @@ impl ::protobuf::Message for CallMessage_IceUpdate {
         if let Some(v) = self.id {
             os.write_uint64(1, v)?;
         }
-        if let Some(ref v) = self.sdpMid.as_ref() {
+        if let Some(ref v) = self.mid.as_ref() {
             os.write_string(2, &v)?;
         }
-        if let Some(v) = self.sdpMLineIndex {
+        if let Some(v) = self.line {
             os.write_uint32(3, v)?;
         }
         if let Some(ref v) = self.sdp.as_ref() {
             os.write_string(4, &v)?;
+        }
+        if let Some(ref v) = self.opaque.as_ref() {
+            os.write_bytes(5, &v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -2203,19 +2738,24 @@ impl ::protobuf::Message for CallMessage_IceUpdate {
                 |m: &mut CallMessage_IceUpdate| { &mut m.id },
             ));
             fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                "sdpMid",
-                |m: &CallMessage_IceUpdate| { &m.sdpMid },
-                |m: &mut CallMessage_IceUpdate| { &mut m.sdpMid },
+                "mid",
+                |m: &CallMessage_IceUpdate| { &m.mid },
+                |m: &mut CallMessage_IceUpdate| { &mut m.mid },
             ));
             fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
-                "sdpMLineIndex",
-                |m: &CallMessage_IceUpdate| { &m.sdpMLineIndex },
-                |m: &mut CallMessage_IceUpdate| { &mut m.sdpMLineIndex },
+                "line",
+                |m: &CallMessage_IceUpdate| { &m.line },
+                |m: &mut CallMessage_IceUpdate| { &mut m.line },
             ));
             fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                 "sdp",
                 |m: &CallMessage_IceUpdate| { &m.sdp },
                 |m: &mut CallMessage_IceUpdate| { &mut m.sdp },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "opaque",
+                |m: &CallMessage_IceUpdate| { &m.opaque },
+                |m: &mut CallMessage_IceUpdate| { &mut m.opaque },
             ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<CallMessage_IceUpdate>(
                 "CallMessage.IceUpdate",
@@ -2234,9 +2774,10 @@ impl ::protobuf::Message for CallMessage_IceUpdate {
 impl ::protobuf::Clear for CallMessage_IceUpdate {
     fn clear(&mut self) {
         self.id = ::std::option::Option::None;
-        self.sdpMid.clear();
-        self.sdpMLineIndex = ::std::option::Option::None;
+        self.mid.clear();
+        self.line = ::std::option::Option::None;
         self.sdp.clear();
+        self.opaque.clear();
         self.unknown_fields.clear();
     }
 }
@@ -2417,6 +2958,8 @@ impl ::protobuf::reflect::ProtobufValue for CallMessage_Busy {
 pub struct CallMessage_Hangup {
     // message fields
     id: ::std::option::Option<u64>,
+    field_type: ::std::option::Option<CallMessage_Hangup_Type>,
+    deviceId: ::std::option::Option<u32>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -2453,6 +2996,44 @@ impl CallMessage_Hangup {
     pub fn set_id(&mut self, v: u64) {
         self.id = ::std::option::Option::Some(v);
     }
+
+    // optional .signalservice.CallMessage.Hangup.Type type = 2;
+
+
+    pub fn get_field_type(&self) -> CallMessage_Hangup_Type {
+        self.field_type.unwrap_or(CallMessage_Hangup_Type::HANGUP_NORMAL)
+    }
+    pub fn clear_field_type(&mut self) {
+        self.field_type = ::std::option::Option::None;
+    }
+
+    pub fn has_field_type(&self) -> bool {
+        self.field_type.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_field_type(&mut self, v: CallMessage_Hangup_Type) {
+        self.field_type = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 deviceId = 3;
+
+
+    pub fn get_deviceId(&self) -> u32 {
+        self.deviceId.unwrap_or(0)
+    }
+    pub fn clear_deviceId(&mut self) {
+        self.deviceId = ::std::option::Option::None;
+    }
+
+    pub fn has_deviceId(&self) -> bool {
+        self.deviceId.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_deviceId(&mut self, v: u32) {
+        self.deviceId = ::std::option::Option::Some(v);
+    }
 }
 
 impl ::protobuf::Message for CallMessage_Hangup {
@@ -2471,6 +3052,16 @@ impl ::protobuf::Message for CallMessage_Hangup {
                     let tmp = is.read_uint64()?;
                     self.id = ::std::option::Option::Some(tmp);
                 },
+                2 => {
+                    ::protobuf::rt::read_proto2_enum_with_unknown_fields_into(wire_type, is, &mut self.field_type, 2, &mut self.unknown_fields)?
+                },
+                3 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.deviceId = ::std::option::Option::Some(tmp);
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -2486,6 +3077,12 @@ impl ::protobuf::Message for CallMessage_Hangup {
         if let Some(v) = self.id {
             my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
         }
+        if let Some(v) = self.field_type {
+            my_size += ::protobuf::rt::enum_size(2, v);
+        }
+        if let Some(v) = self.deviceId {
+            my_size += ::protobuf::rt::value_size(3, v, ::protobuf::wire_format::WireTypeVarint);
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -2494,6 +3091,12 @@ impl ::protobuf::Message for CallMessage_Hangup {
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
         if let Some(v) = self.id {
             os.write_uint64(1, v)?;
+        }
+        if let Some(v) = self.field_type {
+            os.write_enum(2, ::protobuf::ProtobufEnum::value(&v))?;
+        }
+        if let Some(v) = self.deviceId {
+            os.write_uint32(3, v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -2538,6 +3141,16 @@ impl ::protobuf::Message for CallMessage_Hangup {
                 |m: &CallMessage_Hangup| { &m.id },
                 |m: &mut CallMessage_Hangup| { &mut m.id },
             ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeEnum<CallMessage_Hangup_Type>>(
+                "type",
+                |m: &CallMessage_Hangup| { &m.field_type },
+                |m: &mut CallMessage_Hangup| { &mut m.field_type },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "deviceId",
+                |m: &CallMessage_Hangup| { &m.deviceId },
+                |m: &mut CallMessage_Hangup| { &mut m.deviceId },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<CallMessage_Hangup>(
                 "CallMessage.Hangup",
                 fields,
@@ -2555,6 +3168,8 @@ impl ::protobuf::Message for CallMessage_Hangup {
 impl ::protobuf::Clear for CallMessage_Hangup {
     fn clear(&mut self) {
         self.id = ::std::option::Option::None;
+        self.field_type = ::std::option::Option::None;
+        self.deviceId = ::std::option::Option::None;
         self.unknown_fields.clear();
     }
 }
@@ -2571,6 +3186,238 @@ impl ::protobuf::reflect::ProtobufValue for CallMessage_Hangup {
     }
 }
 
+#[derive(Clone,PartialEq,Eq,Debug,Hash)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum CallMessage_Hangup_Type {
+    HANGUP_NORMAL = 0,
+    HANGUP_ACCEPTED = 1,
+    HANGUP_DECLINED = 2,
+    HANGUP_BUSY = 3,
+    HANGUP_NEED_PERMISSION = 4,
+}
+
+impl ::protobuf::ProtobufEnum for CallMessage_Hangup_Type {
+    fn value(&self) -> i32 {
+        *self as i32
+    }
+
+    fn from_i32(value: i32) -> ::std::option::Option<CallMessage_Hangup_Type> {
+        match value {
+            0 => ::std::option::Option::Some(CallMessage_Hangup_Type::HANGUP_NORMAL),
+            1 => ::std::option::Option::Some(CallMessage_Hangup_Type::HANGUP_ACCEPTED),
+            2 => ::std::option::Option::Some(CallMessage_Hangup_Type::HANGUP_DECLINED),
+            3 => ::std::option::Option::Some(CallMessage_Hangup_Type::HANGUP_BUSY),
+            4 => ::std::option::Option::Some(CallMessage_Hangup_Type::HANGUP_NEED_PERMISSION),
+            _ => ::std::option::Option::None
+        }
+    }
+
+    fn values() -> &'static [Self] {
+        static values: &'static [CallMessage_Hangup_Type] = &[
+            CallMessage_Hangup_Type::HANGUP_NORMAL,
+            CallMessage_Hangup_Type::HANGUP_ACCEPTED,
+            CallMessage_Hangup_Type::HANGUP_DECLINED,
+            CallMessage_Hangup_Type::HANGUP_BUSY,
+            CallMessage_Hangup_Type::HANGUP_NEED_PERMISSION,
+        ];
+        values
+    }
+
+    fn enum_descriptor_static() -> &'static ::protobuf::reflect::EnumDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::EnumDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            ::protobuf::reflect::EnumDescriptor::new_pb_name::<CallMessage_Hangup_Type>("CallMessage.Hangup.Type", file_descriptor_proto())
+        })
+    }
+}
+
+impl ::std::marker::Copy for CallMessage_Hangup_Type {
+}
+
+impl ::std::default::Default for CallMessage_Hangup_Type {
+    fn default() -> Self {
+        CallMessage_Hangup_Type::HANGUP_NORMAL
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for CallMessage_Hangup_Type {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Enum(::protobuf::ProtobufEnum::descriptor(self))
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct CallMessage_Opaque {
+    // message fields
+    data: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a CallMessage_Opaque {
+    fn default() -> &'a CallMessage_Opaque {
+        <CallMessage_Opaque as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl CallMessage_Opaque {
+    pub fn new() -> CallMessage_Opaque {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes data = 1;
+
+
+    pub fn get_data(&self) -> &[u8] {
+        match self.data.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_data(&mut self) {
+        self.data.clear();
+    }
+
+    pub fn has_data(&self) -> bool {
+        self.data.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_data(&mut self, v: ::std::vec::Vec<u8>) {
+        self.data = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_data(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.data.is_none() {
+            self.data.set_default();
+        }
+        self.data.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_data(&mut self) -> ::std::vec::Vec<u8> {
+        self.data.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+}
+
+impl ::protobuf::Message for CallMessage_Opaque {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.data)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.data.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.data.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> CallMessage_Opaque {
+        CallMessage_Opaque::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "data",
+                |m: &CallMessage_Opaque| { &m.data },
+                |m: &mut CallMessage_Opaque| { &mut m.data },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<CallMessage_Opaque>(
+                "CallMessage.Opaque",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static CallMessage_Opaque {
+        static instance: ::protobuf::rt::LazyV2<CallMessage_Opaque> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(CallMessage_Opaque::new)
+    }
+}
+
+impl ::protobuf::Clear for CallMessage_Opaque {
+    fn clear(&mut self) {
+        self.data.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for CallMessage_Opaque {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for CallMessage_Opaque {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct DataMessage {
@@ -2578,6 +3425,7 @@ pub struct DataMessage {
     body: ::protobuf::SingularField<::std::string::String>,
     pub attachments: ::protobuf::RepeatedField<AttachmentPointer>,
     pub group: ::protobuf::SingularPtrField<GroupContext>,
+    pub groupV2: ::protobuf::SingularPtrField<GroupContextV2>,
     flags: ::std::option::Option<u32>,
     expireTimer: ::std::option::Option<u32>,
     profileKey: ::protobuf::SingularField<::std::vec::Vec<u8>>,
@@ -2588,6 +3436,11 @@ pub struct DataMessage {
     pub sticker: ::protobuf::SingularPtrField<DataMessage_Sticker>,
     requiredProtocolVersion: ::std::option::Option<u32>,
     isViewOnce: ::std::option::Option<bool>,
+    pub reaction: ::protobuf::SingularPtrField<DataMessage_Reaction>,
+    pub delete: ::protobuf::SingularPtrField<DataMessage_Delete>,
+    pub bodyRanges: ::protobuf::RepeatedField<DataMessage_BodyRange>,
+    pub groupCallUpdate: ::protobuf::SingularPtrField<DataMessage_GroupCallUpdate>,
+    pub payment: ::protobuf::SingularPtrField<DataMessage_Payment>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -2698,6 +3551,39 @@ impl DataMessage {
     // Take field
     pub fn take_group(&mut self) -> GroupContext {
         self.group.take().unwrap_or_else(|| GroupContext::new())
+    }
+
+    // optional .signalservice.GroupContextV2 groupV2 = 15;
+
+
+    pub fn get_groupV2(&self) -> &GroupContextV2 {
+        self.groupV2.as_ref().unwrap_or_else(|| <GroupContextV2 as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_groupV2(&mut self) {
+        self.groupV2.clear();
+    }
+
+    pub fn has_groupV2(&self) -> bool {
+        self.groupV2.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_groupV2(&mut self, v: GroupContextV2) {
+        self.groupV2 = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_groupV2(&mut self) -> &mut GroupContextV2 {
+        if self.groupV2.is_none() {
+            self.groupV2.set_default();
+        }
+        self.groupV2.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_groupV2(&mut self) -> GroupContextV2 {
+        self.groupV2.take().unwrap_or_else(|| GroupContextV2::new())
     }
 
     // optional uint32 flags = 4;
@@ -2946,6 +3832,163 @@ impl DataMessage {
     pub fn set_isViewOnce(&mut self, v: bool) {
         self.isViewOnce = ::std::option::Option::Some(v);
     }
+
+    // optional .signalservice.DataMessage.Reaction reaction = 16;
+
+
+    pub fn get_reaction(&self) -> &DataMessage_Reaction {
+        self.reaction.as_ref().unwrap_or_else(|| <DataMessage_Reaction as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_reaction(&mut self) {
+        self.reaction.clear();
+    }
+
+    pub fn has_reaction(&self) -> bool {
+        self.reaction.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_reaction(&mut self, v: DataMessage_Reaction) {
+        self.reaction = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_reaction(&mut self) -> &mut DataMessage_Reaction {
+        if self.reaction.is_none() {
+            self.reaction.set_default();
+        }
+        self.reaction.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_reaction(&mut self) -> DataMessage_Reaction {
+        self.reaction.take().unwrap_or_else(|| DataMessage_Reaction::new())
+    }
+
+    // optional .signalservice.DataMessage.Delete delete = 17;
+
+
+    pub fn get_delete(&self) -> &DataMessage_Delete {
+        self.delete.as_ref().unwrap_or_else(|| <DataMessage_Delete as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_delete(&mut self) {
+        self.delete.clear();
+    }
+
+    pub fn has_delete(&self) -> bool {
+        self.delete.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_delete(&mut self, v: DataMessage_Delete) {
+        self.delete = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_delete(&mut self) -> &mut DataMessage_Delete {
+        if self.delete.is_none() {
+            self.delete.set_default();
+        }
+        self.delete.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_delete(&mut self) -> DataMessage_Delete {
+        self.delete.take().unwrap_or_else(|| DataMessage_Delete::new())
+    }
+
+    // repeated .signalservice.DataMessage.BodyRange bodyRanges = 18;
+
+
+    pub fn get_bodyRanges(&self) -> &[DataMessage_BodyRange] {
+        &self.bodyRanges
+    }
+    pub fn clear_bodyRanges(&mut self) {
+        self.bodyRanges.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_bodyRanges(&mut self, v: ::protobuf::RepeatedField<DataMessage_BodyRange>) {
+        self.bodyRanges = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_bodyRanges(&mut self) -> &mut ::protobuf::RepeatedField<DataMessage_BodyRange> {
+        &mut self.bodyRanges
+    }
+
+    // Take field
+    pub fn take_bodyRanges(&mut self) -> ::protobuf::RepeatedField<DataMessage_BodyRange> {
+        ::std::mem::replace(&mut self.bodyRanges, ::protobuf::RepeatedField::new())
+    }
+
+    // optional .signalservice.DataMessage.GroupCallUpdate groupCallUpdate = 19;
+
+
+    pub fn get_groupCallUpdate(&self) -> &DataMessage_GroupCallUpdate {
+        self.groupCallUpdate.as_ref().unwrap_or_else(|| <DataMessage_GroupCallUpdate as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_groupCallUpdate(&mut self) {
+        self.groupCallUpdate.clear();
+    }
+
+    pub fn has_groupCallUpdate(&self) -> bool {
+        self.groupCallUpdate.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_groupCallUpdate(&mut self, v: DataMessage_GroupCallUpdate) {
+        self.groupCallUpdate = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_groupCallUpdate(&mut self) -> &mut DataMessage_GroupCallUpdate {
+        if self.groupCallUpdate.is_none() {
+            self.groupCallUpdate.set_default();
+        }
+        self.groupCallUpdate.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_groupCallUpdate(&mut self) -> DataMessage_GroupCallUpdate {
+        self.groupCallUpdate.take().unwrap_or_else(|| DataMessage_GroupCallUpdate::new())
+    }
+
+    // optional .signalservice.DataMessage.Payment payment = 20;
+
+
+    pub fn get_payment(&self) -> &DataMessage_Payment {
+        self.payment.as_ref().unwrap_or_else(|| <DataMessage_Payment as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_payment(&mut self) {
+        self.payment.clear();
+    }
+
+    pub fn has_payment(&self) -> bool {
+        self.payment.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_payment(&mut self, v: DataMessage_Payment) {
+        self.payment = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_payment(&mut self) -> &mut DataMessage_Payment {
+        if self.payment.is_none() {
+            self.payment.set_default();
+        }
+        self.payment.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_payment(&mut self) -> DataMessage_Payment {
+        self.payment.take().unwrap_or_else(|| DataMessage_Payment::new())
+    }
 }
 
 impl ::protobuf::Message for DataMessage {
@@ -2956,6 +3999,11 @@ impl ::protobuf::Message for DataMessage {
             }
         };
         for v in &self.group {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.groupV2 {
             if !v.is_initialized() {
                 return false;
             }
@@ -2980,6 +4028,31 @@ impl ::protobuf::Message for DataMessage {
                 return false;
             }
         };
+        for v in &self.reaction {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.delete {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.bodyRanges {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.groupCallUpdate {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.payment {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
         true
     }
 
@@ -2995,6 +4068,9 @@ impl ::protobuf::Message for DataMessage {
                 },
                 3 => {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.group)?;
+                },
+                15 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.groupV2)?;
                 },
                 4 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
@@ -3046,6 +4122,21 @@ impl ::protobuf::Message for DataMessage {
                     let tmp = is.read_bool()?;
                     self.isViewOnce = ::std::option::Option::Some(tmp);
                 },
+                16 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.reaction)?;
+                },
+                17 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.delete)?;
+                },
+                18 => {
+                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.bodyRanges)?;
+                },
+                19 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.groupCallUpdate)?;
+                },
+                20 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.payment)?;
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -3066,6 +4157,10 @@ impl ::protobuf::Message for DataMessage {
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         };
         if let Some(ref v) = self.group.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(ref v) = self.groupV2.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
@@ -3103,6 +4198,26 @@ impl ::protobuf::Message for DataMessage {
         if let Some(v) = self.isViewOnce {
             my_size += 2;
         }
+        if let Some(ref v) = self.reaction.as_ref() {
+            let len = v.compute_size();
+            my_size += 2 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(ref v) = self.delete.as_ref() {
+            let len = v.compute_size();
+            my_size += 2 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        for value in &self.bodyRanges {
+            let len = value.compute_size();
+            my_size += 2 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        };
+        if let Some(ref v) = self.groupCallUpdate.as_ref() {
+            let len = v.compute_size();
+            my_size += 2 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(ref v) = self.payment.as_ref() {
+            let len = v.compute_size();
+            my_size += 2 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -3119,6 +4234,11 @@ impl ::protobuf::Message for DataMessage {
         };
         if let Some(ref v) = self.group.as_ref() {
             os.write_tag(3, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.groupV2.as_ref() {
+            os.write_tag(15, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         }
@@ -3159,6 +4279,31 @@ impl ::protobuf::Message for DataMessage {
         }
         if let Some(v) = self.isViewOnce {
             os.write_bool(14, v)?;
+        }
+        if let Some(ref v) = self.reaction.as_ref() {
+            os.write_tag(16, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.delete.as_ref() {
+            os.write_tag(17, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        for v in &self.bodyRanges {
+            os.write_tag(18, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        };
+        if let Some(ref v) = self.groupCallUpdate.as_ref() {
+            os.write_tag(19, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.payment.as_ref() {
+            os.write_tag(20, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -3213,6 +4358,11 @@ impl ::protobuf::Message for DataMessage {
                 |m: &DataMessage| { &m.group },
                 |m: &mut DataMessage| { &mut m.group },
             ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<GroupContextV2>>(
+                "groupV2",
+                |m: &DataMessage| { &m.groupV2 },
+                |m: &mut DataMessage| { &mut m.groupV2 },
+            ));
             fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
                 "flags",
                 |m: &DataMessage| { &m.flags },
@@ -3263,6 +4413,31 @@ impl ::protobuf::Message for DataMessage {
                 |m: &DataMessage| { &m.isViewOnce },
                 |m: &mut DataMessage| { &mut m.isViewOnce },
             ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<DataMessage_Reaction>>(
+                "reaction",
+                |m: &DataMessage| { &m.reaction },
+                |m: &mut DataMessage| { &mut m.reaction },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<DataMessage_Delete>>(
+                "delete",
+                |m: &DataMessage| { &m.delete },
+                |m: &mut DataMessage| { &mut m.delete },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<DataMessage_BodyRange>>(
+                "bodyRanges",
+                |m: &DataMessage| { &m.bodyRanges },
+                |m: &mut DataMessage| { &mut m.bodyRanges },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<DataMessage_GroupCallUpdate>>(
+                "groupCallUpdate",
+                |m: &DataMessage| { &m.groupCallUpdate },
+                |m: &mut DataMessage| { &mut m.groupCallUpdate },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<DataMessage_Payment>>(
+                "payment",
+                |m: &DataMessage| { &m.payment },
+                |m: &mut DataMessage| { &mut m.payment },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage>(
                 "DataMessage",
                 fields,
@@ -3282,6 +4457,7 @@ impl ::protobuf::Clear for DataMessage {
         self.body.clear();
         self.attachments.clear();
         self.group.clear();
+        self.groupV2.clear();
         self.flags = ::std::option::Option::None;
         self.expireTimer = ::std::option::Option::None;
         self.profileKey.clear();
@@ -3292,6 +4468,11 @@ impl ::protobuf::Clear for DataMessage {
         self.sticker.clear();
         self.requiredProtocolVersion = ::std::option::Option::None;
         self.isViewOnce = ::std::option::Option::None;
+        self.reaction.clear();
+        self.delete.clear();
+        self.bodyRanges.clear();
+        self.groupCallUpdate.clear();
+        self.payment.clear();
         self.unknown_fields.clear();
     }
 }
@@ -3310,6 +4491,287 @@ impl ::protobuf::reflect::ProtobufValue for DataMessage {
 
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_BodyRange {
+    // message fields
+    start: ::std::option::Option<i32>,
+    length: ::std::option::Option<i32>,
+    // message oneof groups
+    pub associatedValue: ::std::option::Option<DataMessage_BodyRange_oneof_associatedValue>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_BodyRange {
+    fn default() -> &'a DataMessage_BodyRange {
+        <DataMessage_BodyRange as ::protobuf::Message>::default_instance()
+    }
+}
+
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum DataMessage_BodyRange_oneof_associatedValue {
+    mentionUuid(::std::string::String),
+}
+
+impl DataMessage_BodyRange {
+    pub fn new() -> DataMessage_BodyRange {
+        ::std::default::Default::default()
+    }
+
+    // optional int32 start = 1;
+
+
+    pub fn get_start(&self) -> i32 {
+        self.start.unwrap_or(0)
+    }
+    pub fn clear_start(&mut self) {
+        self.start = ::std::option::Option::None;
+    }
+
+    pub fn has_start(&self) -> bool {
+        self.start.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_start(&mut self, v: i32) {
+        self.start = ::std::option::Option::Some(v);
+    }
+
+    // optional int32 length = 2;
+
+
+    pub fn get_length(&self) -> i32 {
+        self.length.unwrap_or(0)
+    }
+    pub fn clear_length(&mut self) {
+        self.length = ::std::option::Option::None;
+    }
+
+    pub fn has_length(&self) -> bool {
+        self.length.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_length(&mut self, v: i32) {
+        self.length = ::std::option::Option::Some(v);
+    }
+
+    // optional string mentionUuid = 3;
+
+
+    pub fn get_mentionUuid(&self) -> &str {
+        match self.associatedValue {
+            ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(ref v)) => v,
+            _ => "",
+        }
+    }
+    pub fn clear_mentionUuid(&mut self) {
+        self.associatedValue = ::std::option::Option::None;
+    }
+
+    pub fn has_mentionUuid(&self) -> bool {
+        match self.associatedValue {
+            ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_mentionUuid(&mut self, v: ::std::string::String) {
+        self.associatedValue = ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_mentionUuid(&mut self) -> &mut ::std::string::String {
+        if let ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(_)) = self.associatedValue {
+        } else {
+            self.associatedValue = ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(::std::string::String::new()));
+        }
+        match self.associatedValue {
+            ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_mentionUuid(&mut self) -> ::std::string::String {
+        if self.has_mentionUuid() {
+            match self.associatedValue.take() {
+                ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            ::std::string::String::new()
+        }
+    }
+}
+
+impl ::protobuf::Message for DataMessage_BodyRange {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_int32()?;
+                    self.start = ::std::option::Option::Some(tmp);
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_int32()?;
+                    self.length = ::std::option::Option::Some(tmp);
+                },
+                3 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.associatedValue = ::std::option::Option::Some(DataMessage_BodyRange_oneof_associatedValue::mentionUuid(is.read_string()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(v) = self.start {
+            my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.length {
+            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let ::std::option::Option::Some(ref v) = self.associatedValue {
+            match v {
+                &DataMessage_BodyRange_oneof_associatedValue::mentionUuid(ref v) => {
+                    my_size += ::protobuf::rt::string_size(3, &v);
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(v) = self.start {
+            os.write_int32(1, v)?;
+        }
+        if let Some(v) = self.length {
+            os.write_int32(2, v)?;
+        }
+        if let ::std::option::Option::Some(ref v) = self.associatedValue {
+            match v {
+                &DataMessage_BodyRange_oneof_associatedValue::mentionUuid(ref v) => {
+                    os.write_string(3, v)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_BodyRange {
+        DataMessage_BodyRange::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeInt32>(
+                "start",
+                |m: &DataMessage_BodyRange| { &m.start },
+                |m: &mut DataMessage_BodyRange| { &mut m.start },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeInt32>(
+                "length",
+                |m: &DataMessage_BodyRange| { &m.length },
+                |m: &mut DataMessage_BodyRange| { &mut m.length },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_string_accessor::<_>(
+                "mentionUuid",
+                DataMessage_BodyRange::has_mentionUuid,
+                DataMessage_BodyRange::get_mentionUuid,
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_BodyRange>(
+                "DataMessage.BodyRange",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_BodyRange {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_BodyRange> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_BodyRange::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_BodyRange {
+    fn clear(&mut self) {
+        self.start = ::std::option::Option::None;
+        self.length = ::std::option::Option::None;
+        self.associatedValue = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_BodyRange {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_BodyRange {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct DataMessage_Quote {
     // message fields
     id: ::std::option::Option<u64>,
@@ -3317,6 +4779,7 @@ pub struct DataMessage_Quote {
     authorUuid: ::protobuf::SingularField<::std::string::String>,
     text: ::protobuf::SingularField<::std::string::String>,
     pub attachments: ::protobuf::RepeatedField<DataMessage_Quote_QuotedAttachment>,
+    pub bodyRanges: ::protobuf::RepeatedField<DataMessage_BodyRange>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -3486,11 +4949,41 @@ impl DataMessage_Quote {
     pub fn take_attachments(&mut self) -> ::protobuf::RepeatedField<DataMessage_Quote_QuotedAttachment> {
         ::std::mem::replace(&mut self.attachments, ::protobuf::RepeatedField::new())
     }
+
+    // repeated .signalservice.DataMessage.BodyRange bodyRanges = 6;
+
+
+    pub fn get_bodyRanges(&self) -> &[DataMessage_BodyRange] {
+        &self.bodyRanges
+    }
+    pub fn clear_bodyRanges(&mut self) {
+        self.bodyRanges.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_bodyRanges(&mut self, v: ::protobuf::RepeatedField<DataMessage_BodyRange>) {
+        self.bodyRanges = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_bodyRanges(&mut self) -> &mut ::protobuf::RepeatedField<DataMessage_BodyRange> {
+        &mut self.bodyRanges
+    }
+
+    // Take field
+    pub fn take_bodyRanges(&mut self) -> ::protobuf::RepeatedField<DataMessage_BodyRange> {
+        ::std::mem::replace(&mut self.bodyRanges, ::protobuf::RepeatedField::new())
+    }
 }
 
 impl ::protobuf::Message for DataMessage_Quote {
     fn is_initialized(&self) -> bool {
         for v in &self.attachments {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.bodyRanges {
             if !v.is_initialized() {
                 return false;
             }
@@ -3521,6 +5014,9 @@ impl ::protobuf::Message for DataMessage_Quote {
                 4 => {
                     ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.attachments)?;
                 },
+                6 => {
+                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.bodyRanges)?;
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -3549,6 +5045,10 @@ impl ::protobuf::Message for DataMessage_Quote {
             let len = value.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         };
+        for value in &self.bodyRanges {
+            let len = value.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        };
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -3569,6 +5069,11 @@ impl ::protobuf::Message for DataMessage_Quote {
         }
         for v in &self.attachments {
             os.write_tag(4, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        };
+        for v in &self.bodyRanges {
+            os.write_tag(6, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         };
@@ -3635,6 +5140,11 @@ impl ::protobuf::Message for DataMessage_Quote {
                 |m: &DataMessage_Quote| { &m.attachments },
                 |m: &mut DataMessage_Quote| { &mut m.attachments },
             ));
+            fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<DataMessage_BodyRange>>(
+                "bodyRanges",
+                |m: &DataMessage_Quote| { &m.bodyRanges },
+                |m: &mut DataMessage_Quote| { &mut m.bodyRanges },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Quote>(
                 "DataMessage.Quote",
                 fields,
@@ -3656,6 +5166,7 @@ impl ::protobuf::Clear for DataMessage_Quote {
         self.authorUuid.clear();
         self.text.clear();
         self.attachments.clear();
+        self.bodyRanges.clear();
         self.unknown_fields.clear();
     }
 }
@@ -6301,6 +7812,8 @@ pub struct DataMessage_Preview {
     url: ::protobuf::SingularField<::std::string::String>,
     title: ::protobuf::SingularField<::std::string::String>,
     pub image: ::protobuf::SingularPtrField<AttachmentPointer>,
+    description: ::protobuf::SingularField<::std::string::String>,
+    date: ::std::option::Option<u64>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -6423,6 +7936,61 @@ impl DataMessage_Preview {
     pub fn take_image(&mut self) -> AttachmentPointer {
         self.image.take().unwrap_or_else(|| AttachmentPointer::new())
     }
+
+    // optional string description = 4;
+
+
+    pub fn get_description(&self) -> &str {
+        match self.description.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_description(&mut self) {
+        self.description.clear();
+    }
+
+    pub fn has_description(&self) -> bool {
+        self.description.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_description(&mut self, v: ::std::string::String) {
+        self.description = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_description(&mut self) -> &mut ::std::string::String {
+        if self.description.is_none() {
+            self.description.set_default();
+        }
+        self.description.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_description(&mut self) -> ::std::string::String {
+        self.description.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional uint64 date = 5;
+
+
+    pub fn get_date(&self) -> u64 {
+        self.date.unwrap_or(0)
+    }
+    pub fn clear_date(&mut self) {
+        self.date = ::std::option::Option::None;
+    }
+
+    pub fn has_date(&self) -> bool {
+        self.date.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_date(&mut self, v: u64) {
+        self.date = ::std::option::Option::Some(v);
+    }
 }
 
 impl ::protobuf::Message for DataMessage_Preview {
@@ -6448,6 +8016,16 @@ impl ::protobuf::Message for DataMessage_Preview {
                 3 => {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.image)?;
                 },
+                4 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.description)?;
+                },
+                5 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.date = ::std::option::Option::Some(tmp);
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -6470,6 +8048,12 @@ impl ::protobuf::Message for DataMessage_Preview {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
+        if let Some(ref v) = self.description.as_ref() {
+            my_size += ::protobuf::rt::string_size(4, &v);
+        }
+        if let Some(v) = self.date {
+            my_size += ::protobuf::rt::value_size(5, v, ::protobuf::wire_format::WireTypeVarint);
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -6486,6 +8070,12 @@ impl ::protobuf::Message for DataMessage_Preview {
             os.write_tag(3, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.description.as_ref() {
+            os.write_string(4, &v)?;
+        }
+        if let Some(v) = self.date {
+            os.write_uint64(5, v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -6540,6 +8130,16 @@ impl ::protobuf::Message for DataMessage_Preview {
                 |m: &DataMessage_Preview| { &m.image },
                 |m: &mut DataMessage_Preview| { &mut m.image },
             ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "description",
+                |m: &DataMessage_Preview| { &m.description },
+                |m: &mut DataMessage_Preview| { &mut m.description },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "date",
+                |m: &DataMessage_Preview| { &m.date },
+                |m: &mut DataMessage_Preview| { &mut m.date },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Preview>(
                 "DataMessage.Preview",
                 fields,
@@ -6559,6 +8159,8 @@ impl ::protobuf::Clear for DataMessage_Preview {
         self.url.clear();
         self.title.clear();
         self.image.clear();
+        self.description.clear();
+        self.date = ::std::option::Option::None;
         self.unknown_fields.clear();
     }
 }
@@ -6583,6 +8185,7 @@ pub struct DataMessage_Sticker {
     packKey: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     stickerId: ::std::option::Option<u32>,
     pub data: ::protobuf::SingularPtrField<AttachmentPointer>,
+    emoji: ::protobuf::SingularField<::std::string::String>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -6724,6 +8327,42 @@ impl DataMessage_Sticker {
     pub fn take_data(&mut self) -> AttachmentPointer {
         self.data.take().unwrap_or_else(|| AttachmentPointer::new())
     }
+
+    // optional string emoji = 5;
+
+
+    pub fn get_emoji(&self) -> &str {
+        match self.emoji.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_emoji(&mut self) {
+        self.emoji.clear();
+    }
+
+    pub fn has_emoji(&self) -> bool {
+        self.emoji.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_emoji(&mut self, v: ::std::string::String) {
+        self.emoji = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_emoji(&mut self) -> &mut ::std::string::String {
+        if self.emoji.is_none() {
+            self.emoji.set_default();
+        }
+        self.emoji.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_emoji(&mut self) -> ::std::string::String {
+        self.emoji.take().unwrap_or_else(|| ::std::string::String::new())
+    }
 }
 
 impl ::protobuf::Message for DataMessage_Sticker {
@@ -6756,6 +8395,9 @@ impl ::protobuf::Message for DataMessage_Sticker {
                 4 => {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.data)?;
                 },
+                5 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.emoji)?;
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -6781,6 +8423,9 @@ impl ::protobuf::Message for DataMessage_Sticker {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
+        if let Some(ref v) = self.emoji.as_ref() {
+            my_size += ::protobuf::rt::string_size(5, &v);
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -6800,6 +8445,9 @@ impl ::protobuf::Message for DataMessage_Sticker {
             os.write_tag(4, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.emoji.as_ref() {
+            os.write_string(5, &v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -6859,6 +8507,11 @@ impl ::protobuf::Message for DataMessage_Sticker {
                 |m: &DataMessage_Sticker| { &m.data },
                 |m: &mut DataMessage_Sticker| { &mut m.data },
             ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "emoji",
+                |m: &DataMessage_Sticker| { &m.emoji },
+                |m: &mut DataMessage_Sticker| { &mut m.emoji },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Sticker>(
                 "DataMessage.Sticker",
                 fields,
@@ -6879,6 +8532,7 @@ impl ::protobuf::Clear for DataMessage_Sticker {
         self.packKey.clear();
         self.stickerId = ::std::option::Option::None;
         self.data.clear();
+        self.emoji.clear();
         self.unknown_fields.clear();
     }
 }
@@ -6890,6 +8544,2035 @@ impl ::std::fmt::Debug for DataMessage_Sticker {
 }
 
 impl ::protobuf::reflect::ProtobufValue for DataMessage_Sticker {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Reaction {
+    // message fields
+    emoji: ::protobuf::SingularField<::std::string::String>,
+    remove: ::std::option::Option<bool>,
+    targetAuthorUuid: ::protobuf::SingularField<::std::string::String>,
+    targetSentTimestamp: ::std::option::Option<u64>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Reaction {
+    fn default() -> &'a DataMessage_Reaction {
+        <DataMessage_Reaction as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DataMessage_Reaction {
+    pub fn new() -> DataMessage_Reaction {
+        ::std::default::Default::default()
+    }
+
+    // optional string emoji = 1;
+
+
+    pub fn get_emoji(&self) -> &str {
+        match self.emoji.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_emoji(&mut self) {
+        self.emoji.clear();
+    }
+
+    pub fn has_emoji(&self) -> bool {
+        self.emoji.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_emoji(&mut self, v: ::std::string::String) {
+        self.emoji = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_emoji(&mut self) -> &mut ::std::string::String {
+        if self.emoji.is_none() {
+            self.emoji.set_default();
+        }
+        self.emoji.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_emoji(&mut self) -> ::std::string::String {
+        self.emoji.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional bool remove = 2;
+
+
+    pub fn get_remove(&self) -> bool {
+        self.remove.unwrap_or(false)
+    }
+    pub fn clear_remove(&mut self) {
+        self.remove = ::std::option::Option::None;
+    }
+
+    pub fn has_remove(&self) -> bool {
+        self.remove.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_remove(&mut self, v: bool) {
+        self.remove = ::std::option::Option::Some(v);
+    }
+
+    // optional string targetAuthorUuid = 4;
+
+
+    pub fn get_targetAuthorUuid(&self) -> &str {
+        match self.targetAuthorUuid.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_targetAuthorUuid(&mut self) {
+        self.targetAuthorUuid.clear();
+    }
+
+    pub fn has_targetAuthorUuid(&self) -> bool {
+        self.targetAuthorUuid.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_targetAuthorUuid(&mut self, v: ::std::string::String) {
+        self.targetAuthorUuid = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_targetAuthorUuid(&mut self) -> &mut ::std::string::String {
+        if self.targetAuthorUuid.is_none() {
+            self.targetAuthorUuid.set_default();
+        }
+        self.targetAuthorUuid.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_targetAuthorUuid(&mut self) -> ::std::string::String {
+        self.targetAuthorUuid.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional uint64 targetSentTimestamp = 5;
+
+
+    pub fn get_targetSentTimestamp(&self) -> u64 {
+        self.targetSentTimestamp.unwrap_or(0)
+    }
+    pub fn clear_targetSentTimestamp(&mut self) {
+        self.targetSentTimestamp = ::std::option::Option::None;
+    }
+
+    pub fn has_targetSentTimestamp(&self) -> bool {
+        self.targetSentTimestamp.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_targetSentTimestamp(&mut self, v: u64) {
+        self.targetSentTimestamp = ::std::option::Option::Some(v);
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Reaction {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.emoji)?;
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_bool()?;
+                    self.remove = ::std::option::Option::Some(tmp);
+                },
+                4 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.targetAuthorUuid)?;
+                },
+                5 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.targetSentTimestamp = ::std::option::Option::Some(tmp);
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.emoji.as_ref() {
+            my_size += ::protobuf::rt::string_size(1, &v);
+        }
+        if let Some(v) = self.remove {
+            my_size += 2;
+        }
+        if let Some(ref v) = self.targetAuthorUuid.as_ref() {
+            my_size += ::protobuf::rt::string_size(4, &v);
+        }
+        if let Some(v) = self.targetSentTimestamp {
+            my_size += ::protobuf::rt::value_size(5, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.emoji.as_ref() {
+            os.write_string(1, &v)?;
+        }
+        if let Some(v) = self.remove {
+            os.write_bool(2, v)?;
+        }
+        if let Some(ref v) = self.targetAuthorUuid.as_ref() {
+            os.write_string(4, &v)?;
+        }
+        if let Some(v) = self.targetSentTimestamp {
+            os.write_uint64(5, v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Reaction {
+        DataMessage_Reaction::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "emoji",
+                |m: &DataMessage_Reaction| { &m.emoji },
+                |m: &mut DataMessage_Reaction| { &mut m.emoji },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeBool>(
+                "remove",
+                |m: &DataMessage_Reaction| { &m.remove },
+                |m: &mut DataMessage_Reaction| { &mut m.remove },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "targetAuthorUuid",
+                |m: &DataMessage_Reaction| { &m.targetAuthorUuid },
+                |m: &mut DataMessage_Reaction| { &mut m.targetAuthorUuid },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "targetSentTimestamp",
+                |m: &DataMessage_Reaction| { &m.targetSentTimestamp },
+                |m: &mut DataMessage_Reaction| { &mut m.targetSentTimestamp },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Reaction>(
+                "DataMessage.Reaction",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Reaction {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Reaction> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Reaction::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Reaction {
+    fn clear(&mut self) {
+        self.emoji.clear();
+        self.remove = ::std::option::Option::None;
+        self.targetAuthorUuid.clear();
+        self.targetSentTimestamp = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Reaction {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Reaction {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Delete {
+    // message fields
+    targetSentTimestamp: ::std::option::Option<u64>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Delete {
+    fn default() -> &'a DataMessage_Delete {
+        <DataMessage_Delete as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DataMessage_Delete {
+    pub fn new() -> DataMessage_Delete {
+        ::std::default::Default::default()
+    }
+
+    // optional uint64 targetSentTimestamp = 1;
+
+
+    pub fn get_targetSentTimestamp(&self) -> u64 {
+        self.targetSentTimestamp.unwrap_or(0)
+    }
+    pub fn clear_targetSentTimestamp(&mut self) {
+        self.targetSentTimestamp = ::std::option::Option::None;
+    }
+
+    pub fn has_targetSentTimestamp(&self) -> bool {
+        self.targetSentTimestamp.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_targetSentTimestamp(&mut self, v: u64) {
+        self.targetSentTimestamp = ::std::option::Option::Some(v);
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Delete {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.targetSentTimestamp = ::std::option::Option::Some(tmp);
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(v) = self.targetSentTimestamp {
+            my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(v) = self.targetSentTimestamp {
+            os.write_uint64(1, v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Delete {
+        DataMessage_Delete::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "targetSentTimestamp",
+                |m: &DataMessage_Delete| { &m.targetSentTimestamp },
+                |m: &mut DataMessage_Delete| { &mut m.targetSentTimestamp },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Delete>(
+                "DataMessage.Delete",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Delete {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Delete> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Delete::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Delete {
+    fn clear(&mut self) {
+        self.targetSentTimestamp = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Delete {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Delete {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_GroupCallUpdate {
+    // message fields
+    eraId: ::protobuf::SingularField<::std::string::String>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_GroupCallUpdate {
+    fn default() -> &'a DataMessage_GroupCallUpdate {
+        <DataMessage_GroupCallUpdate as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DataMessage_GroupCallUpdate {
+    pub fn new() -> DataMessage_GroupCallUpdate {
+        ::std::default::Default::default()
+    }
+
+    // optional string eraId = 1;
+
+
+    pub fn get_eraId(&self) -> &str {
+        match self.eraId.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_eraId(&mut self) {
+        self.eraId.clear();
+    }
+
+    pub fn has_eraId(&self) -> bool {
+        self.eraId.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_eraId(&mut self, v: ::std::string::String) {
+        self.eraId = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_eraId(&mut self) -> &mut ::std::string::String {
+        if self.eraId.is_none() {
+            self.eraId.set_default();
+        }
+        self.eraId.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_eraId(&mut self) -> ::std::string::String {
+        self.eraId.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+}
+
+impl ::protobuf::Message for DataMessage_GroupCallUpdate {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.eraId)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.eraId.as_ref() {
+            my_size += ::protobuf::rt::string_size(1, &v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.eraId.as_ref() {
+            os.write_string(1, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_GroupCallUpdate {
+        DataMessage_GroupCallUpdate::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "eraId",
+                |m: &DataMessage_GroupCallUpdate| { &m.eraId },
+                |m: &mut DataMessage_GroupCallUpdate| { &mut m.eraId },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_GroupCallUpdate>(
+                "DataMessage.GroupCallUpdate",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_GroupCallUpdate {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_GroupCallUpdate> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_GroupCallUpdate::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_GroupCallUpdate {
+    fn clear(&mut self) {
+        self.eraId.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_GroupCallUpdate {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_GroupCallUpdate {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Payment {
+    // message oneof groups
+    pub Item: ::std::option::Option<DataMessage_Payment_oneof_Item>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Payment {
+    fn default() -> &'a DataMessage_Payment {
+        <DataMessage_Payment as ::protobuf::Message>::default_instance()
+    }
+}
+
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum DataMessage_Payment_oneof_Item {
+    notification(DataMessage_Payment_Notification),
+}
+
+impl DataMessage_Payment {
+    pub fn new() -> DataMessage_Payment {
+        ::std::default::Default::default()
+    }
+
+    // optional .signalservice.DataMessage.Payment.Notification notification = 1;
+
+
+    pub fn get_notification(&self) -> &DataMessage_Payment_Notification {
+        match self.Item {
+            ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(ref v)) => v,
+            _ => <DataMessage_Payment_Notification as ::protobuf::Message>::default_instance(),
+        }
+    }
+    pub fn clear_notification(&mut self) {
+        self.Item = ::std::option::Option::None;
+    }
+
+    pub fn has_notification(&self) -> bool {
+        match self.Item {
+            ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_notification(&mut self, v: DataMessage_Payment_Notification) {
+        self.Item = ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_notification(&mut self) -> &mut DataMessage_Payment_Notification {
+        if let ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(_)) = self.Item {
+        } else {
+            self.Item = ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(DataMessage_Payment_Notification::new()));
+        }
+        match self.Item {
+            ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_notification(&mut self) -> DataMessage_Payment_Notification {
+        if self.has_notification() {
+            match self.Item.take() {
+                ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            DataMessage_Payment_Notification::new()
+        }
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Payment {
+    fn is_initialized(&self) -> bool {
+        if let Some(DataMessage_Payment_oneof_Item::notification(ref v)) = self.Item {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.Item = ::std::option::Option::Some(DataMessage_Payment_oneof_Item::notification(is.read_message()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let ::std::option::Option::Some(ref v) = self.Item {
+            match v {
+                &DataMessage_Payment_oneof_Item::notification(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let ::std::option::Option::Some(ref v) = self.Item {
+            match v {
+                &DataMessage_Payment_oneof_Item::notification(ref v) => {
+                    os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Payment {
+        DataMessage_Payment::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, DataMessage_Payment_Notification>(
+                "notification",
+                DataMessage_Payment::has_notification,
+                DataMessage_Payment::get_notification,
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Payment>(
+                "DataMessage.Payment",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Payment {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Payment> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Payment::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Payment {
+    fn clear(&mut self) {
+        self.Item = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Payment {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Payment {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Payment_Address {
+    // message oneof groups
+    pub Address: ::std::option::Option<DataMessage_Payment_Address_oneof_Address>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Payment_Address {
+    fn default() -> &'a DataMessage_Payment_Address {
+        <DataMessage_Payment_Address as ::protobuf::Message>::default_instance()
+    }
+}
+
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum DataMessage_Payment_Address_oneof_Address {
+    mobileCoin(DataMessage_Payment_Address_MobileCoin),
+}
+
+impl DataMessage_Payment_Address {
+    pub fn new() -> DataMessage_Payment_Address {
+        ::std::default::Default::default()
+    }
+
+    // optional .signalservice.DataMessage.Payment.Address.MobileCoin mobileCoin = 1;
+
+
+    pub fn get_mobileCoin(&self) -> &DataMessage_Payment_Address_MobileCoin {
+        match self.Address {
+            ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(ref v)) => v,
+            _ => <DataMessage_Payment_Address_MobileCoin as ::protobuf::Message>::default_instance(),
+        }
+    }
+    pub fn clear_mobileCoin(&mut self) {
+        self.Address = ::std::option::Option::None;
+    }
+
+    pub fn has_mobileCoin(&self) -> bool {
+        match self.Address {
+            ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_mobileCoin(&mut self, v: DataMessage_Payment_Address_MobileCoin) {
+        self.Address = ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_mobileCoin(&mut self) -> &mut DataMessage_Payment_Address_MobileCoin {
+        if let ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(_)) = self.Address {
+        } else {
+            self.Address = ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(DataMessage_Payment_Address_MobileCoin::new()));
+        }
+        match self.Address {
+            ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_mobileCoin(&mut self) -> DataMessage_Payment_Address_MobileCoin {
+        if self.has_mobileCoin() {
+            match self.Address.take() {
+                ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            DataMessage_Payment_Address_MobileCoin::new()
+        }
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Payment_Address {
+    fn is_initialized(&self) -> bool {
+        if let Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(ref v)) = self.Address {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.Address = ::std::option::Option::Some(DataMessage_Payment_Address_oneof_Address::mobileCoin(is.read_message()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let ::std::option::Option::Some(ref v) = self.Address {
+            match v {
+                &DataMessage_Payment_Address_oneof_Address::mobileCoin(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let ::std::option::Option::Some(ref v) = self.Address {
+            match v {
+                &DataMessage_Payment_Address_oneof_Address::mobileCoin(ref v) => {
+                    os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Payment_Address {
+        DataMessage_Payment_Address::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, DataMessage_Payment_Address_MobileCoin>(
+                "mobileCoin",
+                DataMessage_Payment_Address::has_mobileCoin,
+                DataMessage_Payment_Address::get_mobileCoin,
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Payment_Address>(
+                "DataMessage.Payment.Address",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Payment_Address {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Payment_Address> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Payment_Address::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Payment_Address {
+    fn clear(&mut self) {
+        self.Address = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Payment_Address {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Payment_Address {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Payment_Address_MobileCoin {
+    // message fields
+    address: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Payment_Address_MobileCoin {
+    fn default() -> &'a DataMessage_Payment_Address_MobileCoin {
+        <DataMessage_Payment_Address_MobileCoin as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DataMessage_Payment_Address_MobileCoin {
+    pub fn new() -> DataMessage_Payment_Address_MobileCoin {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes address = 1;
+
+
+    pub fn get_address(&self) -> &[u8] {
+        match self.address.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_address(&mut self) {
+        self.address.clear();
+    }
+
+    pub fn has_address(&self) -> bool {
+        self.address.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_address(&mut self, v: ::std::vec::Vec<u8>) {
+        self.address = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_address(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.address.is_none() {
+            self.address.set_default();
+        }
+        self.address.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_address(&mut self) -> ::std::vec::Vec<u8> {
+        self.address.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Payment_Address_MobileCoin {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.address)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.address.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.address.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Payment_Address_MobileCoin {
+        DataMessage_Payment_Address_MobileCoin::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "address",
+                |m: &DataMessage_Payment_Address_MobileCoin| { &m.address },
+                |m: &mut DataMessage_Payment_Address_MobileCoin| { &mut m.address },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Payment_Address_MobileCoin>(
+                "DataMessage.Payment.Address.MobileCoin",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Payment_Address_MobileCoin {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Payment_Address_MobileCoin> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Payment_Address_MobileCoin::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Payment_Address_MobileCoin {
+    fn clear(&mut self) {
+        self.address.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Payment_Address_MobileCoin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Payment_Address_MobileCoin {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Payment_Amount {
+    // message oneof groups
+    pub Amount: ::std::option::Option<DataMessage_Payment_Amount_oneof_Amount>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Payment_Amount {
+    fn default() -> &'a DataMessage_Payment_Amount {
+        <DataMessage_Payment_Amount as ::protobuf::Message>::default_instance()
+    }
+}
+
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum DataMessage_Payment_Amount_oneof_Amount {
+    mobileCoin(DataMessage_Payment_Amount_MobileCoin),
+}
+
+impl DataMessage_Payment_Amount {
+    pub fn new() -> DataMessage_Payment_Amount {
+        ::std::default::Default::default()
+    }
+
+    // optional .signalservice.DataMessage.Payment.Amount.MobileCoin mobileCoin = 1;
+
+
+    pub fn get_mobileCoin(&self) -> &DataMessage_Payment_Amount_MobileCoin {
+        match self.Amount {
+            ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(ref v)) => v,
+            _ => <DataMessage_Payment_Amount_MobileCoin as ::protobuf::Message>::default_instance(),
+        }
+    }
+    pub fn clear_mobileCoin(&mut self) {
+        self.Amount = ::std::option::Option::None;
+    }
+
+    pub fn has_mobileCoin(&self) -> bool {
+        match self.Amount {
+            ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_mobileCoin(&mut self, v: DataMessage_Payment_Amount_MobileCoin) {
+        self.Amount = ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_mobileCoin(&mut self) -> &mut DataMessage_Payment_Amount_MobileCoin {
+        if let ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(_)) = self.Amount {
+        } else {
+            self.Amount = ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(DataMessage_Payment_Amount_MobileCoin::new()));
+        }
+        match self.Amount {
+            ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_mobileCoin(&mut self) -> DataMessage_Payment_Amount_MobileCoin {
+        if self.has_mobileCoin() {
+            match self.Amount.take() {
+                ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            DataMessage_Payment_Amount_MobileCoin::new()
+        }
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Payment_Amount {
+    fn is_initialized(&self) -> bool {
+        if let Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(ref v)) = self.Amount {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.Amount = ::std::option::Option::Some(DataMessage_Payment_Amount_oneof_Amount::mobileCoin(is.read_message()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let ::std::option::Option::Some(ref v) = self.Amount {
+            match v {
+                &DataMessage_Payment_Amount_oneof_Amount::mobileCoin(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let ::std::option::Option::Some(ref v) = self.Amount {
+            match v {
+                &DataMessage_Payment_Amount_oneof_Amount::mobileCoin(ref v) => {
+                    os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Payment_Amount {
+        DataMessage_Payment_Amount::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, DataMessage_Payment_Amount_MobileCoin>(
+                "mobileCoin",
+                DataMessage_Payment_Amount::has_mobileCoin,
+                DataMessage_Payment_Amount::get_mobileCoin,
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Payment_Amount>(
+                "DataMessage.Payment.Amount",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Payment_Amount {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Payment_Amount> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Payment_Amount::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Payment_Amount {
+    fn clear(&mut self) {
+        self.Amount = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Payment_Amount {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Payment_Amount {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Payment_Amount_MobileCoin {
+    // message fields
+    picoMob: ::std::option::Option<u64>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Payment_Amount_MobileCoin {
+    fn default() -> &'a DataMessage_Payment_Amount_MobileCoin {
+        <DataMessage_Payment_Amount_MobileCoin as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DataMessage_Payment_Amount_MobileCoin {
+    pub fn new() -> DataMessage_Payment_Amount_MobileCoin {
+        ::std::default::Default::default()
+    }
+
+    // optional uint64 picoMob = 1;
+
+
+    pub fn get_picoMob(&self) -> u64 {
+        self.picoMob.unwrap_or(0)
+    }
+    pub fn clear_picoMob(&mut self) {
+        self.picoMob = ::std::option::Option::None;
+    }
+
+    pub fn has_picoMob(&self) -> bool {
+        self.picoMob.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_picoMob(&mut self, v: u64) {
+        self.picoMob = ::std::option::Option::Some(v);
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Payment_Amount_MobileCoin {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.picoMob = ::std::option::Option::Some(tmp);
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(v) = self.picoMob {
+            my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(v) = self.picoMob {
+            os.write_uint64(1, v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Payment_Amount_MobileCoin {
+        DataMessage_Payment_Amount_MobileCoin::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "picoMob",
+                |m: &DataMessage_Payment_Amount_MobileCoin| { &m.picoMob },
+                |m: &mut DataMessage_Payment_Amount_MobileCoin| { &mut m.picoMob },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Payment_Amount_MobileCoin>(
+                "DataMessage.Payment.Amount.MobileCoin",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Payment_Amount_MobileCoin {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Payment_Amount_MobileCoin> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Payment_Amount_MobileCoin::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Payment_Amount_MobileCoin {
+    fn clear(&mut self) {
+        self.picoMob = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Payment_Amount_MobileCoin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Payment_Amount_MobileCoin {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Payment_Notification {
+    // message fields
+    note: ::protobuf::SingularField<::std::string::String>,
+    // message oneof groups
+    pub Transaction: ::std::option::Option<DataMessage_Payment_Notification_oneof_Transaction>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Payment_Notification {
+    fn default() -> &'a DataMessage_Payment_Notification {
+        <DataMessage_Payment_Notification as ::protobuf::Message>::default_instance()
+    }
+}
+
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum DataMessage_Payment_Notification_oneof_Transaction {
+    mobileCoin(DataMessage_Payment_Notification_MobileCoin),
+}
+
+impl DataMessage_Payment_Notification {
+    pub fn new() -> DataMessage_Payment_Notification {
+        ::std::default::Default::default()
+    }
+
+    // optional .signalservice.DataMessage.Payment.Notification.MobileCoin mobileCoin = 1;
+
+
+    pub fn get_mobileCoin(&self) -> &DataMessage_Payment_Notification_MobileCoin {
+        match self.Transaction {
+            ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(ref v)) => v,
+            _ => <DataMessage_Payment_Notification_MobileCoin as ::protobuf::Message>::default_instance(),
+        }
+    }
+    pub fn clear_mobileCoin(&mut self) {
+        self.Transaction = ::std::option::Option::None;
+    }
+
+    pub fn has_mobileCoin(&self) -> bool {
+        match self.Transaction {
+            ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_mobileCoin(&mut self, v: DataMessage_Payment_Notification_MobileCoin) {
+        self.Transaction = ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_mobileCoin(&mut self) -> &mut DataMessage_Payment_Notification_MobileCoin {
+        if let ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(_)) = self.Transaction {
+        } else {
+            self.Transaction = ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(DataMessage_Payment_Notification_MobileCoin::new()));
+        }
+        match self.Transaction {
+            ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_mobileCoin(&mut self) -> DataMessage_Payment_Notification_MobileCoin {
+        if self.has_mobileCoin() {
+            match self.Transaction.take() {
+                ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            DataMessage_Payment_Notification_MobileCoin::new()
+        }
+    }
+
+    // optional string note = 2;
+
+
+    pub fn get_note(&self) -> &str {
+        match self.note.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_note(&mut self) {
+        self.note.clear();
+    }
+
+    pub fn has_note(&self) -> bool {
+        self.note.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_note(&mut self, v: ::std::string::String) {
+        self.note = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_note(&mut self) -> &mut ::std::string::String {
+        if self.note.is_none() {
+            self.note.set_default();
+        }
+        self.note.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_note(&mut self) -> ::std::string::String {
+        self.note.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Payment_Notification {
+    fn is_initialized(&self) -> bool {
+        if let Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(ref v)) = self.Transaction {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.Transaction = ::std::option::Option::Some(DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(is.read_message()?));
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.note)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.note.as_ref() {
+            my_size += ::protobuf::rt::string_size(2, &v);
+        }
+        if let ::std::option::Option::Some(ref v) = self.Transaction {
+            match v {
+                &DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.note.as_ref() {
+            os.write_string(2, &v)?;
+        }
+        if let ::std::option::Option::Some(ref v) = self.Transaction {
+            match v {
+                &DataMessage_Payment_Notification_oneof_Transaction::mobileCoin(ref v) => {
+                    os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Payment_Notification {
+        DataMessage_Payment_Notification::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, DataMessage_Payment_Notification_MobileCoin>(
+                "mobileCoin",
+                DataMessage_Payment_Notification::has_mobileCoin,
+                DataMessage_Payment_Notification::get_mobileCoin,
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "note",
+                |m: &DataMessage_Payment_Notification| { &m.note },
+                |m: &mut DataMessage_Payment_Notification| { &mut m.note },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Payment_Notification>(
+                "DataMessage.Payment.Notification",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Payment_Notification {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Payment_Notification> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Payment_Notification::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Payment_Notification {
+    fn clear(&mut self) {
+        self.Transaction = ::std::option::Option::None;
+        self.note.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Payment_Notification {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Payment_Notification {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DataMessage_Payment_Notification_MobileCoin {
+    // message fields
+    receipt: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DataMessage_Payment_Notification_MobileCoin {
+    fn default() -> &'a DataMessage_Payment_Notification_MobileCoin {
+        <DataMessage_Payment_Notification_MobileCoin as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DataMessage_Payment_Notification_MobileCoin {
+    pub fn new() -> DataMessage_Payment_Notification_MobileCoin {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes receipt = 1;
+
+
+    pub fn get_receipt(&self) -> &[u8] {
+        match self.receipt.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_receipt(&mut self) {
+        self.receipt.clear();
+    }
+
+    pub fn has_receipt(&self) -> bool {
+        self.receipt.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_receipt(&mut self, v: ::std::vec::Vec<u8>) {
+        self.receipt = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_receipt(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.receipt.is_none() {
+            self.receipt.set_default();
+        }
+        self.receipt.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_receipt(&mut self) -> ::std::vec::Vec<u8> {
+        self.receipt.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+}
+
+impl ::protobuf::Message for DataMessage_Payment_Notification_MobileCoin {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.receipt)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.receipt.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.receipt.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DataMessage_Payment_Notification_MobileCoin {
+        DataMessage_Payment_Notification_MobileCoin::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "receipt",
+                |m: &DataMessage_Payment_Notification_MobileCoin| { &m.receipt },
+                |m: &mut DataMessage_Payment_Notification_MobileCoin| { &mut m.receipt },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DataMessage_Payment_Notification_MobileCoin>(
+                "DataMessage.Payment.Notification.MobileCoin",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DataMessage_Payment_Notification_MobileCoin {
+        static instance: ::protobuf::rt::LazyV2<DataMessage_Payment_Notification_MobileCoin> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DataMessage_Payment_Notification_MobileCoin::new)
+    }
+}
+
+impl ::protobuf::Clear for DataMessage_Payment_Notification_MobileCoin {
+    fn clear(&mut self) {
+        self.receipt.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DataMessage_Payment_Notification_MobileCoin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DataMessage_Payment_Notification_MobileCoin {
     fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
         ::protobuf::reflect::ReflectValueRef::Message(self)
     }
@@ -6958,7 +10641,11 @@ pub enum DataMessage_ProtocolVersion {
     MESSAGE_TIMERS, // 1
     VIEW_ONCE, // 2
     VIEW_ONCE_VIDEO, // 3
-    CURRENT, // 3
+    REACTIONS, // 4
+    CDN_SELECTOR_ATTACHMENTS, // 5
+    MENTIONS, // 6
+    PAYMENTS, // 7
+    CURRENT, // 7
 }
 
 impl ::std::cmp::PartialEq for DataMessage_ProtocolVersion {
@@ -6980,7 +10667,11 @@ impl ::protobuf::ProtobufEnum for DataMessage_ProtocolVersion {
             DataMessage_ProtocolVersion::MESSAGE_TIMERS => 1,
             DataMessage_ProtocolVersion::VIEW_ONCE => 2,
             DataMessage_ProtocolVersion::VIEW_ONCE_VIDEO => 3,
-            DataMessage_ProtocolVersion::CURRENT => 3,
+            DataMessage_ProtocolVersion::REACTIONS => 4,
+            DataMessage_ProtocolVersion::CDN_SELECTOR_ATTACHMENTS => 5,
+            DataMessage_ProtocolVersion::MENTIONS => 6,
+            DataMessage_ProtocolVersion::PAYMENTS => 7,
+            DataMessage_ProtocolVersion::CURRENT => 7,
         }
     }
 
@@ -6990,6 +10681,10 @@ impl ::protobuf::ProtobufEnum for DataMessage_ProtocolVersion {
             1 => ::std::option::Option::Some(DataMessage_ProtocolVersion::MESSAGE_TIMERS),
             2 => ::std::option::Option::Some(DataMessage_ProtocolVersion::VIEW_ONCE),
             3 => ::std::option::Option::Some(DataMessage_ProtocolVersion::VIEW_ONCE_VIDEO),
+            4 => ::std::option::Option::Some(DataMessage_ProtocolVersion::REACTIONS),
+            5 => ::std::option::Option::Some(DataMessage_ProtocolVersion::CDN_SELECTOR_ATTACHMENTS),
+            6 => ::std::option::Option::Some(DataMessage_ProtocolVersion::MENTIONS),
+            7 => ::std::option::Option::Some(DataMessage_ProtocolVersion::PAYMENTS),
             _ => ::std::option::Option::None
         }
     }
@@ -7000,6 +10695,10 @@ impl ::protobuf::ProtobufEnum for DataMessage_ProtocolVersion {
             DataMessage_ProtocolVersion::MESSAGE_TIMERS,
             DataMessage_ProtocolVersion::VIEW_ONCE,
             DataMessage_ProtocolVersion::VIEW_ONCE_VIDEO,
+            DataMessage_ProtocolVersion::REACTIONS,
+            DataMessage_ProtocolVersion::CDN_SELECTOR_ATTACHMENTS,
+            DataMessage_ProtocolVersion::MENTIONS,
+            DataMessage_ProtocolVersion::PAYMENTS,
             DataMessage_ProtocolVersion::CURRENT,
         ];
         values
@@ -7401,6 +11100,7 @@ impl ::protobuf::reflect::ProtobufValue for ReceiptMessage {
 pub enum ReceiptMessage_Type {
     DELIVERY = 0,
     READ = 1,
+    VIEWED = 2,
 }
 
 impl ::protobuf::ProtobufEnum for ReceiptMessage_Type {
@@ -7412,6 +11112,7 @@ impl ::protobuf::ProtobufEnum for ReceiptMessage_Type {
         match value {
             0 => ::std::option::Option::Some(ReceiptMessage_Type::DELIVERY),
             1 => ::std::option::Option::Some(ReceiptMessage_Type::READ),
+            2 => ::std::option::Option::Some(ReceiptMessage_Type::VIEWED),
             _ => ::std::option::Option::None
         }
     }
@@ -7420,6 +11121,7 @@ impl ::protobuf::ProtobufEnum for ReceiptMessage_Type {
         static values: &'static [ReceiptMessage_Type] = &[
             ReceiptMessage_Type::DELIVERY,
             ReceiptMessage_Type::READ,
+            ReceiptMessage_Type::VIEWED,
         ];
         values
     }
@@ -8177,6 +11879,10 @@ pub struct SyncMessage {
     pub stickerPackOperation: ::protobuf::RepeatedField<SyncMessage_StickerPackOperation>,
     pub viewOnceOpen: ::protobuf::SingularPtrField<SyncMessage_ViewOnceOpen>,
     pub fetchLatest: ::protobuf::SingularPtrField<SyncMessage_FetchLatest>,
+    pub keys: ::protobuf::SingularPtrField<SyncMessage_Keys>,
+    pub messageRequestResponse: ::protobuf::SingularPtrField<SyncMessage_MessageRequestResponse>,
+    pub outgoingPayment: ::protobuf::SingularPtrField<SyncMessage_OutgoingPayment>,
+    pub viewed: ::protobuf::RepeatedField<SyncMessage_Viewed>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -8577,6 +12283,130 @@ impl SyncMessage {
     pub fn take_fetchLatest(&mut self) -> SyncMessage_FetchLatest {
         self.fetchLatest.take().unwrap_or_else(|| SyncMessage_FetchLatest::new())
     }
+
+    // optional .signalservice.SyncMessage.Keys keys = 13;
+
+
+    pub fn get_keys(&self) -> &SyncMessage_Keys {
+        self.keys.as_ref().unwrap_or_else(|| <SyncMessage_Keys as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_keys(&mut self) {
+        self.keys.clear();
+    }
+
+    pub fn has_keys(&self) -> bool {
+        self.keys.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_keys(&mut self, v: SyncMessage_Keys) {
+        self.keys = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_keys(&mut self) -> &mut SyncMessage_Keys {
+        if self.keys.is_none() {
+            self.keys.set_default();
+        }
+        self.keys.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_keys(&mut self) -> SyncMessage_Keys {
+        self.keys.take().unwrap_or_else(|| SyncMessage_Keys::new())
+    }
+
+    // optional .signalservice.SyncMessage.MessageRequestResponse messageRequestResponse = 14;
+
+
+    pub fn get_messageRequestResponse(&self) -> &SyncMessage_MessageRequestResponse {
+        self.messageRequestResponse.as_ref().unwrap_or_else(|| <SyncMessage_MessageRequestResponse as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_messageRequestResponse(&mut self) {
+        self.messageRequestResponse.clear();
+    }
+
+    pub fn has_messageRequestResponse(&self) -> bool {
+        self.messageRequestResponse.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_messageRequestResponse(&mut self, v: SyncMessage_MessageRequestResponse) {
+        self.messageRequestResponse = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_messageRequestResponse(&mut self) -> &mut SyncMessage_MessageRequestResponse {
+        if self.messageRequestResponse.is_none() {
+            self.messageRequestResponse.set_default();
+        }
+        self.messageRequestResponse.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_messageRequestResponse(&mut self) -> SyncMessage_MessageRequestResponse {
+        self.messageRequestResponse.take().unwrap_or_else(|| SyncMessage_MessageRequestResponse::new())
+    }
+
+    // optional .signalservice.SyncMessage.OutgoingPayment outgoingPayment = 15;
+
+
+    pub fn get_outgoingPayment(&self) -> &SyncMessage_OutgoingPayment {
+        self.outgoingPayment.as_ref().unwrap_or_else(|| <SyncMessage_OutgoingPayment as ::protobuf::Message>::default_instance())
+    }
+    pub fn clear_outgoingPayment(&mut self) {
+        self.outgoingPayment.clear();
+    }
+
+    pub fn has_outgoingPayment(&self) -> bool {
+        self.outgoingPayment.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_outgoingPayment(&mut self, v: SyncMessage_OutgoingPayment) {
+        self.outgoingPayment = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_outgoingPayment(&mut self) -> &mut SyncMessage_OutgoingPayment {
+        if self.outgoingPayment.is_none() {
+            self.outgoingPayment.set_default();
+        }
+        self.outgoingPayment.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_outgoingPayment(&mut self) -> SyncMessage_OutgoingPayment {
+        self.outgoingPayment.take().unwrap_or_else(|| SyncMessage_OutgoingPayment::new())
+    }
+
+    // repeated .signalservice.SyncMessage.Viewed viewed = 16;
+
+
+    pub fn get_viewed(&self) -> &[SyncMessage_Viewed] {
+        &self.viewed
+    }
+    pub fn clear_viewed(&mut self) {
+        self.viewed.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_viewed(&mut self, v: ::protobuf::RepeatedField<SyncMessage_Viewed>) {
+        self.viewed = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_viewed(&mut self) -> &mut ::protobuf::RepeatedField<SyncMessage_Viewed> {
+        &mut self.viewed
+    }
+
+    // Take field
+    pub fn take_viewed(&mut self) -> ::protobuf::RepeatedField<SyncMessage_Viewed> {
+        ::std::mem::replace(&mut self.viewed, ::protobuf::RepeatedField::new())
+    }
 }
 
 impl ::protobuf::Message for SyncMessage {
@@ -8636,6 +12466,26 @@ impl ::protobuf::Message for SyncMessage {
                 return false;
             }
         };
+        for v in &self.keys {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.messageRequestResponse {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.outgoingPayment {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.viewed {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
         true
     }
 
@@ -8678,6 +12528,18 @@ impl ::protobuf::Message for SyncMessage {
                 },
                 12 => {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.fetchLatest)?;
+                },
+                13 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.keys)?;
+                },
+                14 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.messageRequestResponse)?;
+                },
+                15 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.outgoingPayment)?;
+                },
+                16 => {
+                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.viewed)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -8738,6 +12600,22 @@ impl ::protobuf::Message for SyncMessage {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
+        if let Some(ref v) = self.keys.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(ref v) = self.messageRequestResponse.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(ref v) = self.outgoingPayment.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        for value in &self.viewed {
+            let len = value.compute_size();
+            my_size += 2 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        };
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -8802,6 +12680,26 @@ impl ::protobuf::Message for SyncMessage {
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         }
+        if let Some(ref v) = self.keys.as_ref() {
+            os.write_tag(13, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.messageRequestResponse.as_ref() {
+            os.write_tag(14, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.outgoingPayment.as_ref() {
+            os.write_tag(15, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        for v in &self.viewed {
+            os.write_tag(16, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        };
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
     }
@@ -8900,6 +12798,26 @@ impl ::protobuf::Message for SyncMessage {
                 |m: &SyncMessage| { &m.fetchLatest },
                 |m: &mut SyncMessage| { &mut m.fetchLatest },
             ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<SyncMessage_Keys>>(
+                "keys",
+                |m: &SyncMessage| { &m.keys },
+                |m: &mut SyncMessage| { &mut m.keys },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<SyncMessage_MessageRequestResponse>>(
+                "messageRequestResponse",
+                |m: &SyncMessage| { &m.messageRequestResponse },
+                |m: &mut SyncMessage| { &mut m.messageRequestResponse },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<SyncMessage_OutgoingPayment>>(
+                "outgoingPayment",
+                |m: &SyncMessage| { &m.outgoingPayment },
+                |m: &mut SyncMessage| { &mut m.outgoingPayment },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<SyncMessage_Viewed>>(
+                "viewed",
+                |m: &SyncMessage| { &m.viewed },
+                |m: &mut SyncMessage| { &mut m.viewed },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<SyncMessage>(
                 "SyncMessage",
                 fields,
@@ -8928,6 +12846,10 @@ impl ::protobuf::Clear for SyncMessage {
         self.stickerPackOperation.clear();
         self.viewOnceOpen.clear();
         self.fetchLatest.clear();
+        self.keys.clear();
+        self.messageRequestResponse.clear();
+        self.outgoingPayment.clear();
+        self.viewed.clear();
         self.unknown_fields.clear();
     }
 }
@@ -10453,6 +14375,7 @@ pub enum SyncMessage_Request_Type {
     GROUPS = 2,
     BLOCKED = 3,
     CONFIGURATION = 4,
+    KEYS = 5,
 }
 
 impl ::protobuf::ProtobufEnum for SyncMessage_Request_Type {
@@ -10467,6 +14390,7 @@ impl ::protobuf::ProtobufEnum for SyncMessage_Request_Type {
             2 => ::std::option::Option::Some(SyncMessage_Request_Type::GROUPS),
             3 => ::std::option::Option::Some(SyncMessage_Request_Type::BLOCKED),
             4 => ::std::option::Option::Some(SyncMessage_Request_Type::CONFIGURATION),
+            5 => ::std::option::Option::Some(SyncMessage_Request_Type::KEYS),
             _ => ::std::option::Option::None
         }
     }
@@ -10478,6 +14402,7 @@ impl ::protobuf::ProtobufEnum for SyncMessage_Request_Type {
             SyncMessage_Request_Type::GROUPS,
             SyncMessage_Request_Type::BLOCKED,
             SyncMessage_Request_Type::CONFIGURATION,
+            SyncMessage_Request_Type::KEYS,
         ];
         values
     }
@@ -10770,13 +14695,276 @@ impl ::protobuf::reflect::ProtobufValue for SyncMessage_Read {
 
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct SyncMessage_Viewed {
+    // message fields
+    senderE164: ::protobuf::SingularField<::std::string::String>,
+    senderUuid: ::protobuf::SingularField<::std::string::String>,
+    timestamp: ::std::option::Option<u64>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a SyncMessage_Viewed {
+    fn default() -> &'a SyncMessage_Viewed {
+        <SyncMessage_Viewed as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl SyncMessage_Viewed {
+    pub fn new() -> SyncMessage_Viewed {
+        ::std::default::Default::default()
+    }
+
+    // optional string senderE164 = 1;
+
+
+    pub fn get_senderE164(&self) -> &str {
+        match self.senderE164.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_senderE164(&mut self) {
+        self.senderE164.clear();
+    }
+
+    pub fn has_senderE164(&self) -> bool {
+        self.senderE164.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_senderE164(&mut self, v: ::std::string::String) {
+        self.senderE164 = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_senderE164(&mut self) -> &mut ::std::string::String {
+        if self.senderE164.is_none() {
+            self.senderE164.set_default();
+        }
+        self.senderE164.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_senderE164(&mut self) -> ::std::string::String {
+        self.senderE164.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional string senderUuid = 3;
+
+
+    pub fn get_senderUuid(&self) -> &str {
+        match self.senderUuid.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_senderUuid(&mut self) {
+        self.senderUuid.clear();
+    }
+
+    pub fn has_senderUuid(&self) -> bool {
+        self.senderUuid.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_senderUuid(&mut self, v: ::std::string::String) {
+        self.senderUuid = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_senderUuid(&mut self) -> &mut ::std::string::String {
+        if self.senderUuid.is_none() {
+            self.senderUuid.set_default();
+        }
+        self.senderUuid.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_senderUuid(&mut self) -> ::std::string::String {
+        self.senderUuid.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional uint64 timestamp = 2;
+
+
+    pub fn get_timestamp(&self) -> u64 {
+        self.timestamp.unwrap_or(0)
+    }
+    pub fn clear_timestamp(&mut self) {
+        self.timestamp = ::std::option::Option::None;
+    }
+
+    pub fn has_timestamp(&self) -> bool {
+        self.timestamp.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_timestamp(&mut self, v: u64) {
+        self.timestamp = ::std::option::Option::Some(v);
+    }
+}
+
+impl ::protobuf::Message for SyncMessage_Viewed {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.senderE164)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.senderUuid)?;
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.timestamp = ::std::option::Option::Some(tmp);
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.senderE164.as_ref() {
+            my_size += ::protobuf::rt::string_size(1, &v);
+        }
+        if let Some(ref v) = self.senderUuid.as_ref() {
+            my_size += ::protobuf::rt::string_size(3, &v);
+        }
+        if let Some(v) = self.timestamp {
+            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.senderE164.as_ref() {
+            os.write_string(1, &v)?;
+        }
+        if let Some(ref v) = self.senderUuid.as_ref() {
+            os.write_string(3, &v)?;
+        }
+        if let Some(v) = self.timestamp {
+            os.write_uint64(2, v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> SyncMessage_Viewed {
+        SyncMessage_Viewed::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "senderE164",
+                |m: &SyncMessage_Viewed| { &m.senderE164 },
+                |m: &mut SyncMessage_Viewed| { &mut m.senderE164 },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "senderUuid",
+                |m: &SyncMessage_Viewed| { &m.senderUuid },
+                |m: &mut SyncMessage_Viewed| { &mut m.senderUuid },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "timestamp",
+                |m: &SyncMessage_Viewed| { &m.timestamp },
+                |m: &mut SyncMessage_Viewed| { &mut m.timestamp },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<SyncMessage_Viewed>(
+                "SyncMessage.Viewed",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static SyncMessage_Viewed {
+        static instance: ::protobuf::rt::LazyV2<SyncMessage_Viewed> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(SyncMessage_Viewed::new)
+    }
+}
+
+impl ::protobuf::Clear for SyncMessage_Viewed {
+    fn clear(&mut self) {
+        self.senderE164.clear();
+        self.senderUuid.clear();
+        self.timestamp = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for SyncMessage_Viewed {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SyncMessage_Viewed {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct SyncMessage_Configuration {
     // message fields
     readReceipts: ::std::option::Option<bool>,
     unidentifiedDeliveryIndicators: ::std::option::Option<bool>,
     typingIndicators: ::std::option::Option<bool>,
-    linkPreviews: ::std::option::Option<bool>,
     provisioningVersion: ::std::option::Option<u32>,
+    linkPreviews: ::std::option::Option<bool>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -10852,25 +15040,6 @@ impl SyncMessage_Configuration {
         self.typingIndicators = ::std::option::Option::Some(v);
     }
 
-    // optional bool linkPreviews = 4;
-
-
-    pub fn get_linkPreviews(&self) -> bool {
-        self.linkPreviews.unwrap_or(false)
-    }
-    pub fn clear_linkPreviews(&mut self) {
-        self.linkPreviews = ::std::option::Option::None;
-    }
-
-    pub fn has_linkPreviews(&self) -> bool {
-        self.linkPreviews.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_linkPreviews(&mut self, v: bool) {
-        self.linkPreviews = ::std::option::Option::Some(v);
-    }
-
     // optional uint32 provisioningVersion = 5;
 
 
@@ -10888,6 +15057,25 @@ impl SyncMessage_Configuration {
     // Param is passed by value, moved
     pub fn set_provisioningVersion(&mut self, v: u32) {
         self.provisioningVersion = ::std::option::Option::Some(v);
+    }
+
+    // optional bool linkPreviews = 6;
+
+
+    pub fn get_linkPreviews(&self) -> bool {
+        self.linkPreviews.unwrap_or(false)
+    }
+    pub fn clear_linkPreviews(&mut self) {
+        self.linkPreviews = ::std::option::Option::None;
+    }
+
+    pub fn has_linkPreviews(&self) -> bool {
+        self.linkPreviews.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_linkPreviews(&mut self, v: bool) {
+        self.linkPreviews = ::std::option::Option::Some(v);
     }
 }
 
@@ -10921,19 +15109,19 @@ impl ::protobuf::Message for SyncMessage_Configuration {
                     let tmp = is.read_bool()?;
                     self.typingIndicators = ::std::option::Option::Some(tmp);
                 },
-                4 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    let tmp = is.read_bool()?;
-                    self.linkPreviews = ::std::option::Option::Some(tmp);
-                },
                 5 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint32()?;
                     self.provisioningVersion = ::std::option::Option::Some(tmp);
+                },
+                6 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_bool()?;
+                    self.linkPreviews = ::std::option::Option::Some(tmp);
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -10956,11 +15144,11 @@ impl ::protobuf::Message for SyncMessage_Configuration {
         if let Some(v) = self.typingIndicators {
             my_size += 2;
         }
-        if let Some(v) = self.linkPreviews {
-            my_size += 2;
-        }
         if let Some(v) = self.provisioningVersion {
             my_size += ::protobuf::rt::value_size(5, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.linkPreviews {
+            my_size += 2;
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -10977,11 +15165,11 @@ impl ::protobuf::Message for SyncMessage_Configuration {
         if let Some(v) = self.typingIndicators {
             os.write_bool(3, v)?;
         }
-        if let Some(v) = self.linkPreviews {
-            os.write_bool(4, v)?;
-        }
         if let Some(v) = self.provisioningVersion {
             os.write_uint32(5, v)?;
+        }
+        if let Some(v) = self.linkPreviews {
+            os.write_bool(6, v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -11036,15 +15224,15 @@ impl ::protobuf::Message for SyncMessage_Configuration {
                 |m: &SyncMessage_Configuration| { &m.typingIndicators },
                 |m: &mut SyncMessage_Configuration| { &mut m.typingIndicators },
             ));
-            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeBool>(
-                "linkPreviews",
-                |m: &SyncMessage_Configuration| { &m.linkPreviews },
-                |m: &mut SyncMessage_Configuration| { &mut m.linkPreviews },
-            ));
             fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
                 "provisioningVersion",
                 |m: &SyncMessage_Configuration| { &m.provisioningVersion },
                 |m: &mut SyncMessage_Configuration| { &mut m.provisioningVersion },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeBool>(
+                "linkPreviews",
+                |m: &SyncMessage_Configuration| { &m.linkPreviews },
+                |m: &mut SyncMessage_Configuration| { &mut m.linkPreviews },
             ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<SyncMessage_Configuration>(
                 "SyncMessage.Configuration",
@@ -11065,8 +15253,8 @@ impl ::protobuf::Clear for SyncMessage_Configuration {
         self.readReceipts = ::std::option::Option::None;
         self.unidentifiedDeliveryIndicators = ::std::option::Option::None;
         self.typingIndicators = ::std::option::Option::None;
-        self.linkPreviews = ::std::option::Option::None;
         self.provisioningVersion = ::std::option::Option::None;
+        self.linkPreviews = ::std::option::Option::None;
         self.unknown_fields.clear();
     }
 }
@@ -11867,9 +16055,1328 @@ impl ::protobuf::reflect::ProtobufValue for SyncMessage_FetchLatest_Type {
 
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct SyncMessage_Keys {
+    // message fields
+    storageService: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a SyncMessage_Keys {
+    fn default() -> &'a SyncMessage_Keys {
+        <SyncMessage_Keys as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl SyncMessage_Keys {
+    pub fn new() -> SyncMessage_Keys {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes storageService = 1;
+
+
+    pub fn get_storageService(&self) -> &[u8] {
+        match self.storageService.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_storageService(&mut self) {
+        self.storageService.clear();
+    }
+
+    pub fn has_storageService(&self) -> bool {
+        self.storageService.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_storageService(&mut self, v: ::std::vec::Vec<u8>) {
+        self.storageService = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_storageService(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.storageService.is_none() {
+            self.storageService.set_default();
+        }
+        self.storageService.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_storageService(&mut self) -> ::std::vec::Vec<u8> {
+        self.storageService.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+}
+
+impl ::protobuf::Message for SyncMessage_Keys {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.storageService)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.storageService.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.storageService.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> SyncMessage_Keys {
+        SyncMessage_Keys::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "storageService",
+                |m: &SyncMessage_Keys| { &m.storageService },
+                |m: &mut SyncMessage_Keys| { &mut m.storageService },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<SyncMessage_Keys>(
+                "SyncMessage.Keys",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static SyncMessage_Keys {
+        static instance: ::protobuf::rt::LazyV2<SyncMessage_Keys> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(SyncMessage_Keys::new)
+    }
+}
+
+impl ::protobuf::Clear for SyncMessage_Keys {
+    fn clear(&mut self) {
+        self.storageService.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for SyncMessage_Keys {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SyncMessage_Keys {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct SyncMessage_MessageRequestResponse {
+    // message fields
+    threadE164: ::protobuf::SingularField<::std::string::String>,
+    threadUuid: ::protobuf::SingularField<::std::string::String>,
+    groupId: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    field_type: ::std::option::Option<SyncMessage_MessageRequestResponse_Type>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a SyncMessage_MessageRequestResponse {
+    fn default() -> &'a SyncMessage_MessageRequestResponse {
+        <SyncMessage_MessageRequestResponse as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl SyncMessage_MessageRequestResponse {
+    pub fn new() -> SyncMessage_MessageRequestResponse {
+        ::std::default::Default::default()
+    }
+
+    // optional string threadE164 = 1;
+
+
+    pub fn get_threadE164(&self) -> &str {
+        match self.threadE164.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_threadE164(&mut self) {
+        self.threadE164.clear();
+    }
+
+    pub fn has_threadE164(&self) -> bool {
+        self.threadE164.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_threadE164(&mut self, v: ::std::string::String) {
+        self.threadE164 = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_threadE164(&mut self) -> &mut ::std::string::String {
+        if self.threadE164.is_none() {
+            self.threadE164.set_default();
+        }
+        self.threadE164.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_threadE164(&mut self) -> ::std::string::String {
+        self.threadE164.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional string threadUuid = 2;
+
+
+    pub fn get_threadUuid(&self) -> &str {
+        match self.threadUuid.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_threadUuid(&mut self) {
+        self.threadUuid.clear();
+    }
+
+    pub fn has_threadUuid(&self) -> bool {
+        self.threadUuid.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_threadUuid(&mut self, v: ::std::string::String) {
+        self.threadUuid = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_threadUuid(&mut self) -> &mut ::std::string::String {
+        if self.threadUuid.is_none() {
+            self.threadUuid.set_default();
+        }
+        self.threadUuid.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_threadUuid(&mut self) -> ::std::string::String {
+        self.threadUuid.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional bytes groupId = 3;
+
+
+    pub fn get_groupId(&self) -> &[u8] {
+        match self.groupId.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_groupId(&mut self) {
+        self.groupId.clear();
+    }
+
+    pub fn has_groupId(&self) -> bool {
+        self.groupId.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_groupId(&mut self, v: ::std::vec::Vec<u8>) {
+        self.groupId = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_groupId(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.groupId.is_none() {
+            self.groupId.set_default();
+        }
+        self.groupId.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_groupId(&mut self) -> ::std::vec::Vec<u8> {
+        self.groupId.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+
+    // optional .signalservice.SyncMessage.MessageRequestResponse.Type type = 4;
+
+
+    pub fn get_field_type(&self) -> SyncMessage_MessageRequestResponse_Type {
+        self.field_type.unwrap_or(SyncMessage_MessageRequestResponse_Type::UNKNOWN)
+    }
+    pub fn clear_field_type(&mut self) {
+        self.field_type = ::std::option::Option::None;
+    }
+
+    pub fn has_field_type(&self) -> bool {
+        self.field_type.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_field_type(&mut self, v: SyncMessage_MessageRequestResponse_Type) {
+        self.field_type = ::std::option::Option::Some(v);
+    }
+}
+
+impl ::protobuf::Message for SyncMessage_MessageRequestResponse {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.threadE164)?;
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.threadUuid)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.groupId)?;
+                },
+                4 => {
+                    ::protobuf::rt::read_proto2_enum_with_unknown_fields_into(wire_type, is, &mut self.field_type, 4, &mut self.unknown_fields)?
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.threadE164.as_ref() {
+            my_size += ::protobuf::rt::string_size(1, &v);
+        }
+        if let Some(ref v) = self.threadUuid.as_ref() {
+            my_size += ::protobuf::rt::string_size(2, &v);
+        }
+        if let Some(ref v) = self.groupId.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(3, &v);
+        }
+        if let Some(v) = self.field_type {
+            my_size += ::protobuf::rt::enum_size(4, v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.threadE164.as_ref() {
+            os.write_string(1, &v)?;
+        }
+        if let Some(ref v) = self.threadUuid.as_ref() {
+            os.write_string(2, &v)?;
+        }
+        if let Some(ref v) = self.groupId.as_ref() {
+            os.write_bytes(3, &v)?;
+        }
+        if let Some(v) = self.field_type {
+            os.write_enum(4, ::protobuf::ProtobufEnum::value(&v))?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> SyncMessage_MessageRequestResponse {
+        SyncMessage_MessageRequestResponse::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "threadE164",
+                |m: &SyncMessage_MessageRequestResponse| { &m.threadE164 },
+                |m: &mut SyncMessage_MessageRequestResponse| { &mut m.threadE164 },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "threadUuid",
+                |m: &SyncMessage_MessageRequestResponse| { &m.threadUuid },
+                |m: &mut SyncMessage_MessageRequestResponse| { &mut m.threadUuid },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "groupId",
+                |m: &SyncMessage_MessageRequestResponse| { &m.groupId },
+                |m: &mut SyncMessage_MessageRequestResponse| { &mut m.groupId },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeEnum<SyncMessage_MessageRequestResponse_Type>>(
+                "type",
+                |m: &SyncMessage_MessageRequestResponse| { &m.field_type },
+                |m: &mut SyncMessage_MessageRequestResponse| { &mut m.field_type },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<SyncMessage_MessageRequestResponse>(
+                "SyncMessage.MessageRequestResponse",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static SyncMessage_MessageRequestResponse {
+        static instance: ::protobuf::rt::LazyV2<SyncMessage_MessageRequestResponse> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(SyncMessage_MessageRequestResponse::new)
+    }
+}
+
+impl ::protobuf::Clear for SyncMessage_MessageRequestResponse {
+    fn clear(&mut self) {
+        self.threadE164.clear();
+        self.threadUuid.clear();
+        self.groupId.clear();
+        self.field_type = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for SyncMessage_MessageRequestResponse {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SyncMessage_MessageRequestResponse {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(Clone,PartialEq,Eq,Debug,Hash)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum SyncMessage_MessageRequestResponse_Type {
+    UNKNOWN = 0,
+    ACCEPT = 1,
+    DELETE = 2,
+    BLOCK = 3,
+    BLOCK_AND_DELETE = 4,
+}
+
+impl ::protobuf::ProtobufEnum for SyncMessage_MessageRequestResponse_Type {
+    fn value(&self) -> i32 {
+        *self as i32
+    }
+
+    fn from_i32(value: i32) -> ::std::option::Option<SyncMessage_MessageRequestResponse_Type> {
+        match value {
+            0 => ::std::option::Option::Some(SyncMessage_MessageRequestResponse_Type::UNKNOWN),
+            1 => ::std::option::Option::Some(SyncMessage_MessageRequestResponse_Type::ACCEPT),
+            2 => ::std::option::Option::Some(SyncMessage_MessageRequestResponse_Type::DELETE),
+            3 => ::std::option::Option::Some(SyncMessage_MessageRequestResponse_Type::BLOCK),
+            4 => ::std::option::Option::Some(SyncMessage_MessageRequestResponse_Type::BLOCK_AND_DELETE),
+            _ => ::std::option::Option::None
+        }
+    }
+
+    fn values() -> &'static [Self] {
+        static values: &'static [SyncMessage_MessageRequestResponse_Type] = &[
+            SyncMessage_MessageRequestResponse_Type::UNKNOWN,
+            SyncMessage_MessageRequestResponse_Type::ACCEPT,
+            SyncMessage_MessageRequestResponse_Type::DELETE,
+            SyncMessage_MessageRequestResponse_Type::BLOCK,
+            SyncMessage_MessageRequestResponse_Type::BLOCK_AND_DELETE,
+        ];
+        values
+    }
+
+    fn enum_descriptor_static() -> &'static ::protobuf::reflect::EnumDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::EnumDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            ::protobuf::reflect::EnumDescriptor::new_pb_name::<SyncMessage_MessageRequestResponse_Type>("SyncMessage.MessageRequestResponse.Type", file_descriptor_proto())
+        })
+    }
+}
+
+impl ::std::marker::Copy for SyncMessage_MessageRequestResponse_Type {
+}
+
+impl ::std::default::Default for SyncMessage_MessageRequestResponse_Type {
+    fn default() -> Self {
+        SyncMessage_MessageRequestResponse_Type::UNKNOWN
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SyncMessage_MessageRequestResponse_Type {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Enum(::protobuf::ProtobufEnum::descriptor(self))
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct SyncMessage_OutgoingPayment {
+    // message fields
+    recipientUuid: ::protobuf::SingularField<::std::string::String>,
+    note: ::protobuf::SingularField<::std::string::String>,
+    // message oneof groups
+    pub paymentDetail: ::std::option::Option<SyncMessage_OutgoingPayment_oneof_paymentDetail>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a SyncMessage_OutgoingPayment {
+    fn default() -> &'a SyncMessage_OutgoingPayment {
+        <SyncMessage_OutgoingPayment as ::protobuf::Message>::default_instance()
+    }
+}
+
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum SyncMessage_OutgoingPayment_oneof_paymentDetail {
+    mobileCoin(SyncMessage_OutgoingPayment_MobileCoin),
+}
+
+impl SyncMessage_OutgoingPayment {
+    pub fn new() -> SyncMessage_OutgoingPayment {
+        ::std::default::Default::default()
+    }
+
+    // optional string recipientUuid = 1;
+
+
+    pub fn get_recipientUuid(&self) -> &str {
+        match self.recipientUuid.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_recipientUuid(&mut self) {
+        self.recipientUuid.clear();
+    }
+
+    pub fn has_recipientUuid(&self) -> bool {
+        self.recipientUuid.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_recipientUuid(&mut self, v: ::std::string::String) {
+        self.recipientUuid = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_recipientUuid(&mut self) -> &mut ::std::string::String {
+        if self.recipientUuid.is_none() {
+            self.recipientUuid.set_default();
+        }
+        self.recipientUuid.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_recipientUuid(&mut self) -> ::std::string::String {
+        self.recipientUuid.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional string note = 2;
+
+
+    pub fn get_note(&self) -> &str {
+        match self.note.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
+    }
+    pub fn clear_note(&mut self) {
+        self.note.clear();
+    }
+
+    pub fn has_note(&self) -> bool {
+        self.note.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_note(&mut self, v: ::std::string::String) {
+        self.note = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_note(&mut self) -> &mut ::std::string::String {
+        if self.note.is_none() {
+            self.note.set_default();
+        }
+        self.note.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_note(&mut self) -> ::std::string::String {
+        self.note.take().unwrap_or_else(|| ::std::string::String::new())
+    }
+
+    // optional .signalservice.SyncMessage.OutgoingPayment.MobileCoin mobileCoin = 3;
+
+
+    pub fn get_mobileCoin(&self) -> &SyncMessage_OutgoingPayment_MobileCoin {
+        match self.paymentDetail {
+            ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(ref v)) => v,
+            _ => <SyncMessage_OutgoingPayment_MobileCoin as ::protobuf::Message>::default_instance(),
+        }
+    }
+    pub fn clear_mobileCoin(&mut self) {
+        self.paymentDetail = ::std::option::Option::None;
+    }
+
+    pub fn has_mobileCoin(&self) -> bool {
+        match self.paymentDetail {
+            ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_mobileCoin(&mut self, v: SyncMessage_OutgoingPayment_MobileCoin) {
+        self.paymentDetail = ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_mobileCoin(&mut self) -> &mut SyncMessage_OutgoingPayment_MobileCoin {
+        if let ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(_)) = self.paymentDetail {
+        } else {
+            self.paymentDetail = ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(SyncMessage_OutgoingPayment_MobileCoin::new()));
+        }
+        match self.paymentDetail {
+            ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_mobileCoin(&mut self) -> SyncMessage_OutgoingPayment_MobileCoin {
+        if self.has_mobileCoin() {
+            match self.paymentDetail.take() {
+                ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            SyncMessage_OutgoingPayment_MobileCoin::new()
+        }
+    }
+}
+
+impl ::protobuf::Message for SyncMessage_OutgoingPayment {
+    fn is_initialized(&self) -> bool {
+        if let Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(ref v)) = self.paymentDetail {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.recipientUuid)?;
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.note)?;
+                },
+                3 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.paymentDetail = ::std::option::Option::Some(SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(is.read_message()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.recipientUuid.as_ref() {
+            my_size += ::protobuf::rt::string_size(1, &v);
+        }
+        if let Some(ref v) = self.note.as_ref() {
+            my_size += ::protobuf::rt::string_size(2, &v);
+        }
+        if let ::std::option::Option::Some(ref v) = self.paymentDetail {
+            match v {
+                &SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.recipientUuid.as_ref() {
+            os.write_string(1, &v)?;
+        }
+        if let Some(ref v) = self.note.as_ref() {
+            os.write_string(2, &v)?;
+        }
+        if let ::std::option::Option::Some(ref v) = self.paymentDetail {
+            match v {
+                &SyncMessage_OutgoingPayment_oneof_paymentDetail::mobileCoin(ref v) => {
+                    os.write_tag(3, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> SyncMessage_OutgoingPayment {
+        SyncMessage_OutgoingPayment::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "recipientUuid",
+                |m: &SyncMessage_OutgoingPayment| { &m.recipientUuid },
+                |m: &mut SyncMessage_OutgoingPayment| { &mut m.recipientUuid },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "note",
+                |m: &SyncMessage_OutgoingPayment| { &m.note },
+                |m: &mut SyncMessage_OutgoingPayment| { &mut m.note },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, SyncMessage_OutgoingPayment_MobileCoin>(
+                "mobileCoin",
+                SyncMessage_OutgoingPayment::has_mobileCoin,
+                SyncMessage_OutgoingPayment::get_mobileCoin,
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<SyncMessage_OutgoingPayment>(
+                "SyncMessage.OutgoingPayment",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static SyncMessage_OutgoingPayment {
+        static instance: ::protobuf::rt::LazyV2<SyncMessage_OutgoingPayment> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(SyncMessage_OutgoingPayment::new)
+    }
+}
+
+impl ::protobuf::Clear for SyncMessage_OutgoingPayment {
+    fn clear(&mut self) {
+        self.recipientUuid.clear();
+        self.note.clear();
+        self.paymentDetail = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for SyncMessage_OutgoingPayment {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SyncMessage_OutgoingPayment {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct SyncMessage_OutgoingPayment_MobileCoin {
+    // message fields
+    recipientAddress: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    amountPicoMob: ::std::option::Option<u64>,
+    feePicoMob: ::std::option::Option<u64>,
+    receipt: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    ledgerBlockTimestamp: ::std::option::Option<u64>,
+    ledgerBlockIndex: ::std::option::Option<u64>,
+    pub spentKeyImages: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub outputPublicKeys: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a SyncMessage_OutgoingPayment_MobileCoin {
+    fn default() -> &'a SyncMessage_OutgoingPayment_MobileCoin {
+        <SyncMessage_OutgoingPayment_MobileCoin as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl SyncMessage_OutgoingPayment_MobileCoin {
+    pub fn new() -> SyncMessage_OutgoingPayment_MobileCoin {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes recipientAddress = 1;
+
+
+    pub fn get_recipientAddress(&self) -> &[u8] {
+        match self.recipientAddress.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_recipientAddress(&mut self) {
+        self.recipientAddress.clear();
+    }
+
+    pub fn has_recipientAddress(&self) -> bool {
+        self.recipientAddress.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_recipientAddress(&mut self, v: ::std::vec::Vec<u8>) {
+        self.recipientAddress = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_recipientAddress(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.recipientAddress.is_none() {
+            self.recipientAddress.set_default();
+        }
+        self.recipientAddress.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_recipientAddress(&mut self) -> ::std::vec::Vec<u8> {
+        self.recipientAddress.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+
+    // optional uint64 amountPicoMob = 2;
+
+
+    pub fn get_amountPicoMob(&self) -> u64 {
+        self.amountPicoMob.unwrap_or(0)
+    }
+    pub fn clear_amountPicoMob(&mut self) {
+        self.amountPicoMob = ::std::option::Option::None;
+    }
+
+    pub fn has_amountPicoMob(&self) -> bool {
+        self.amountPicoMob.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_amountPicoMob(&mut self, v: u64) {
+        self.amountPicoMob = ::std::option::Option::Some(v);
+    }
+
+    // optional uint64 feePicoMob = 3;
+
+
+    pub fn get_feePicoMob(&self) -> u64 {
+        self.feePicoMob.unwrap_or(0)
+    }
+    pub fn clear_feePicoMob(&mut self) {
+        self.feePicoMob = ::std::option::Option::None;
+    }
+
+    pub fn has_feePicoMob(&self) -> bool {
+        self.feePicoMob.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_feePicoMob(&mut self, v: u64) {
+        self.feePicoMob = ::std::option::Option::Some(v);
+    }
+
+    // optional bytes receipt = 4;
+
+
+    pub fn get_receipt(&self) -> &[u8] {
+        match self.receipt.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_receipt(&mut self) {
+        self.receipt.clear();
+    }
+
+    pub fn has_receipt(&self) -> bool {
+        self.receipt.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_receipt(&mut self, v: ::std::vec::Vec<u8>) {
+        self.receipt = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_receipt(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.receipt.is_none() {
+            self.receipt.set_default();
+        }
+        self.receipt.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_receipt(&mut self) -> ::std::vec::Vec<u8> {
+        self.receipt.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+
+    // optional uint64 ledgerBlockTimestamp = 5;
+
+
+    pub fn get_ledgerBlockTimestamp(&self) -> u64 {
+        self.ledgerBlockTimestamp.unwrap_or(0)
+    }
+    pub fn clear_ledgerBlockTimestamp(&mut self) {
+        self.ledgerBlockTimestamp = ::std::option::Option::None;
+    }
+
+    pub fn has_ledgerBlockTimestamp(&self) -> bool {
+        self.ledgerBlockTimestamp.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ledgerBlockTimestamp(&mut self, v: u64) {
+        self.ledgerBlockTimestamp = ::std::option::Option::Some(v);
+    }
+
+    // optional uint64 ledgerBlockIndex = 6;
+
+
+    pub fn get_ledgerBlockIndex(&self) -> u64 {
+        self.ledgerBlockIndex.unwrap_or(0)
+    }
+    pub fn clear_ledgerBlockIndex(&mut self) {
+        self.ledgerBlockIndex = ::std::option::Option::None;
+    }
+
+    pub fn has_ledgerBlockIndex(&self) -> bool {
+        self.ledgerBlockIndex.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ledgerBlockIndex(&mut self, v: u64) {
+        self.ledgerBlockIndex = ::std::option::Option::Some(v);
+    }
+
+    // repeated bytes spentKeyImages = 7;
+
+
+    pub fn get_spentKeyImages(&self) -> &[::std::vec::Vec<u8>] {
+        &self.spentKeyImages
+    }
+    pub fn clear_spentKeyImages(&mut self) {
+        self.spentKeyImages.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_spentKeyImages(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
+        self.spentKeyImages = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_spentKeyImages(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        &mut self.spentKeyImages
+    }
+
+    // Take field
+    pub fn take_spentKeyImages(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        ::std::mem::replace(&mut self.spentKeyImages, ::protobuf::RepeatedField::new())
+    }
+
+    // repeated bytes outputPublicKeys = 8;
+
+
+    pub fn get_outputPublicKeys(&self) -> &[::std::vec::Vec<u8>] {
+        &self.outputPublicKeys
+    }
+    pub fn clear_outputPublicKeys(&mut self) {
+        self.outputPublicKeys.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_outputPublicKeys(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
+        self.outputPublicKeys = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_outputPublicKeys(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        &mut self.outputPublicKeys
+    }
+
+    // Take field
+    pub fn take_outputPublicKeys(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        ::std::mem::replace(&mut self.outputPublicKeys, ::protobuf::RepeatedField::new())
+    }
+}
+
+impl ::protobuf::Message for SyncMessage_OutgoingPayment_MobileCoin {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.recipientAddress)?;
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.amountPicoMob = ::std::option::Option::Some(tmp);
+                },
+                3 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.feePicoMob = ::std::option::Option::Some(tmp);
+                },
+                4 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.receipt)?;
+                },
+                5 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.ledgerBlockTimestamp = ::std::option::Option::Some(tmp);
+                },
+                6 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.ledgerBlockIndex = ::std::option::Option::Some(tmp);
+                },
+                7 => {
+                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.spentKeyImages)?;
+                },
+                8 => {
+                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.outputPublicKeys)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.recipientAddress.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        if let Some(v) = self.amountPicoMob {
+            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.feePicoMob {
+            my_size += ::protobuf::rt::value_size(3, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(ref v) = self.receipt.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(4, &v);
+        }
+        if let Some(v) = self.ledgerBlockTimestamp {
+            my_size += ::protobuf::rt::value_size(5, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.ledgerBlockIndex {
+            my_size += ::protobuf::rt::value_size(6, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        for value in &self.spentKeyImages {
+            my_size += ::protobuf::rt::bytes_size(7, &value);
+        };
+        for value in &self.outputPublicKeys {
+            my_size += ::protobuf::rt::bytes_size(8, &value);
+        };
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.recipientAddress.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        if let Some(v) = self.amountPicoMob {
+            os.write_uint64(2, v)?;
+        }
+        if let Some(v) = self.feePicoMob {
+            os.write_uint64(3, v)?;
+        }
+        if let Some(ref v) = self.receipt.as_ref() {
+            os.write_bytes(4, &v)?;
+        }
+        if let Some(v) = self.ledgerBlockTimestamp {
+            os.write_uint64(5, v)?;
+        }
+        if let Some(v) = self.ledgerBlockIndex {
+            os.write_uint64(6, v)?;
+        }
+        for v in &self.spentKeyImages {
+            os.write_bytes(7, &v)?;
+        };
+        for v in &self.outputPublicKeys {
+            os.write_bytes(8, &v)?;
+        };
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> SyncMessage_OutgoingPayment_MobileCoin {
+        SyncMessage_OutgoingPayment_MobileCoin::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "recipientAddress",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.recipientAddress },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.recipientAddress },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "amountPicoMob",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.amountPicoMob },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.amountPicoMob },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "feePicoMob",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.feePicoMob },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.feePicoMob },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "receipt",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.receipt },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.receipt },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "ledgerBlockTimestamp",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.ledgerBlockTimestamp },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.ledgerBlockTimestamp },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "ledgerBlockIndex",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.ledgerBlockIndex },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.ledgerBlockIndex },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "spentKeyImages",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.spentKeyImages },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.spentKeyImages },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "outputPublicKeys",
+                |m: &SyncMessage_OutgoingPayment_MobileCoin| { &m.outputPublicKeys },
+                |m: &mut SyncMessage_OutgoingPayment_MobileCoin| { &mut m.outputPublicKeys },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<SyncMessage_OutgoingPayment_MobileCoin>(
+                "SyncMessage.OutgoingPayment.MobileCoin",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static SyncMessage_OutgoingPayment_MobileCoin {
+        static instance: ::protobuf::rt::LazyV2<SyncMessage_OutgoingPayment_MobileCoin> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(SyncMessage_OutgoingPayment_MobileCoin::new)
+    }
+}
+
+impl ::protobuf::Clear for SyncMessage_OutgoingPayment_MobileCoin {
+    fn clear(&mut self) {
+        self.recipientAddress.clear();
+        self.amountPicoMob = ::std::option::Option::None;
+        self.feePicoMob = ::std::option::Option::None;
+        self.receipt.clear();
+        self.ledgerBlockTimestamp = ::std::option::Option::None;
+        self.ledgerBlockIndex = ::std::option::Option::None;
+        self.spentKeyImages.clear();
+        self.outputPublicKeys.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for SyncMessage_OutgoingPayment_MobileCoin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SyncMessage_OutgoingPayment_MobileCoin {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct AttachmentPointer {
     // message fields
-    id: ::std::option::Option<u64>,
     contentType: ::protobuf::SingularField<::std::string::String>,
     key: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     size: ::std::option::Option<u32>,
@@ -11881,6 +17388,10 @@ pub struct AttachmentPointer {
     height: ::std::option::Option<u32>,
     caption: ::protobuf::SingularField<::std::string::String>,
     blurHash: ::protobuf::SingularField<::std::string::String>,
+    uploadTimestamp: ::std::option::Option<u64>,
+    cdnNumber: ::std::option::Option<u32>,
+    // message oneof groups
+    pub attachment_identifier: ::std::option::Option<AttachmentPointer_oneof_attachment_identifier>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -11894,28 +17405,90 @@ impl<'a> ::std::default::Default for &'a AttachmentPointer {
     }
 }
 
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum AttachmentPointer_oneof_attachment_identifier {
+    cdnId(u64),
+    cdnKey(::std::string::String),
+}
+
 impl AttachmentPointer {
     pub fn new() -> AttachmentPointer {
         ::std::default::Default::default()
     }
 
-    // optional fixed64 id = 1;
+    // optional fixed64 cdnId = 1;
 
 
-    pub fn get_id(&self) -> u64 {
-        self.id.unwrap_or(0)
+    pub fn get_cdnId(&self) -> u64 {
+        match self.attachment_identifier {
+            ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnId(v)) => v,
+            _ => 0,
+        }
     }
-    pub fn clear_id(&mut self) {
-        self.id = ::std::option::Option::None;
+    pub fn clear_cdnId(&mut self) {
+        self.attachment_identifier = ::std::option::Option::None;
     }
 
-    pub fn has_id(&self) -> bool {
-        self.id.is_some()
+    pub fn has_cdnId(&self) -> bool {
+        match self.attachment_identifier {
+            ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnId(..)) => true,
+            _ => false,
+        }
     }
 
     // Param is passed by value, moved
-    pub fn set_id(&mut self, v: u64) {
-        self.id = ::std::option::Option::Some(v);
+    pub fn set_cdnId(&mut self, v: u64) {
+        self.attachment_identifier = ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnId(v))
+    }
+
+    // optional string cdnKey = 15;
+
+
+    pub fn get_cdnKey(&self) -> &str {
+        match self.attachment_identifier {
+            ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(ref v)) => v,
+            _ => "",
+        }
+    }
+    pub fn clear_cdnKey(&mut self) {
+        self.attachment_identifier = ::std::option::Option::None;
+    }
+
+    pub fn has_cdnKey(&self) -> bool {
+        match self.attachment_identifier {
+            ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_cdnKey(&mut self, v: ::std::string::String) {
+        self.attachment_identifier = ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_cdnKey(&mut self) -> &mut ::std::string::String {
+        if let ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(_)) = self.attachment_identifier {
+        } else {
+            self.attachment_identifier = ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(::std::string::String::new()));
+        }
+        match self.attachment_identifier {
+            ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_cdnKey(&mut self) -> ::std::string::String {
+        if self.has_cdnKey() {
+            match self.attachment_identifier.take() {
+                ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            ::std::string::String::new()
+        }
     }
 
     // optional string contentType = 2;
@@ -12245,6 +17818,44 @@ impl AttachmentPointer {
     pub fn take_blurHash(&mut self) -> ::std::string::String {
         self.blurHash.take().unwrap_or_else(|| ::std::string::String::new())
     }
+
+    // optional uint64 uploadTimestamp = 13;
+
+
+    pub fn get_uploadTimestamp(&self) -> u64 {
+        self.uploadTimestamp.unwrap_or(0)
+    }
+    pub fn clear_uploadTimestamp(&mut self) {
+        self.uploadTimestamp = ::std::option::Option::None;
+    }
+
+    pub fn has_uploadTimestamp(&self) -> bool {
+        self.uploadTimestamp.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_uploadTimestamp(&mut self, v: u64) {
+        self.uploadTimestamp = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 cdnNumber = 14;
+
+
+    pub fn get_cdnNumber(&self) -> u32 {
+        self.cdnNumber.unwrap_or(0)
+    }
+    pub fn clear_cdnNumber(&mut self) {
+        self.cdnNumber = ::std::option::Option::None;
+    }
+
+    pub fn has_cdnNumber(&self) -> bool {
+        self.cdnNumber.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_cdnNumber(&mut self, v: u32) {
+        self.cdnNumber = ::std::option::Option::Some(v);
+    }
 }
 
 impl ::protobuf::Message for AttachmentPointer {
@@ -12260,8 +17871,13 @@ impl ::protobuf::Message for AttachmentPointer {
                     if wire_type != ::protobuf::wire_format::WireTypeFixed64 {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
-                    let tmp = is.read_fixed64()?;
-                    self.id = ::std::option::Option::Some(tmp);
+                    self.attachment_identifier = ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnId(is.read_fixed64()?));
+                },
+                15 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.attachment_identifier = ::std::option::Option::Some(AttachmentPointer_oneof_attachment_identifier::cdnKey(is.read_string()?));
                 },
                 2 => {
                     ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.contentType)?;
@@ -12312,6 +17928,20 @@ impl ::protobuf::Message for AttachmentPointer {
                 12 => {
                     ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.blurHash)?;
                 },
+                13 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.uploadTimestamp = ::std::option::Option::Some(tmp);
+                },
+                14 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.cdnNumber = ::std::option::Option::Some(tmp);
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -12324,9 +17954,6 @@ impl ::protobuf::Message for AttachmentPointer {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(v) = self.id {
-            my_size += 9;
-        }
         if let Some(ref v) = self.contentType.as_ref() {
             my_size += ::protobuf::rt::string_size(2, &v);
         }
@@ -12360,15 +17987,28 @@ impl ::protobuf::Message for AttachmentPointer {
         if let Some(ref v) = self.blurHash.as_ref() {
             my_size += ::protobuf::rt::string_size(12, &v);
         }
+        if let Some(v) = self.uploadTimestamp {
+            my_size += ::protobuf::rt::value_size(13, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.cdnNumber {
+            my_size += ::protobuf::rt::value_size(14, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let ::std::option::Option::Some(ref v) = self.attachment_identifier {
+            match v {
+                &AttachmentPointer_oneof_attachment_identifier::cdnId(v) => {
+                    my_size += 9;
+                },
+                &AttachmentPointer_oneof_attachment_identifier::cdnKey(ref v) => {
+                    my_size += ::protobuf::rt::string_size(15, &v);
+                },
+            };
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
-        if let Some(v) = self.id {
-            os.write_fixed64(1, v)?;
-        }
         if let Some(ref v) = self.contentType.as_ref() {
             os.write_string(2, &v)?;
         }
@@ -12401,6 +18041,22 @@ impl ::protobuf::Message for AttachmentPointer {
         }
         if let Some(ref v) = self.blurHash.as_ref() {
             os.write_string(12, &v)?;
+        }
+        if let Some(v) = self.uploadTimestamp {
+            os.write_uint64(13, v)?;
+        }
+        if let Some(v) = self.cdnNumber {
+            os.write_uint32(14, v)?;
+        }
+        if let ::std::option::Option::Some(ref v) = self.attachment_identifier {
+            match v {
+                &AttachmentPointer_oneof_attachment_identifier::cdnId(v) => {
+                    os.write_fixed64(1, v)?;
+                },
+                &AttachmentPointer_oneof_attachment_identifier::cdnKey(ref v) => {
+                    os.write_string(15, v)?;
+                },
+            };
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -12440,10 +18096,15 @@ impl ::protobuf::Message for AttachmentPointer {
         static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
         descriptor.get(|| {
             let mut fields = ::std::vec::Vec::new();
-            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeFixed64>(
-                "id",
-                |m: &AttachmentPointer| { &m.id },
-                |m: &mut AttachmentPointer| { &mut m.id },
+            fields.push(::protobuf::reflect::accessor::make_singular_u64_accessor::<_>(
+                "cdnId",
+                AttachmentPointer::has_cdnId,
+                AttachmentPointer::get_cdnId,
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_string_accessor::<_>(
+                "cdnKey",
+                AttachmentPointer::has_cdnKey,
+                AttachmentPointer::get_cdnKey,
             ));
             fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                 "contentType",
@@ -12500,6 +18161,16 @@ impl ::protobuf::Message for AttachmentPointer {
                 |m: &AttachmentPointer| { &m.blurHash },
                 |m: &mut AttachmentPointer| { &mut m.blurHash },
             ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "uploadTimestamp",
+                |m: &AttachmentPointer| { &m.uploadTimestamp },
+                |m: &mut AttachmentPointer| { &mut m.uploadTimestamp },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "cdnNumber",
+                |m: &AttachmentPointer| { &m.cdnNumber },
+                |m: &mut AttachmentPointer| { &mut m.cdnNumber },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<AttachmentPointer>(
                 "AttachmentPointer",
                 fields,
@@ -12516,7 +18187,8 @@ impl ::protobuf::Message for AttachmentPointer {
 
 impl ::protobuf::Clear for AttachmentPointer {
     fn clear(&mut self) {
-        self.id = ::std::option::Option::None;
+        self.attachment_identifier = ::std::option::Option::None;
+        self.attachment_identifier = ::std::option::Option::None;
         self.contentType.clear();
         self.key.clear();
         self.size = ::std::option::Option::None;
@@ -12528,6 +18200,8 @@ impl ::protobuf::Clear for AttachmentPointer {
         self.height = ::std::option::Option::None;
         self.caption.clear();
         self.blurHash.clear();
+        self.uploadTimestamp = ::std::option::Option::None;
+        self.cdnNumber = ::std::option::Option::None;
         self.unknown_fields.clear();
     }
 }
@@ -12548,6 +18222,8 @@ impl ::protobuf::reflect::ProtobufValue for AttachmentPointer {
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum AttachmentPointer_Flags {
     VOICE_MESSAGE = 1,
+    BORDERLESS = 2,
+    GIF = 4,
 }
 
 impl ::protobuf::ProtobufEnum for AttachmentPointer_Flags {
@@ -12558,6 +18234,8 @@ impl ::protobuf::ProtobufEnum for AttachmentPointer_Flags {
     fn from_i32(value: i32) -> ::std::option::Option<AttachmentPointer_Flags> {
         match value {
             1 => ::std::option::Option::Some(AttachmentPointer_Flags::VOICE_MESSAGE),
+            2 => ::std::option::Option::Some(AttachmentPointer_Flags::BORDERLESS),
+            4 => ::std::option::Option::Some(AttachmentPointer_Flags::GIF),
             _ => ::std::option::Option::None
         }
     }
@@ -12565,6 +18243,8 @@ impl ::protobuf::ProtobufEnum for AttachmentPointer_Flags {
     fn values() -> &'static [Self] {
         static values: &'static [AttachmentPointer_Flags] = &[
             AttachmentPointer_Flags::VOICE_MESSAGE,
+            AttachmentPointer_Flags::BORDERLESS,
+            AttachmentPointer_Flags::GIF,
         ];
         values
     }
@@ -13003,7 +18683,6 @@ impl ::protobuf::reflect::ProtobufValue for GroupContext {
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct GroupContext_Member {
     // message fields
-    uuid: ::protobuf::SingularField<::std::string::String>,
     e164: ::protobuf::SingularField<::std::string::String>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
@@ -13021,42 +18700,6 @@ impl<'a> ::std::default::Default for &'a GroupContext_Member {
 impl GroupContext_Member {
     pub fn new() -> GroupContext_Member {
         ::std::default::Default::default()
-    }
-
-    // optional string uuid = 1;
-
-
-    pub fn get_uuid(&self) -> &str {
-        match self.uuid.as_ref() {
-            Some(v) => &v,
-            None => "",
-        }
-    }
-    pub fn clear_uuid(&mut self) {
-        self.uuid.clear();
-    }
-
-    pub fn has_uuid(&self) -> bool {
-        self.uuid.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_uuid(&mut self, v: ::std::string::String) {
-        self.uuid = ::protobuf::SingularField::some(v);
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_uuid(&mut self) -> &mut ::std::string::String {
-        if self.uuid.is_none() {
-            self.uuid.set_default();
-        }
-        self.uuid.as_mut().unwrap()
-    }
-
-    // Take field
-    pub fn take_uuid(&mut self) -> ::std::string::String {
-        self.uuid.take().unwrap_or_else(|| ::std::string::String::new())
     }
 
     // optional string e164 = 2;
@@ -13105,9 +18748,6 @@ impl ::protobuf::Message for GroupContext_Member {
         while !is.eof()? {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
-                1 => {
-                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.uuid)?;
-                },
                 2 => {
                     ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.e164)?;
                 },
@@ -13123,9 +18763,6 @@ impl ::protobuf::Message for GroupContext_Member {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(ref v) = self.uuid.as_ref() {
-            my_size += ::protobuf::rt::string_size(1, &v);
-        }
         if let Some(ref v) = self.e164.as_ref() {
             my_size += ::protobuf::rt::string_size(2, &v);
         }
@@ -13135,9 +18772,6 @@ impl ::protobuf::Message for GroupContext_Member {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
-        if let Some(ref v) = self.uuid.as_ref() {
-            os.write_string(1, &v)?;
-        }
         if let Some(ref v) = self.e164.as_ref() {
             os.write_string(2, &v)?;
         }
@@ -13180,11 +18814,6 @@ impl ::protobuf::Message for GroupContext_Member {
         descriptor.get(|| {
             let mut fields = ::std::vec::Vec::new();
             fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                "uuid",
-                |m: &GroupContext_Member| { &m.uuid },
-                |m: &mut GroupContext_Member| { &mut m.uuid },
-            ));
-            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                 "e164",
                 |m: &GroupContext_Member| { &m.e164 },
                 |m: &mut GroupContext_Member| { &mut m.e164 },
@@ -13205,7 +18834,6 @@ impl ::protobuf::Message for GroupContext_Member {
 
 impl ::protobuf::Clear for GroupContext_Member {
     fn clear(&mut self) {
-        self.uuid.clear();
         self.e164.clear();
         self.unknown_fields.clear();
     }
@@ -13285,6 +18913,269 @@ impl ::protobuf::reflect::ProtobufValue for GroupContext_Type {
 
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct GroupContextV2 {
+    // message fields
+    masterKey: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    revision: ::std::option::Option<u32>,
+    groupChange: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a GroupContextV2 {
+    fn default() -> &'a GroupContextV2 {
+        <GroupContextV2 as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl GroupContextV2 {
+    pub fn new() -> GroupContextV2 {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes masterKey = 1;
+
+
+    pub fn get_masterKey(&self) -> &[u8] {
+        match self.masterKey.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_masterKey(&mut self) {
+        self.masterKey.clear();
+    }
+
+    pub fn has_masterKey(&self) -> bool {
+        self.masterKey.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_masterKey(&mut self, v: ::std::vec::Vec<u8>) {
+        self.masterKey = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_masterKey(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.masterKey.is_none() {
+            self.masterKey.set_default();
+        }
+        self.masterKey.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_masterKey(&mut self) -> ::std::vec::Vec<u8> {
+        self.masterKey.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+
+    // optional uint32 revision = 2;
+
+
+    pub fn get_revision(&self) -> u32 {
+        self.revision.unwrap_or(0)
+    }
+    pub fn clear_revision(&mut self) {
+        self.revision = ::std::option::Option::None;
+    }
+
+    pub fn has_revision(&self) -> bool {
+        self.revision.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_revision(&mut self, v: u32) {
+        self.revision = ::std::option::Option::Some(v);
+    }
+
+    // optional bytes groupChange = 3;
+
+
+    pub fn get_groupChange(&self) -> &[u8] {
+        match self.groupChange.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_groupChange(&mut self) {
+        self.groupChange.clear();
+    }
+
+    pub fn has_groupChange(&self) -> bool {
+        self.groupChange.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_groupChange(&mut self, v: ::std::vec::Vec<u8>) {
+        self.groupChange = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_groupChange(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.groupChange.is_none() {
+            self.groupChange.set_default();
+        }
+        self.groupChange.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_groupChange(&mut self) -> ::std::vec::Vec<u8> {
+        self.groupChange.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+}
+
+impl ::protobuf::Message for GroupContextV2 {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.masterKey)?;
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.revision = ::std::option::Option::Some(tmp);
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.groupChange)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.masterKey.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        if let Some(v) = self.revision {
+            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(ref v) = self.groupChange.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(3, &v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.masterKey.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        if let Some(v) = self.revision {
+            os.write_uint32(2, v)?;
+        }
+        if let Some(ref v) = self.groupChange.as_ref() {
+            os.write_bytes(3, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> GroupContextV2 {
+        GroupContextV2::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "masterKey",
+                |m: &GroupContextV2| { &m.masterKey },
+                |m: &mut GroupContextV2| { &mut m.masterKey },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "revision",
+                |m: &GroupContextV2| { &m.revision },
+                |m: &mut GroupContextV2| { &mut m.revision },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "groupChange",
+                |m: &GroupContextV2| { &m.groupChange },
+                |m: &mut GroupContextV2| { &mut m.groupChange },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<GroupContextV2>(
+                "GroupContextV2",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static GroupContextV2 {
+        static instance: ::protobuf::rt::LazyV2<GroupContextV2> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(GroupContextV2::new)
+    }
+}
+
+impl ::protobuf::Clear for GroupContextV2 {
+    fn clear(&mut self) {
+        self.masterKey.clear();
+        self.revision = ::std::option::Option::None;
+        self.groupChange.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for GroupContextV2 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for GroupContextV2 {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct ContactDetails {
     // message fields
     number: ::protobuf::SingularField<::std::string::String>,
@@ -13296,6 +19187,8 @@ pub struct ContactDetails {
     profileKey: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     blocked: ::std::option::Option<bool>,
     expireTimer: ::std::option::Option<u32>,
+    inboxPosition: ::std::option::Option<u32>,
+    archived: ::std::option::Option<bool>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -13597,6 +19490,44 @@ impl ContactDetails {
     pub fn set_expireTimer(&mut self, v: u32) {
         self.expireTimer = ::std::option::Option::Some(v);
     }
+
+    // optional uint32 inboxPosition = 10;
+
+
+    pub fn get_inboxPosition(&self) -> u32 {
+        self.inboxPosition.unwrap_or(0)
+    }
+    pub fn clear_inboxPosition(&mut self) {
+        self.inboxPosition = ::std::option::Option::None;
+    }
+
+    pub fn has_inboxPosition(&self) -> bool {
+        self.inboxPosition.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_inboxPosition(&mut self, v: u32) {
+        self.inboxPosition = ::std::option::Option::Some(v);
+    }
+
+    // optional bool archived = 11;
+
+
+    pub fn get_archived(&self) -> bool {
+        self.archived.unwrap_or(false)
+    }
+    pub fn clear_archived(&mut self) {
+        self.archived = ::std::option::Option::None;
+    }
+
+    pub fn has_archived(&self) -> bool {
+        self.archived.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_archived(&mut self, v: bool) {
+        self.archived = ::std::option::Option::Some(v);
+    }
 }
 
 impl ::protobuf::Message for ContactDetails {
@@ -13653,6 +19584,20 @@ impl ::protobuf::Message for ContactDetails {
                     let tmp = is.read_uint32()?;
                     self.expireTimer = ::std::option::Option::Some(tmp);
                 },
+                10 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.inboxPosition = ::std::option::Option::Some(tmp);
+                },
+                11 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_bool()?;
+                    self.archived = ::std::option::Option::Some(tmp);
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -13694,6 +19639,12 @@ impl ::protobuf::Message for ContactDetails {
         if let Some(v) = self.expireTimer {
             my_size += ::protobuf::rt::value_size(8, v, ::protobuf::wire_format::WireTypeVarint);
         }
+        if let Some(v) = self.inboxPosition {
+            my_size += ::protobuf::rt::value_size(10, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.archived {
+            my_size += 2;
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -13730,6 +19681,12 @@ impl ::protobuf::Message for ContactDetails {
         }
         if let Some(v) = self.expireTimer {
             os.write_uint32(8, v)?;
+        }
+        if let Some(v) = self.inboxPosition {
+            os.write_uint32(10, v)?;
+        }
+        if let Some(v) = self.archived {
+            os.write_bool(11, v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -13814,6 +19771,16 @@ impl ::protobuf::Message for ContactDetails {
                 |m: &ContactDetails| { &m.expireTimer },
                 |m: &mut ContactDetails| { &mut m.expireTimer },
             ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "inboxPosition",
+                |m: &ContactDetails| { &m.inboxPosition },
+                |m: &mut ContactDetails| { &mut m.inboxPosition },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeBool>(
+                "archived",
+                |m: &ContactDetails| { &m.archived },
+                |m: &mut ContactDetails| { &mut m.archived },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<ContactDetails>(
                 "ContactDetails",
                 fields,
@@ -13839,6 +19806,8 @@ impl ::protobuf::Clear for ContactDetails {
         self.profileKey.clear();
         self.blocked = ::std::option::Option::None;
         self.expireTimer = ::std::option::Option::None;
+        self.inboxPosition = ::std::option::Option::None;
+        self.archived = ::std::option::Option::None;
         self.unknown_fields.clear();
     }
 }
@@ -14079,6 +20048,8 @@ pub struct GroupDetails {
     expireTimer: ::std::option::Option<u32>,
     color: ::protobuf::SingularField<::std::string::String>,
     blocked: ::std::option::Option<bool>,
+    inboxPosition: ::std::option::Option<u32>,
+    archived: ::std::option::Option<bool>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -14344,6 +20315,44 @@ impl GroupDetails {
     pub fn set_blocked(&mut self, v: bool) {
         self.blocked = ::std::option::Option::Some(v);
     }
+
+    // optional uint32 inboxPosition = 10;
+
+
+    pub fn get_inboxPosition(&self) -> u32 {
+        self.inboxPosition.unwrap_or(0)
+    }
+    pub fn clear_inboxPosition(&mut self) {
+        self.inboxPosition = ::std::option::Option::None;
+    }
+
+    pub fn has_inboxPosition(&self) -> bool {
+        self.inboxPosition.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_inboxPosition(&mut self, v: u32) {
+        self.inboxPosition = ::std::option::Option::Some(v);
+    }
+
+    // optional bool archived = 11;
+
+
+    pub fn get_archived(&self) -> bool {
+        self.archived.unwrap_or(false)
+    }
+    pub fn clear_archived(&mut self) {
+        self.archived = ::std::option::Option::None;
+    }
+
+    pub fn has_archived(&self) -> bool {
+        self.archived.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_archived(&mut self, v: bool) {
+        self.archived = ::std::option::Option::Some(v);
+    }
 }
 
 impl ::protobuf::Message for GroupDetails {
@@ -14404,6 +20413,20 @@ impl ::protobuf::Message for GroupDetails {
                     let tmp = is.read_bool()?;
                     self.blocked = ::std::option::Option::Some(tmp);
                 },
+                10 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.inboxPosition = ::std::option::Option::Some(tmp);
+                },
+                11 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_bool()?;
+                    self.archived = ::std::option::Option::Some(tmp);
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -14445,6 +20468,12 @@ impl ::protobuf::Message for GroupDetails {
         if let Some(v) = self.blocked {
             my_size += 2;
         }
+        if let Some(v) = self.inboxPosition {
+            my_size += ::protobuf::rt::value_size(10, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.archived {
+            my_size += 2;
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -14481,6 +20510,12 @@ impl ::protobuf::Message for GroupDetails {
         }
         if let Some(v) = self.blocked {
             os.write_bool(8, v)?;
+        }
+        if let Some(v) = self.inboxPosition {
+            os.write_uint32(10, v)?;
+        }
+        if let Some(v) = self.archived {
+            os.write_bool(11, v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -14565,6 +20600,16 @@ impl ::protobuf::Message for GroupDetails {
                 |m: &GroupDetails| { &m.blocked },
                 |m: &mut GroupDetails| { &mut m.blocked },
             ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "inboxPosition",
+                |m: &GroupDetails| { &m.inboxPosition },
+                |m: &mut GroupDetails| { &mut m.inboxPosition },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeBool>(
+                "archived",
+                |m: &GroupDetails| { &m.archived },
+                |m: &mut GroupDetails| { &mut m.archived },
+            ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<GroupDetails>(
                 "GroupDetails",
                 fields,
@@ -14590,6 +20635,8 @@ impl ::protobuf::Clear for GroupDetails {
         self.expireTimer = ::std::option::Option::None;
         self.color.clear();
         self.blocked = ::std::option::Option::None;
+        self.inboxPosition = ::std::option::Option::None;
+        self.archived = ::std::option::Option::None;
         self.unknown_fields.clear();
     }
 }
@@ -14821,7 +20868,6 @@ impl ::protobuf::reflect::ProtobufValue for GroupDetails_Avatar {
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct GroupDetails_Member {
     // message fields
-    uuid: ::protobuf::SingularField<::std::string::String>,
     e164: ::protobuf::SingularField<::std::string::String>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
@@ -14839,42 +20885,6 @@ impl<'a> ::std::default::Default for &'a GroupDetails_Member {
 impl GroupDetails_Member {
     pub fn new() -> GroupDetails_Member {
         ::std::default::Default::default()
-    }
-
-    // optional string uuid = 1;
-
-
-    pub fn get_uuid(&self) -> &str {
-        match self.uuid.as_ref() {
-            Some(v) => &v,
-            None => "",
-        }
-    }
-    pub fn clear_uuid(&mut self) {
-        self.uuid.clear();
-    }
-
-    pub fn has_uuid(&self) -> bool {
-        self.uuid.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_uuid(&mut self, v: ::std::string::String) {
-        self.uuid = ::protobuf::SingularField::some(v);
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_uuid(&mut self) -> &mut ::std::string::String {
-        if self.uuid.is_none() {
-            self.uuid.set_default();
-        }
-        self.uuid.as_mut().unwrap()
-    }
-
-    // Take field
-    pub fn take_uuid(&mut self) -> ::std::string::String {
-        self.uuid.take().unwrap_or_else(|| ::std::string::String::new())
     }
 
     // optional string e164 = 2;
@@ -14923,9 +20933,6 @@ impl ::protobuf::Message for GroupDetails_Member {
         while !is.eof()? {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
-                1 => {
-                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.uuid)?;
-                },
                 2 => {
                     ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.e164)?;
                 },
@@ -14941,9 +20948,6 @@ impl ::protobuf::Message for GroupDetails_Member {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(ref v) = self.uuid.as_ref() {
-            my_size += ::protobuf::rt::string_size(1, &v);
-        }
         if let Some(ref v) = self.e164.as_ref() {
             my_size += ::protobuf::rt::string_size(2, &v);
         }
@@ -14953,9 +20957,6 @@ impl ::protobuf::Message for GroupDetails_Member {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
-        if let Some(ref v) = self.uuid.as_ref() {
-            os.write_string(1, &v)?;
-        }
         if let Some(ref v) = self.e164.as_ref() {
             os.write_string(2, &v)?;
         }
@@ -14998,11 +20999,6 @@ impl ::protobuf::Message for GroupDetails_Member {
         descriptor.get(|| {
             let mut fields = ::std::vec::Vec::new();
             fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                "uuid",
-                |m: &GroupDetails_Member| { &m.uuid },
-                |m: &mut GroupDetails_Member| { &mut m.uuid },
-            ));
-            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                 "e164",
                 |m: &GroupDetails_Member| { &m.e164 },
                 |m: &mut GroupDetails_Member| { &mut m.e164 },
@@ -15023,7 +21019,6 @@ impl ::protobuf::Message for GroupDetails_Member {
 
 impl ::protobuf::Clear for GroupDetails_Member {
     fn clear(&mut self) {
-        self.uuid.clear();
         self.e164.clear();
         self.unknown_fields.clear();
     }
@@ -15041,8 +21036,692 @@ impl ::protobuf::reflect::ProtobufValue for GroupDetails_Member {
     }
 }
 
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct PaymentAddress {
+    // message oneof groups
+    pub Address: ::std::option::Option<PaymentAddress_oneof_Address>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a PaymentAddress {
+    fn default() -> &'a PaymentAddress {
+        <PaymentAddress as ::protobuf::Message>::default_instance()
+    }
+}
+
+#[derive(Clone,PartialEq,Debug)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum PaymentAddress_oneof_Address {
+    mobileCoinAddress(PaymentAddress_MobileCoinAddress),
+}
+
+impl PaymentAddress {
+    pub fn new() -> PaymentAddress {
+        ::std::default::Default::default()
+    }
+
+    // optional .signalservice.PaymentAddress.MobileCoinAddress mobileCoinAddress = 1;
+
+
+    pub fn get_mobileCoinAddress(&self) -> &PaymentAddress_MobileCoinAddress {
+        match self.Address {
+            ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(ref v)) => v,
+            _ => <PaymentAddress_MobileCoinAddress as ::protobuf::Message>::default_instance(),
+        }
+    }
+    pub fn clear_mobileCoinAddress(&mut self) {
+        self.Address = ::std::option::Option::None;
+    }
+
+    pub fn has_mobileCoinAddress(&self) -> bool {
+        match self.Address {
+            ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_mobileCoinAddress(&mut self, v: PaymentAddress_MobileCoinAddress) {
+        self.Address = ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_mobileCoinAddress(&mut self) -> &mut PaymentAddress_MobileCoinAddress {
+        if let ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(_)) = self.Address {
+        } else {
+            self.Address = ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(PaymentAddress_MobileCoinAddress::new()));
+        }
+        match self.Address {
+            ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_mobileCoinAddress(&mut self) -> PaymentAddress_MobileCoinAddress {
+        if self.has_mobileCoinAddress() {
+            match self.Address.take() {
+                ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            PaymentAddress_MobileCoinAddress::new()
+        }
+    }
+}
+
+impl ::protobuf::Message for PaymentAddress {
+    fn is_initialized(&self) -> bool {
+        if let Some(PaymentAddress_oneof_Address::mobileCoinAddress(ref v)) = self.Address {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.Address = ::std::option::Option::Some(PaymentAddress_oneof_Address::mobileCoinAddress(is.read_message()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let ::std::option::Option::Some(ref v) = self.Address {
+            match v {
+                &PaymentAddress_oneof_Address::mobileCoinAddress(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let ::std::option::Option::Some(ref v) = self.Address {
+            match v {
+                &PaymentAddress_oneof_Address::mobileCoinAddress(ref v) => {
+                    os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> PaymentAddress {
+        PaymentAddress::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, PaymentAddress_MobileCoinAddress>(
+                "mobileCoinAddress",
+                PaymentAddress::has_mobileCoinAddress,
+                PaymentAddress::get_mobileCoinAddress,
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<PaymentAddress>(
+                "PaymentAddress",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static PaymentAddress {
+        static instance: ::protobuf::rt::LazyV2<PaymentAddress> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(PaymentAddress::new)
+    }
+}
+
+impl ::protobuf::Clear for PaymentAddress {
+    fn clear(&mut self) {
+        self.Address = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for PaymentAddress {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for PaymentAddress {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct PaymentAddress_MobileCoinAddress {
+    // message fields
+    address: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a PaymentAddress_MobileCoinAddress {
+    fn default() -> &'a PaymentAddress_MobileCoinAddress {
+        <PaymentAddress_MobileCoinAddress as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl PaymentAddress_MobileCoinAddress {
+    pub fn new() -> PaymentAddress_MobileCoinAddress {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes address = 1;
+
+
+    pub fn get_address(&self) -> &[u8] {
+        match self.address.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_address(&mut self) {
+        self.address.clear();
+    }
+
+    pub fn has_address(&self) -> bool {
+        self.address.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_address(&mut self, v: ::std::vec::Vec<u8>) {
+        self.address = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_address(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.address.is_none() {
+            self.address.set_default();
+        }
+        self.address.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_address(&mut self) -> ::std::vec::Vec<u8> {
+        self.address.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+
+    // optional bytes signature = 2;
+
+
+    pub fn get_signature(&self) -> &[u8] {
+        match self.signature.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_signature(&mut self) {
+        self.signature.clear();
+    }
+
+    pub fn has_signature(&self) -> bool {
+        self.signature.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_signature(&mut self, v: ::std::vec::Vec<u8>) {
+        self.signature = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_signature(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.signature.is_none() {
+            self.signature.set_default();
+        }
+        self.signature.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_signature(&mut self) -> ::std::vec::Vec<u8> {
+        self.signature.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+}
+
+impl ::protobuf::Message for PaymentAddress_MobileCoinAddress {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.address)?;
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.signature)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.address.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        if let Some(ref v) = self.signature.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(2, &v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.address.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        if let Some(ref v) = self.signature.as_ref() {
+            os.write_bytes(2, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> PaymentAddress_MobileCoinAddress {
+        PaymentAddress_MobileCoinAddress::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "address",
+                |m: &PaymentAddress_MobileCoinAddress| { &m.address },
+                |m: &mut PaymentAddress_MobileCoinAddress| { &mut m.address },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "signature",
+                |m: &PaymentAddress_MobileCoinAddress| { &m.signature },
+                |m: &mut PaymentAddress_MobileCoinAddress| { &mut m.signature },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<PaymentAddress_MobileCoinAddress>(
+                "PaymentAddress.MobileCoinAddress",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static PaymentAddress_MobileCoinAddress {
+        static instance: ::protobuf::rt::LazyV2<PaymentAddress_MobileCoinAddress> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(PaymentAddress_MobileCoinAddress::new)
+    }
+}
+
+impl ::protobuf::Clear for PaymentAddress_MobileCoinAddress {
+    fn clear(&mut self) {
+        self.address.clear();
+        self.signature.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for PaymentAddress_MobileCoinAddress {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for PaymentAddress_MobileCoinAddress {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DecryptionErrorMessage {
+    // message fields
+    ratchetKey: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    timestamp: ::std::option::Option<u64>,
+    deviceId: ::std::option::Option<u32>,
+    // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a DecryptionErrorMessage {
+    fn default() -> &'a DecryptionErrorMessage {
+        <DecryptionErrorMessage as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DecryptionErrorMessage {
+    pub fn new() -> DecryptionErrorMessage {
+        ::std::default::Default::default()
+    }
+
+    // optional bytes ratchetKey = 1;
+
+
+    pub fn get_ratchetKey(&self) -> &[u8] {
+        match self.ratchetKey.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
+    }
+    pub fn clear_ratchetKey(&mut self) {
+        self.ratchetKey.clear();
+    }
+
+    pub fn has_ratchetKey(&self) -> bool {
+        self.ratchetKey.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ratchetKey(&mut self, v: ::std::vec::Vec<u8>) {
+        self.ratchetKey = ::protobuf::SingularField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_ratchetKey(&mut self) -> &mut ::std::vec::Vec<u8> {
+        if self.ratchetKey.is_none() {
+            self.ratchetKey.set_default();
+        }
+        self.ratchetKey.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_ratchetKey(&mut self) -> ::std::vec::Vec<u8> {
+        self.ratchetKey.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    }
+
+    // optional uint64 timestamp = 2;
+
+
+    pub fn get_timestamp(&self) -> u64 {
+        self.timestamp.unwrap_or(0)
+    }
+    pub fn clear_timestamp(&mut self) {
+        self.timestamp = ::std::option::Option::None;
+    }
+
+    pub fn has_timestamp(&self) -> bool {
+        self.timestamp.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_timestamp(&mut self, v: u64) {
+        self.timestamp = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 deviceId = 3;
+
+
+    pub fn get_deviceId(&self) -> u32 {
+        self.deviceId.unwrap_or(0)
+    }
+    pub fn clear_deviceId(&mut self) {
+        self.deviceId = ::std::option::Option::None;
+    }
+
+    pub fn has_deviceId(&self) -> bool {
+        self.deviceId.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_deviceId(&mut self, v: u32) {
+        self.deviceId = ::std::option::Option::Some(v);
+    }
+}
+
+impl ::protobuf::Message for DecryptionErrorMessage {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.ratchetKey)?;
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.timestamp = ::std::option::Option::Some(tmp);
+                },
+                3 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.deviceId = ::std::option::Option::Some(tmp);
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let Some(ref v) = self.ratchetKey.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        if let Some(v) = self.timestamp {
+            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.deviceId {
+            my_size += ::protobuf::rt::value_size(3, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if let Some(ref v) = self.ratchetKey.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        if let Some(v) = self.timestamp {
+            os.write_uint64(2, v)?;
+        }
+        if let Some(v) = self.deviceId {
+            os.write_uint32(3, v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: ::std::boxed::Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DecryptionErrorMessage {
+        DecryptionErrorMessage::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
+        descriptor.get(|| {
+            let mut fields = ::std::vec::Vec::new();
+            fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "ratchetKey",
+                |m: &DecryptionErrorMessage| { &m.ratchetKey },
+                |m: &mut DecryptionErrorMessage| { &mut m.ratchetKey },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "timestamp",
+                |m: &DecryptionErrorMessage| { &m.timestamp },
+                |m: &mut DecryptionErrorMessage| { &mut m.timestamp },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "deviceId",
+                |m: &DecryptionErrorMessage| { &m.deviceId },
+                |m: &mut DecryptionErrorMessage| { &mut m.deviceId },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<DecryptionErrorMessage>(
+                "DecryptionErrorMessage",
+                fields,
+                file_descriptor_proto()
+            )
+        })
+    }
+
+    fn default_instance() -> &'static DecryptionErrorMessage {
+        static instance: ::protobuf::rt::LazyV2<DecryptionErrorMessage> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(DecryptionErrorMessage::new)
+    }
+}
+
+impl ::protobuf::Clear for DecryptionErrorMessage {
+    fn clear(&mut self) {
+        self.ratchetKey.clear();
+        self.timestamp = ::std::option::Option::None;
+        self.deviceId = ::std::option::Option::None;
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DecryptionErrorMessage {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DecryptionErrorMessage {
+    fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
+        ::protobuf::reflect::ReflectValueRef::Message(self)
+    }
+}
+
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x13signalservice.proto\x12\rsignalservice\"\xe6\x03\n\x08Envelope\x12\
+    \n\x13signalservice.proto\x12\rsignalservice\"\xfe\x03\n\x08Envelope\x12\
     2\n\x04type\x18\x01\x20\x01(\x0e2\x1c.signalservice.Envelope.TypeR\x04ty\
     peB\0\x12\x20\n\nsourceE164\x18\x02\x20\x01(\tR\nsourceE164B\0\x12\x20\n\
     \nsourceUuid\x18\x0b\x20\x01(\tR\nsourceUuidB\0\x12$\n\x0csourceDevice\
@@ -15051,218 +21730,317 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     mpB\0\x12&\n\rlegacyMessage\x18\x06\x20\x01(\x0cR\rlegacyMessageB\0\x12\
     \x1a\n\x07content\x18\x08\x20\x01(\x0cR\x07contentB\0\x12\x20\n\nserverG\
     uid\x18\t\x20\x01(\tR\nserverGuidB\0\x12*\n\x0fserverTimestamp\x18\n\x20\
-    \x01(\x04R\x0fserverTimestampB\0\"p\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\0\
-    \x12\x0e\n\nCIPHERTEXT\x10\x01\x12\x10\n\x0cKEY_EXCHANGE\x10\x02\x12\x11\
-    \n\rPREKEY_BUNDLE\x10\x03\x12\x0b\n\x07RECEIPT\x10\x05\x12\x17\n\x13UNID\
-    ENTIFIED_SENDER\x10\x06\x1a\0:\0\"\x9a\x03\n\x07Content\x12>\n\x0bdataMe\
-    ssage\x18\x01\x20\x01(\x0b2\x1a.signalservice.DataMessageR\x0bdataMessag\
-    eB\0\x12>\n\x0bsyncMessage\x18\x02\x20\x01(\x0b2\x1a.signalservice.SyncM\
-    essageR\x0bsyncMessageB\0\x12>\n\x0bcallMessage\x18\x03\x20\x01(\x0b2\
-    \x1a.signalservice.CallMessageR\x0bcallMessageB\0\x12>\n\x0bnullMessage\
-    \x18\x04\x20\x01(\x0b2\x1a.signalservice.NullMessageR\x0bnullMessageB\0\
-    \x12G\n\x0ereceiptMessage\x18\x05\x20\x01(\x0b2\x1d.signalservice.Receip\
-    tMessageR\x0ereceiptMessageB\0\x12D\n\rtypingMessage\x18\x06\x20\x01(\
-    \x0b2\x1c.signalservice.TypingMessageR\rtypingMessageB\0:\0\"\xf4\x04\n\
-    \x0bCallMessage\x128\n\x05offer\x18\x01\x20\x01(\x0b2\x20.signalservice.\
-    CallMessage.OfferR\x05offerB\0\x12;\n\x06answer\x18\x02\x20\x01(\x0b2!.s\
-    ignalservice.CallMessage.AnswerR\x06answerB\0\x12D\n\ticeUpdate\x18\x03\
-    \x20\x03(\x0b2$.signalservice.CallMessage.IceUpdateR\ticeUpdateB\0\x12;\
-    \n\x06hangup\x18\x04\x20\x01(\x0b2!.signalservice.CallMessage.HangupR\
-    \x06hangupB\0\x125\n\x04busy\x18\x05\x20\x01(\x0b2\x1f.signalservice.Cal\
-    lMessage.BusyR\x04busyB\0\x1a?\n\x05Offer\x12\x10\n\x02id\x18\x01\x20\
-    \x01(\x04R\x02idB\0\x12\"\n\x0bdescription\x18\x02\x20\x01(\tR\x0bdescri\
-    ptionB\0:\0\x1a@\n\x06Answer\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02id\
-    B\0\x12\"\n\x0bdescription\x18\x02\x20\x01(\tR\x0bdescriptionB\0:\0\x1au\
-    \n\tIceUpdate\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02idB\0\x12\x18\n\
-    \x06sdpMid\x18\x02\x20\x01(\tR\x06sdpMidB\0\x12&\n\rsdpMLineIndex\x18\
-    \x03\x20\x01(\rR\rsdpMLineIndexB\0\x12\x12\n\x03sdp\x18\x04\x20\x01(\tR\
-    \x03sdpB\0:\0\x1a\x1a\n\x04Busy\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\
-    \x02idB\0:\0\x1a\x1c\n\x06Hangup\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\
-    \x02idB\0:\0:\0\"\xb7\x16\n\x0bDataMessage\x12\x14\n\x04body\x18\x01\x20\
-    \x01(\tR\x04bodyB\0\x12D\n\x0battachments\x18\x02\x20\x03(\x0b2\x20.sign\
-    alservice.AttachmentPointerR\x0battachmentsB\0\x123\n\x05group\x18\x03\
-    \x20\x01(\x0b2\x1b.signalservice.GroupContextR\x05groupB\0\x12\x16\n\x05\
-    flags\x18\x04\x20\x01(\rR\x05flagsB\0\x12\"\n\x0bexpireTimer\x18\x05\x20\
-    \x01(\rR\x0bexpireTimerB\0\x12\x20\n\nprofileKey\x18\x06\x20\x01(\x0cR\n\
-    profileKeyB\0\x12\x1e\n\ttimestamp\x18\x07\x20\x01(\x04R\ttimestampB\0\
-    \x128\n\x05quote\x18\x08\x20\x01(\x0b2\x20.signalservice.DataMessage.Quo\
-    teR\x05quoteB\0\x12>\n\x07contact\x18\t\x20\x03(\x0b2\".signalservice.Da\
-    taMessage.ContactR\x07contactB\0\x12>\n\x07preview\x18\n\x20\x03(\x0b2\"\
-    .signalservice.DataMessage.PreviewR\x07previewB\0\x12>\n\x07sticker\x18\
-    \x0b\x20\x01(\x0b2\".signalservice.DataMessage.StickerR\x07stickerB\0\
-    \x12:\n\x17requiredProtocolVersion\x18\x0c\x20\x01(\rR\x17requiredProtoc\
-    olVersionB\0\x12\x20\n\nisViewOnce\x18\x0e\x20\x01(\x08R\nisViewOnceB\0\
-    \x1a\xe7\x02\n\x05Quote\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02idB\0\
-    \x12\x20\n\nauthorE164\x18\x02\x20\x01(\tR\nauthorE164B\0\x12\x20\n\naut\
-    horUuid\x18\x05\x20\x01(\tR\nauthorUuidB\0\x12\x14\n\x04text\x18\x03\x20\
-    \x01(\tR\x04textB\0\x12U\n\x0battachments\x18\x04\x20\x03(\x0b21.signals\
-    ervice.DataMessage.Quote.QuotedAttachmentR\x0battachmentsB\0\x1a\x98\x01\
-    \n\x10QuotedAttachment\x12\"\n\x0bcontentType\x18\x01\x20\x01(\tR\x0bcon\
-    tentTypeB\0\x12\x1c\n\x08fileName\x18\x02\x20\x01(\tR\x08fileNameB\0\x12\
-    @\n\tthumbnail\x18\x03\x20\x01(\x0b2\x20.signalservice.AttachmentPointer\
-    R\tthumbnailB\0:\0:\0\x1a\x8b\x0b\n\x07Contact\x12=\n\x04name\x18\x01\
-    \x20\x01(\x0b2'.signalservice.DataMessage.Contact.NameR\x04nameB\0\x12B\
-    \n\x06number\x18\x03\x20\x03(\x0b2(.signalservice.DataMessage.Contact.Ph\
-    oneR\x06numberB\0\x12@\n\x05email\x18\x04\x20\x03(\x0b2(.signalservice.D\
-    ataMessage.Contact.EmailR\x05emailB\0\x12L\n\x07address\x18\x05\x20\x03(\
-    \x0b20.signalservice.DataMessage.Contact.PostalAddressR\x07addressB\0\
-    \x12C\n\x06avatar\x18\x06\x20\x01(\x0b2).signalservice.DataMessage.Conta\
-    ct.AvatarR\x06avatarB\0\x12$\n\x0corganization\x18\x07\x20\x01(\tR\x0cor\
-    ganizationB\0\x1a\xc4\x01\n\x04Name\x12\x1e\n\tgivenName\x18\x01\x20\x01\
-    (\tR\tgivenNameB\0\x12\x20\n\nfamilyName\x18\x02\x20\x01(\tR\nfamilyName\
-    B\0\x12\x18\n\x06prefix\x18\x03\x20\x01(\tR\x06prefixB\0\x12\x18\n\x06su\
-    ffix\x18\x04\x20\x01(\tR\x06suffixB\0\x12\x20\n\nmiddleName\x18\x05\x20\
-    \x01(\tR\nmiddleNameB\0\x12\"\n\x0bdisplayName\x18\x06\x20\x01(\tR\x0bdi\
-    splayNameB\0:\0\x1a\xb4\x01\n\x05Phone\x12\x16\n\x05value\x18\x01\x20\
-    \x01(\tR\x05valueB\0\x12C\n\x04type\x18\x02\x20\x01(\x0e2-.signalservice\
-    .DataMessage.Contact.Phone.TypeR\x04typeB\0\x12\x16\n\x05label\x18\x03\
-    \x20\x01(\tR\x05labelB\0\"4\n\x04Type\x12\x08\n\x04HOME\x10\x01\x12\n\n\
-    \x06MOBILE\x10\x02\x12\x08\n\x04WORK\x10\x03\x12\n\n\x06CUSTOM\x10\x04\
-    \x1a\0:\0\x1a\xb4\x01\n\x05Email\x12\x16\n\x05value\x18\x01\x20\x01(\tR\
-    \x05valueB\0\x12C\n\x04type\x18\x02\x20\x01(\x0e2-.signalservice.DataMes\
-    sage.Contact.Email.TypeR\x04typeB\0\x12\x16\n\x05label\x18\x03\x20\x01(\
-    \tR\x05labelB\0\"4\n\x04Type\x12\x08\n\x04HOME\x10\x01\x12\n\n\x06MOBILE\
-    \x10\x02\x12\x08\n\x04WORK\x10\x03\x12\n\n\x06CUSTOM\x10\x04\x1a\0:\0\
-    \x1a\xe2\x02\n\rPostalAddress\x12K\n\x04type\x18\x01\x20\x01(\x0e25.sign\
-    alservice.DataMessage.Contact.PostalAddress.TypeR\x04typeB\0\x12\x16\n\
-    \x05label\x18\x02\x20\x01(\tR\x05labelB\0\x12\x18\n\x06street\x18\x03\
-    \x20\x01(\tR\x06streetB\0\x12\x16\n\x05pobox\x18\x04\x20\x01(\tR\x05pobo\
-    xB\0\x12$\n\x0cneighborhood\x18\x05\x20\x01(\tR\x0cneighborhoodB\0\x12\
-    \x14\n\x04city\x18\x06\x20\x01(\tR\x04cityB\0\x12\x18\n\x06region\x18\
-    \x07\x20\x01(\tR\x06regionB\0\x12\x1c\n\x08postcode\x18\x08\x20\x01(\tR\
-    \x08postcodeB\0\x12\x1a\n\x07country\x18\t\x20\x01(\tR\x07countryB\0\"(\
-    \n\x04Type\x12\x08\n\x04HOME\x10\x01\x12\x08\n\x04WORK\x10\x02\x12\n\n\
-    \x06CUSTOM\x10\x03\x1a\0:\0\x1af\n\x06Avatar\x12:\n\x06avatar\x18\x01\
-    \x20\x01(\x0b2\x20.signalservice.AttachmentPointerR\x06avatarB\0\x12\x1e\
-    \n\tisProfile\x18\x02\x20\x01(\x08R\tisProfileB\0:\0:\0\x1aq\n\x07Previe\
-    w\x12\x12\n\x03url\x18\x01\x20\x01(\tR\x03urlB\0\x12\x16\n\x05title\x18\
-    \x02\x20\x01(\tR\x05titleB\0\x128\n\x05image\x18\x03\x20\x01(\x0b2\x20.s\
-    ignalservice.AttachmentPointerR\x05imageB\0:\0\x1a\x99\x01\n\x07Sticker\
-    \x12\x18\n\x06packId\x18\x01\x20\x01(\x0cR\x06packIdB\0\x12\x1a\n\x07pac\
-    kKey\x18\x02\x20\x01(\x0cR\x07packKeyB\0\x12\x1e\n\tstickerId\x18\x03\
-    \x20\x01(\rR\tstickerIdB\0\x126\n\x04data\x18\x04\x20\x01(\x0b2\x20.sign\
-    alservice.AttachmentPointerR\x04dataB\0:\0\"O\n\x05Flags\x12\x0f\n\x0bEN\
-    D_SESSION\x10\x01\x12\x1b\n\x17EXPIRATION_TIMER_UPDATE\x10\x02\x12\x16\n\
-    \x12PROFILE_KEY_UPDATE\x10\x04\x1a\0\"g\n\x0fProtocolVersion\x12\x0b\n\
-    \x07INITIAL\x10\0\x12\x12\n\x0eMESSAGE_TIMERS\x10\x01\x12\r\n\tVIEW_ONCE\
-    \x10\x02\x12\x13\n\x0fVIEW_ONCE_VIDEO\x10\x03\x12\x0b\n\x07CURRENT\x10\
-    \x03\x1a\x02\x10\x01:\0\"+\n\x0bNullMessage\x12\x1a\n\x07padding\x18\x01\
-    \x20\x01(\x0cR\x07paddingB\0:\0\"\x8e\x01\n\x0eReceiptMessage\x128\n\x04\
-    type\x18\x01\x20\x01(\x0e2\".signalservice.ReceiptMessage.TypeR\x04typeB\
-    \0\x12\x1e\n\ttimestamp\x18\x02\x20\x03(\x04R\ttimestampB\0\"\x20\n\x04T\
-    ype\x12\x0c\n\x08DELIVERY\x10\0\x12\x08\n\x04READ\x10\x01\x1a\0:\0\"\xb2\
-    \x01\n\rTypingMessage\x12\x1e\n\ttimestamp\x18\x01\x20\x01(\x04R\ttimest\
-    ampB\0\x12=\n\x06action\x18\x02\x20\x01(\x0e2#.signalservice.TypingMessa\
-    ge.ActionR\x06actionB\0\x12\x1a\n\x07groupId\x18\x03\x20\x01(\x0cR\x07gr\
-    oupIdB\0\"$\n\x06Action\x12\x0b\n\x07STARTED\x10\0\x12\x0b\n\x07STOPPED\
-    \x10\x01\x1a\0:\0\"\x99\x02\n\x08Verified\x12*\n\x0fdestinationE164\x18\
-    \x01\x20\x01(\tR\x0fdestinationE164B\0\x12*\n\x0fdestinationUuid\x18\x05\
-    \x20\x01(\tR\x0fdestinationUuidB\0\x12\"\n\x0bidentityKey\x18\x02\x20\
-    \x01(\x0cR\x0bidentityKeyB\0\x125\n\x05state\x18\x03\x20\x01(\x0e2\x1d.s\
-    ignalservice.Verified.StateR\x05stateB\0\x12\"\n\x0bnullMessage\x18\x04\
-    \x20\x01(\x0cR\x0bnullMessageB\0\"4\n\x05State\x12\x0b\n\x07DEFAULT\x10\
-    \0\x12\x0c\n\x08VERIFIED\x10\x01\x12\x0e\n\nUNVERIFIED\x10\x02\x1a\0:\0\
-    \"\xd2\x14\n\x0bSyncMessage\x125\n\x04sent\x18\x01\x20\x01(\x0b2\x1f.sig\
-    nalservice.SyncMessage.SentR\x04sentB\0\x12A\n\x08contacts\x18\x02\x20\
-    \x01(\x0b2#.signalservice.SyncMessage.ContactsR\x08contactsB\0\x12;\n\
-    \x06groups\x18\x03\x20\x01(\x0b2!.signalservice.SyncMessage.GroupsR\x06g\
-    roupsB\0\x12>\n\x07request\x18\x04\x20\x01(\x0b2\".signalservice.SyncMes\
-    sage.RequestR\x07requestB\0\x125\n\x04read\x18\x05\x20\x03(\x0b2\x1f.sig\
-    nalservice.SyncMessage.ReadR\x04readB\0\x12>\n\x07blocked\x18\x06\x20\
-    \x01(\x0b2\".signalservice.SyncMessage.BlockedR\x07blockedB\0\x125\n\x08\
-    verified\x18\x07\x20\x01(\x0b2\x17.signalservice.VerifiedR\x08verifiedB\
-    \0\x12P\n\rconfiguration\x18\t\x20\x01(\x0b2(.signalservice.SyncMessage.\
-    ConfigurationR\rconfigurationB\0\x12\x1a\n\x07padding\x18\x08\x20\x01(\
-    \x0cR\x07paddingB\0\x12e\n\x14stickerPackOperation\x18\n\x20\x03(\x0b2/.\
-    signalservice.SyncMessage.StickerPackOperationR\x14stickerPackOperationB\
-    \0\x12M\n\x0cviewOnceOpen\x18\x0b\x20\x01(\x0b2'.signalservice.SyncMessa\
-    ge.ViewOnceOpenR\x0cviewOnceOpenB\0\x12J\n\x0bfetchLatest\x18\x0c\x20\
-    \x01(\x0b2&.signalservice.SyncMessage.FetchLatestR\x0bfetchLatestB\0\x1a\
-    \xba\x04\n\x04Sent\x12*\n\x0fdestinationE164\x18\x01\x20\x01(\tR\x0fdest\
-    inationE164B\0\x12*\n\x0fdestinationUuid\x18\x07\x20\x01(\tR\x0fdestinat\
-    ionUuidB\0\x12\x1e\n\ttimestamp\x18\x02\x20\x01(\x04R\ttimestampB\0\x126\
-    \n\x07message\x18\x03\x20\x01(\x0b2\x1a.signalservice.DataMessageR\x07me\
-    ssageB\0\x12<\n\x18expirationStartTimestamp\x18\x04\x20\x01(\x04R\x18exp\
-    irationStartTimestampB\0\x12l\n\x12unidentifiedStatus\x18\x05\x20\x03(\
-    \x0b2:.signalservice.SyncMessage.Sent.UnidentifiedDeliveryStatusR\x12uni\
-    dentifiedStatusB\0\x125\n\x11isRecipientUpdate\x18\x06\x20\x01(\x08:\x05\
-    falseR\x11isRecipientUpdateB\0\x1a\x9c\x01\n\x1aUnidentifiedDeliveryStat\
-    us\x12*\n\x0fdestinationE164\x18\x01\x20\x01(\tR\x0fdestinationE164B\0\
-    \x12*\n\x0fdestinationUuid\x18\x03\x20\x01(\tR\x0fdestinationUuidB\0\x12\
-    $\n\x0cunidentified\x18\x02\x20\x01(\x08R\x0cunidentifiedB\0:\0:\0\x1ai\
-    \n\x08Contacts\x126\n\x04blob\x18\x01\x20\x01(\x0b2\x20.signalservice.At\
-    tachmentPointerR\x04blobB\0\x12#\n\x08complete\x18\x02\x20\x01(\x08:\x05\
-    falseR\x08completeB\0:\0\x1aB\n\x06Groups\x126\n\x04blob\x18\x01\x20\x01\
-    (\x0b2\x20.signalservice.AttachmentPointerR\x04blobB\0:\0\x1a]\n\x07Bloc\
-    ked\x12\x1a\n\x07numbers\x18\x01\x20\x03(\tR\x07numbersB\0\x12\x16\n\x05\
-    uuids\x18\x03\x20\x03(\tR\x05uuidsB\0\x12\x1c\n\x08groupIds\x18\x02\x20\
-    \x03(\x0cR\x08groupIdsB\0:\0\x1a\x9b\x01\n\x07Request\x12=\n\x04type\x18\
-    \x01\x20\x01(\x0e2'.signalservice.SyncMessage.Request.TypeR\x04typeB\0\"\
-    O\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\0\x12\x0c\n\x08CONTACTS\x10\x01\x12\
-    \n\n\x06GROUPS\x10\x02\x12\x0b\n\x07BLOCKED\x10\x03\x12\x11\n\rCONFIGURA\
-    TION\x10\x04\x1a\0:\0\x1al\n\x04Read\x12\x20\n\nsenderE164\x18\x01\x20\
-    \x01(\tR\nsenderE164B\0\x12\x20\n\nsenderUuid\x18\x03\x20\x01(\tR\nsende\
-    rUuidB\0\x12\x1e\n\ttimestamp\x18\x02\x20\x01(\x04R\ttimestampB\0:\0\x1a\
-    \x89\x02\n\rConfiguration\x12$\n\x0creadReceipts\x18\x01\x20\x01(\x08R\
-    \x0creadReceiptsB\0\x12H\n\x1eunidentifiedDeliveryIndicators\x18\x02\x20\
-    \x01(\x08R\x1eunidentifiedDeliveryIndicatorsB\0\x12,\n\x10typingIndicato\
-    rs\x18\x03\x20\x01(\x08R\x10typingIndicatorsB\0\x12$\n\x0clinkPreviews\
-    \x18\x04\x20\x01(\x08R\x0clinkPreviewsB\0\x122\n\x13provisioningVersion\
-    \x18\x05\x20\x01(\rR\x13provisioningVersionB\0:\0\x1a\xbd\x01\n\x14Stick\
-    erPackOperation\x12\x18\n\x06packId\x18\x01\x20\x01(\x0cR\x06packIdB\0\
-    \x12\x1a\n\x07packKey\x18\x02\x20\x01(\x0cR\x07packKeyB\0\x12J\n\x04type\
-    \x18\x03\x20\x01(\x0e24.signalservice.SyncMessage.StickerPackOperation.T\
-    ypeR\x04typeB\0\"!\n\x04Type\x12\x0b\n\x07INSTALL\x10\0\x12\n\n\x06REMOV\
-    E\x10\x01\x1a\0:\0\x1at\n\x0cViewOnceOpen\x12\x20\n\nsenderE164\x18\x01\
+    \x01(\x04R\x0fserverTimestampB\0\"\x87\x01\n\x04Type\x12\x0b\n\x07UNKNOW\
+    N\x10\0\x12\x0e\n\nCIPHERTEXT\x10\x01\x12\x10\n\x0cKEY_EXCHANGE\x10\x02\
+    \x12\x11\n\rPREKEY_BUNDLE\x10\x03\x12\x0b\n\x07RECEIPT\x10\x05\x12\x17\n\
+    \x13UNIDENTIFIED_SENDER\x10\x06\x12\x15\n\x11PLAINTEXT_CONTENT\x10\x08\
+    \x1a\0:\0\"\x9a\x04\n\x07Content\x12>\n\x0bdataMessage\x18\x01\x20\x01(\
+    \x0b2\x1a.signalservice.DataMessageR\x0bdataMessageB\0\x12>\n\x0bsyncMes\
+    sage\x18\x02\x20\x01(\x0b2\x1a.signalservice.SyncMessageR\x0bsyncMessage\
+    B\0\x12>\n\x0bcallMessage\x18\x03\x20\x01(\x0b2\x1a.signalservice.CallMe\
+    ssageR\x0bcallMessageB\0\x12>\n\x0bnullMessage\x18\x04\x20\x01(\x0b2\x1a\
+    .signalservice.NullMessageR\x0bnullMessageB\0\x12G\n\x0ereceiptMessage\
+    \x18\x05\x20\x01(\x0b2\x1d.signalservice.ReceiptMessageR\x0ereceiptMessa\
+    geB\0\x12D\n\rtypingMessage\x18\x06\x20\x01(\x0b2\x1c.signalservice.Typi\
+    ngMessageR\rtypingMessageB\0\x12D\n\x1csenderKeyDistributionMessage\x18\
+    \x07\x20\x01(\x0cR\x1csenderKeyDistributionMessageB\0\x128\n\x16decrypti\
+    onErrorMessage\x18\x08\x20\x01(\x0cR\x16decryptionErrorMessageB\0:\0\"\
+    \xcb\t\n\x0bCallMessage\x128\n\x05offer\x18\x01\x20\x01(\x0b2\x20.signal\
+    service.CallMessage.OfferR\x05offerB\0\x12;\n\x06answer\x18\x02\x20\x01(\
+    \x0b2!.signalservice.CallMessage.AnswerR\x06answerB\0\x12D\n\ticeUpdate\
+    \x18\x03\x20\x03(\x0b2$.signalservice.CallMessage.IceUpdateR\ticeUpdateB\
+    \0\x12G\n\x0clegacyHangup\x18\x04\x20\x01(\x0b2!.signalservice.CallMessa\
+    ge.HangupR\x0clegacyHangupB\0\x125\n\x04busy\x18\x05\x20\x01(\x0b2\x1f.s\
+    ignalservice.CallMessage.BusyR\x04busyB\0\x12;\n\x06hangup\x18\x07\x20\
+    \x01(\x0b2!.signalservice.CallMessage.HangupR\x06hangupB\0\x12\x1e\n\tmu\
+    ltiRing\x18\x08\x20\x01(\x08R\tmultiRingB\0\x122\n\x13destinationDeviceI\
+    d\x18\t\x20\x01(\rR\x13destinationDeviceIdB\0\x12;\n\x06opaque\x18\n\x20\
+    \x01(\x0b2!.signalservice.CallMessage.OpaqueR\x06opaqueB\0\x1a\xbc\x01\n\
+    \x05Offer\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02idB\0\x12\x12\n\x03sd\
+    p\x18\x02\x20\x01(\tR\x03sdpB\0\x12;\n\x04type\x18\x03\x20\x01(\x0e2%.si\
+    gnalservice.CallMessage.Offer.TypeR\x04typeB\0\x12\x18\n\x06opaque\x18\
+    \x04\x20\x01(\x0cR\x06opaqueB\0\"4\n\x04Type\x12\x14\n\x10OFFER_AUDIO_CA\
+    LL\x10\0\x12\x14\n\x10OFFER_VIDEO_CALL\x10\x01\x1a\0:\0\x1aJ\n\x06Answer\
+    \x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02idB\0\x12\x12\n\x03sdp\x18\x02\
+    \x20\x01(\tR\x03sdpB\0\x12\x18\n\x06opaque\x18\x03\x20\x01(\x0cR\x06opaq\
+    ueB\0:\0\x1aw\n\tIceUpdate\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02idB\
+    \0\x12\x12\n\x03mid\x18\x02\x20\x01(\tR\x03midB\0\x12\x14\n\x04line\x18\
+    \x03\x20\x01(\rR\x04lineB\0\x12\x12\n\x03sdp\x18\x04\x20\x01(\tR\x03sdpB\
+    \0\x12\x18\n\x06opaque\x18\x05\x20\x01(\x0cR\x06opaqueB\0:\0\x1a\x1a\n\
+    \x04Busy\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02idB\0:\0\x1a\xec\x01\n\
+    \x06Hangup\x12\x10\n\x02id\x18\x01\x20\x01(\x04R\x02idB\0\x12<\n\x04type\
+    \x18\x02\x20\x01(\x0e2&.signalservice.CallMessage.Hangup.TypeR\x04typeB\
+    \0\x12\x1c\n\x08deviceId\x18\x03\x20\x01(\rR\x08deviceIdB\0\"r\n\x04Type\
+    \x12\x11\n\rHANGUP_NORMAL\x10\0\x12\x13\n\x0fHANGUP_ACCEPTED\x10\x01\x12\
+    \x13\n\x0fHANGUP_DECLINED\x10\x02\x12\x0f\n\x0bHANGUP_BUSY\x10\x03\x12\
+    \x1a\n\x16HANGUP_NEED_PERMISSION\x10\x04\x1a\0:\0\x1a\x20\n\x06Opaque\
+    \x12\x14\n\x04data\x18\x01\x20\x01(\x0cR\x04dataB\0:\0:\0\"\xb1#\n\x0bDa\
+    taMessage\x12\x14\n\x04body\x18\x01\x20\x01(\tR\x04bodyB\0\x12D\n\x0batt\
+    achments\x18\x02\x20\x03(\x0b2\x20.signalservice.AttachmentPointerR\x0ba\
+    ttachmentsB\0\x123\n\x05group\x18\x03\x20\x01(\x0b2\x1b.signalservice.Gr\
+    oupContextR\x05groupB\0\x129\n\x07groupV2\x18\x0f\x20\x01(\x0b2\x1d.sign\
+    alservice.GroupContextV2R\x07groupV2B\0\x12\x16\n\x05flags\x18\x04\x20\
+    \x01(\rR\x05flagsB\0\x12\"\n\x0bexpireTimer\x18\x05\x20\x01(\rR\x0bexpir\
+    eTimerB\0\x12\x20\n\nprofileKey\x18\x06\x20\x01(\x0cR\nprofileKeyB\0\x12\
+    \x1e\n\ttimestamp\x18\x07\x20\x01(\x04R\ttimestampB\0\x128\n\x05quote\
+    \x18\x08\x20\x01(\x0b2\x20.signalservice.DataMessage.QuoteR\x05quoteB\0\
+    \x12>\n\x07contact\x18\t\x20\x03(\x0b2\".signalservice.DataMessage.Conta\
+    ctR\x07contactB\0\x12>\n\x07preview\x18\n\x20\x03(\x0b2\".signalservice.\
+    DataMessage.PreviewR\x07previewB\0\x12>\n\x07sticker\x18\x0b\x20\x01(\
+    \x0b2\".signalservice.DataMessage.StickerR\x07stickerB\0\x12:\n\x17requi\
+    redProtocolVersion\x18\x0c\x20\x01(\rR\x17requiredProtocolVersionB\0\x12\
+    \x20\n\nisViewOnce\x18\x0e\x20\x01(\x08R\nisViewOnceB\0\x12A\n\x08reacti\
+    on\x18\x10\x20\x01(\x0b2#.signalservice.DataMessage.ReactionR\x08reactio\
+    nB\0\x12;\n\x06delete\x18\x11\x20\x01(\x0b2!.signalservice.DataMessage.D\
+    eleteR\x06deleteB\0\x12F\n\nbodyRanges\x18\x12\x20\x03(\x0b2$.signalserv\
+    ice.DataMessage.BodyRangeR\nbodyRangesB\0\x12V\n\x0fgroupCallUpdate\x18\
+    \x13\x20\x01(\x0b2*.signalservice.DataMessage.GroupCallUpdateR\x0fgroupC\
+    allUpdateB\0\x12>\n\x07payment\x18\x14\x20\x01(\x0b2\".signalservice.Dat\
+    aMessage.PaymentR\x07paymentB\0\x1ax\n\tBodyRange\x12\x16\n\x05start\x18\
+    \x01\x20\x01(\x05R\x05startB\0\x12\x18\n\x06length\x18\x02\x20\x01(\x05R\
+    \x06lengthB\0\x12$\n\x0bmentionUuid\x18\x03\x20\x01(\tH\0R\x0bmentionUui\
+    dB\0B\x11\n\x0fassociatedValue:\0\x1a\xaf\x03\n\x05Quote\x12\x10\n\x02id\
+    \x18\x01\x20\x01(\x04R\x02idB\0\x12\x20\n\nauthorE164\x18\x02\x20\x01(\t\
+    R\nauthorE164B\0\x12\x20\n\nauthorUuid\x18\x05\x20\x01(\tR\nauthorUuidB\
+    \0\x12\x14\n\x04text\x18\x03\x20\x01(\tR\x04textB\0\x12U\n\x0battachment\
+    s\x18\x04\x20\x03(\x0b21.signalservice.DataMessage.Quote.QuotedAttachmen\
+    tR\x0battachmentsB\0\x12F\n\nbodyRanges\x18\x06\x20\x03(\x0b2$.signalser\
+    vice.DataMessage.BodyRangeR\nbodyRangesB\0\x1a\x98\x01\n\x10QuotedAttach\
+    ment\x12\"\n\x0bcontentType\x18\x01\x20\x01(\tR\x0bcontentTypeB\0\x12\
+    \x1c\n\x08fileName\x18\x02\x20\x01(\tR\x08fileNameB\0\x12@\n\tthumbnail\
+    \x18\x03\x20\x01(\x0b2\x20.signalservice.AttachmentPointerR\tthumbnailB\
+    \0:\0:\0\x1a\x8b\x0b\n\x07Contact\x12=\n\x04name\x18\x01\x20\x01(\x0b2'.\
+    signalservice.DataMessage.Contact.NameR\x04nameB\0\x12B\n\x06number\x18\
+    \x03\x20\x03(\x0b2(.signalservice.DataMessage.Contact.PhoneR\x06numberB\
+    \0\x12@\n\x05email\x18\x04\x20\x03(\x0b2(.signalservice.DataMessage.Cont\
+    act.EmailR\x05emailB\0\x12L\n\x07address\x18\x05\x20\x03(\x0b20.signalse\
+    rvice.DataMessage.Contact.PostalAddressR\x07addressB\0\x12C\n\x06avatar\
+    \x18\x06\x20\x01(\x0b2).signalservice.DataMessage.Contact.AvatarR\x06ava\
+    tarB\0\x12$\n\x0corganization\x18\x07\x20\x01(\tR\x0corganizationB\0\x1a\
+    \xc4\x01\n\x04Name\x12\x1e\n\tgivenName\x18\x01\x20\x01(\tR\tgivenNameB\
+    \0\x12\x20\n\nfamilyName\x18\x02\x20\x01(\tR\nfamilyNameB\0\x12\x18\n\
+    \x06prefix\x18\x03\x20\x01(\tR\x06prefixB\0\x12\x18\n\x06suffix\x18\x04\
+    \x20\x01(\tR\x06suffixB\0\x12\x20\n\nmiddleName\x18\x05\x20\x01(\tR\nmid\
+    dleNameB\0\x12\"\n\x0bdisplayName\x18\x06\x20\x01(\tR\x0bdisplayNameB\0:\
+    \0\x1a\xb4\x01\n\x05Phone\x12\x16\n\x05value\x18\x01\x20\x01(\tR\x05valu\
+    eB\0\x12C\n\x04type\x18\x02\x20\x01(\x0e2-.signalservice.DataMessage.Con\
+    tact.Phone.TypeR\x04typeB\0\x12\x16\n\x05label\x18\x03\x20\x01(\tR\x05la\
+    belB\0\"4\n\x04Type\x12\x08\n\x04HOME\x10\x01\x12\n\n\x06MOBILE\x10\x02\
+    \x12\x08\n\x04WORK\x10\x03\x12\n\n\x06CUSTOM\x10\x04\x1a\0:\0\x1a\xb4\
+    \x01\n\x05Email\x12\x16\n\x05value\x18\x01\x20\x01(\tR\x05valueB\0\x12C\
+    \n\x04type\x18\x02\x20\x01(\x0e2-.signalservice.DataMessage.Contact.Emai\
+    l.TypeR\x04typeB\0\x12\x16\n\x05label\x18\x03\x20\x01(\tR\x05labelB\0\"4\
+    \n\x04Type\x12\x08\n\x04HOME\x10\x01\x12\n\n\x06MOBILE\x10\x02\x12\x08\n\
+    \x04WORK\x10\x03\x12\n\n\x06CUSTOM\x10\x04\x1a\0:\0\x1a\xe2\x02\n\rPosta\
+    lAddress\x12K\n\x04type\x18\x01\x20\x01(\x0e25.signalservice.DataMessage\
+    .Contact.PostalAddress.TypeR\x04typeB\0\x12\x16\n\x05label\x18\x02\x20\
+    \x01(\tR\x05labelB\0\x12\x18\n\x06street\x18\x03\x20\x01(\tR\x06streetB\
+    \0\x12\x16\n\x05pobox\x18\x04\x20\x01(\tR\x05poboxB\0\x12$\n\x0cneighbor\
+    hood\x18\x05\x20\x01(\tR\x0cneighborhoodB\0\x12\x14\n\x04city\x18\x06\
+    \x20\x01(\tR\x04cityB\0\x12\x18\n\x06region\x18\x07\x20\x01(\tR\x06regio\
+    nB\0\x12\x1c\n\x08postcode\x18\x08\x20\x01(\tR\x08postcodeB\0\x12\x1a\n\
+    \x07country\x18\t\x20\x01(\tR\x07countryB\0\"(\n\x04Type\x12\x08\n\x04HO\
+    ME\x10\x01\x12\x08\n\x04WORK\x10\x02\x12\n\n\x06CUSTOM\x10\x03\x1a\0:\0\
+    \x1af\n\x06Avatar\x12:\n\x06avatar\x18\x01\x20\x01(\x0b2\x20.signalservi\
+    ce.AttachmentPointerR\x06avatarB\0\x12\x1e\n\tisProfile\x18\x02\x20\x01(\
+    \x08R\tisProfileB\0:\0:\0\x1a\xab\x01\n\x07Preview\x12\x12\n\x03url\x18\
+    \x01\x20\x01(\tR\x03urlB\0\x12\x16\n\x05title\x18\x02\x20\x01(\tR\x05tit\
+    leB\0\x128\n\x05image\x18\x03\x20\x01(\x0b2\x20.signalservice.Attachment\
+    PointerR\x05imageB\0\x12\"\n\x0bdescription\x18\x04\x20\x01(\tR\x0bdescr\
+    iptionB\0\x12\x14\n\x04date\x18\x05\x20\x01(\x04R\x04dateB\0:\0\x1a\xb1\
+    \x01\n\x07Sticker\x12\x18\n\x06packId\x18\x01\x20\x01(\x0cR\x06packIdB\0\
+    \x12\x1a\n\x07packKey\x18\x02\x20\x01(\x0cR\x07packKeyB\0\x12\x1e\n\tsti\
+    ckerId\x18\x03\x20\x01(\rR\tstickerIdB\0\x126\n\x04data\x18\x04\x20\x01(\
+    \x0b2\x20.signalservice.AttachmentPointerR\x04dataB\0\x12\x16\n\x05emoji\
+    \x18\x05\x20\x01(\tR\x05emojiB\0:\0\x1a\xa0\x01\n\x08Reaction\x12\x16\n\
+    \x05emoji\x18\x01\x20\x01(\tR\x05emojiB\0\x12\x18\n\x06remove\x18\x02\
+    \x20\x01(\x08R\x06removeB\0\x12,\n\x10targetAuthorUuid\x18\x04\x20\x01(\
+    \tR\x10targetAuthorUuidB\0\x122\n\x13targetSentTimestamp\x18\x05\x20\x01\
+    (\x04R\x13targetSentTimestampB\0:\0\x1a>\n\x06Delete\x122\n\x13targetSen\
+    tTimestamp\x18\x01\x20\x01(\x04R\x13targetSentTimestampB\0:\0\x1a+\n\x0f\
+    GroupCallUpdate\x12\x16\n\x05eraId\x18\x01\x20\x01(\tR\x05eraIdB\0:\0\
+    \x1a\xed\x04\n\x07Payment\x12W\n\x0cnotification\x18\x01\x20\x01(\x0b2/.\
+    signalservice.DataMessage.Payment.NotificationH\0R\x0cnotificationB\0\
+    \x1a\x9d\x01\n\x07Address\x12Y\n\nmobileCoin\x18\x01\x20\x01(\x0b25.sign\
+    alservice.DataMessage.Payment.Address.MobileCoinH\0R\nmobileCoinB\0\x1a*\
+    \n\nMobileCoin\x12\x1a\n\x07address\x18\x01\x20\x01(\x0cR\x07addressB\0:\
+    \0B\t\n\x07Address:\0\x1a\x9a\x01\n\x06Amount\x12X\n\nmobileCoin\x18\x01\
+    \x20\x01(\x0b24.signalservice.DataMessage.Payment.Amount.MobileCoinH\0R\
+    \nmobileCoinB\0\x1a*\n\nMobileCoin\x12\x1a\n\x07picoMob\x18\x01\x20\x01(\
+    \x04R\x07picoMobB\0:\0B\x08\n\x06Amount:\0\x1a\xc1\x01\n\x0cNotification\
+    \x12^\n\nmobileCoin\x18\x01\x20\x01(\x0b2:.signalservice.DataMessage.Pay\
+    ment.Notification.MobileCoinH\0R\nmobileCoinB\0\x12\x14\n\x04note\x18\
+    \x02\x20\x01(\tR\x04noteB\0\x1a*\n\nMobileCoin\x12\x1a\n\x07receipt\x18\
+    \x01\x20\x01(\x0cR\x07receiptB\0:\0B\r\n\x0bTransaction:\0B\x06\n\x04Ite\
+    m:\0\"O\n\x05Flags\x12\x0f\n\x0bEND_SESSION\x10\x01\x12\x1b\n\x17EXPIRAT\
+    ION_TIMER_UPDATE\x10\x02\x12\x16\n\x12PROFILE_KEY_UPDATE\x10\x04\x1a\0\"\
+    \xb0\x01\n\x0fProtocolVersion\x12\x0b\n\x07INITIAL\x10\0\x12\x12\n\x0eME\
+    SSAGE_TIMERS\x10\x01\x12\r\n\tVIEW_ONCE\x10\x02\x12\x13\n\x0fVIEW_ONCE_V\
+    IDEO\x10\x03\x12\r\n\tREACTIONS\x10\x04\x12\x1c\n\x18CDN_SELECTOR_ATTACH\
+    MENTS\x10\x05\x12\x0c\n\x08MENTIONS\x10\x06\x12\x0c\n\x08PAYMENTS\x10\
+    \x07\x12\x0b\n\x07CURRENT\x10\x07\x1a\x02\x10\x01:\0\"+\n\x0bNullMessage\
+    \x12\x1a\n\x07padding\x18\x01\x20\x01(\x0cR\x07paddingB\0:\0\"\x9a\x01\n\
+    \x0eReceiptMessage\x128\n\x04type\x18\x01\x20\x01(\x0e2\".signalservice.\
+    ReceiptMessage.TypeR\x04typeB\0\x12\x1e\n\ttimestamp\x18\x02\x20\x03(\
+    \x04R\ttimestampB\0\",\n\x04Type\x12\x0c\n\x08DELIVERY\x10\0\x12\x08\n\
+    \x04READ\x10\x01\x12\n\n\x06VIEWED\x10\x02\x1a\0:\0\"\xb2\x01\n\rTypingM\
+    essage\x12\x1e\n\ttimestamp\x18\x01\x20\x01(\x04R\ttimestampB\0\x12=\n\
+    \x06action\x18\x02\x20\x01(\x0e2#.signalservice.TypingMessage.ActionR\
+    \x06actionB\0\x12\x1a\n\x07groupId\x18\x03\x20\x01(\x0cR\x07groupIdB\0\"\
+    $\n\x06Action\x12\x0b\n\x07STARTED\x10\0\x12\x0b\n\x07STOPPED\x10\x01\
+    \x1a\0:\0\"\x99\x02\n\x08Verified\x12*\n\x0fdestinationE164\x18\x01\x20\
+    \x01(\tR\x0fdestinationE164B\0\x12*\n\x0fdestinationUuid\x18\x05\x20\x01\
+    (\tR\x0fdestinationUuidB\0\x12\"\n\x0bidentityKey\x18\x02\x20\x01(\x0cR\
+    \x0bidentityKeyB\0\x125\n\x05state\x18\x03\x20\x01(\x0e2\x1d.signalservi\
+    ce.Verified.StateR\x05stateB\0\x12\"\n\x0bnullMessage\x18\x04\x20\x01(\
+    \x0cR\x0bnullMessageB\0\"4\n\x05State\x12\x0b\n\x07DEFAULT\x10\0\x12\x0c\
+    \n\x08VERIFIED\x10\x01\x12\x0e\n\nUNVERIFIED\x10\x02\x1a\0:\0\"\xf5\x1e\
+    \n\x0bSyncMessage\x125\n\x04sent\x18\x01\x20\x01(\x0b2\x1f.signalservice\
+    .SyncMessage.SentR\x04sentB\0\x12A\n\x08contacts\x18\x02\x20\x01(\x0b2#.\
+    signalservice.SyncMessage.ContactsR\x08contactsB\0\x12;\n\x06groups\x18\
+    \x03\x20\x01(\x0b2!.signalservice.SyncMessage.GroupsR\x06groupsB\0\x12>\
+    \n\x07request\x18\x04\x20\x01(\x0b2\".signalservice.SyncMessage.RequestR\
+    \x07requestB\0\x125\n\x04read\x18\x05\x20\x03(\x0b2\x1f.signalservice.Sy\
+    ncMessage.ReadR\x04readB\0\x12>\n\x07blocked\x18\x06\x20\x01(\x0b2\".sig\
+    nalservice.SyncMessage.BlockedR\x07blockedB\0\x125\n\x08verified\x18\x07\
+    \x20\x01(\x0b2\x17.signalservice.VerifiedR\x08verifiedB\0\x12P\n\rconfig\
+    uration\x18\t\x20\x01(\x0b2(.signalservice.SyncMessage.ConfigurationR\rc\
+    onfigurationB\0\x12\x1a\n\x07padding\x18\x08\x20\x01(\x0cR\x07paddingB\0\
+    \x12e\n\x14stickerPackOperation\x18\n\x20\x03(\x0b2/.signalservice.SyncM\
+    essage.StickerPackOperationR\x14stickerPackOperationB\0\x12M\n\x0cviewOn\
+    ceOpen\x18\x0b\x20\x01(\x0b2'.signalservice.SyncMessage.ViewOnceOpenR\
+    \x0cviewOnceOpenB\0\x12J\n\x0bfetchLatest\x18\x0c\x20\x01(\x0b2&.signals\
+    ervice.SyncMessage.FetchLatestR\x0bfetchLatestB\0\x125\n\x04keys\x18\r\
+    \x20\x01(\x0b2\x1f.signalservice.SyncMessage.KeysR\x04keysB\0\x12k\n\x16\
+    messageRequestResponse\x18\x0e\x20\x01(\x0b21.signalservice.SyncMessage.\
+    MessageRequestResponseR\x16messageRequestResponseB\0\x12V\n\x0foutgoingP\
+    ayment\x18\x0f\x20\x01(\x0b2*.signalservice.SyncMessage.OutgoingPaymentR\
+    \x0foutgoingPaymentB\0\x12;\n\x06viewed\x18\x10\x20\x03(\x0b2!.signalser\
+    vice.SyncMessage.ViewedR\x06viewedB\0\x1a\xba\x04\n\x04Sent\x12*\n\x0fde\
+    stinationE164\x18\x01\x20\x01(\tR\x0fdestinationE164B\0\x12*\n\x0fdestin\
+    ationUuid\x18\x07\x20\x01(\tR\x0fdestinationUuidB\0\x12\x1e\n\ttimestamp\
+    \x18\x02\x20\x01(\x04R\ttimestampB\0\x126\n\x07message\x18\x03\x20\x01(\
+    \x0b2\x1a.signalservice.DataMessageR\x07messageB\0\x12<\n\x18expirationS\
+    tartTimestamp\x18\x04\x20\x01(\x04R\x18expirationStartTimestampB\0\x12l\
+    \n\x12unidentifiedStatus\x18\x05\x20\x03(\x0b2:.signalservice.SyncMessag\
+    e.Sent.UnidentifiedDeliveryStatusR\x12unidentifiedStatusB\0\x125\n\x11is\
+    RecipientUpdate\x18\x06\x20\x01(\x08:\x05falseR\x11isRecipientUpdateB\0\
+    \x1a\x9c\x01\n\x1aUnidentifiedDeliveryStatus\x12*\n\x0fdestinationE164\
+    \x18\x01\x20\x01(\tR\x0fdestinationE164B\0\x12*\n\x0fdestinationUuid\x18\
+    \x03\x20\x01(\tR\x0fdestinationUuidB\0\x12$\n\x0cunidentified\x18\x02\
+    \x20\x01(\x08R\x0cunidentifiedB\0:\0:\0\x1ai\n\x08Contacts\x126\n\x04blo\
+    b\x18\x01\x20\x01(\x0b2\x20.signalservice.AttachmentPointerR\x04blobB\0\
+    \x12#\n\x08complete\x18\x02\x20\x01(\x08:\x05falseR\x08completeB\0:\0\
+    \x1aB\n\x06Groups\x126\n\x04blob\x18\x01\x20\x01(\x0b2\x20.signalservice\
+    .AttachmentPointerR\x04blobB\0:\0\x1a]\n\x07Blocked\x12\x1a\n\x07numbers\
+    \x18\x01\x20\x03(\tR\x07numbersB\0\x12\x16\n\x05uuids\x18\x03\x20\x03(\t\
+    R\x05uuidsB\0\x12\x1c\n\x08groupIds\x18\x02\x20\x03(\x0cR\x08groupIdsB\0\
+    :\0\x1a\xa5\x01\n\x07Request\x12=\n\x04type\x18\x01\x20\x01(\x0e2'.signa\
+    lservice.SyncMessage.Request.TypeR\x04typeB\0\"Y\n\x04Type\x12\x0b\n\x07\
+    UNKNOWN\x10\0\x12\x0c\n\x08CONTACTS\x10\x01\x12\n\n\x06GROUPS\x10\x02\
+    \x12\x0b\n\x07BLOCKED\x10\x03\x12\x11\n\rCONFIGURATION\x10\x04\x12\x08\n\
+    \x04KEYS\x10\x05\x1a\0:\0\x1al\n\x04Read\x12\x20\n\nsenderE164\x18\x01\
     \x20\x01(\tR\nsenderE164B\0\x12\x20\n\nsenderUuid\x18\x03\x20\x01(\tR\ns\
     enderUuidB\0\x12\x1e\n\ttimestamp\x18\x02\x20\x01(\x04R\ttimestampB\0:\0\
-    \x1a\x92\x01\n\x0bFetchLatest\x12A\n\x04type\x18\x01\x20\x01(\x0e2+.sign\
-    alservice.SyncMessage.FetchLatest.TypeR\x04typeB\0\">\n\x04Type\x12\x0b\
-    \n\x07UNKNOWN\x10\0\x12\x11\n\rLOCAL_PROFILE\x10\x01\x12\x14\n\x10STORAG\
-    E_MANIFEST\x10\x02\x1a\0:\0:\0\"\xef\x02\n\x11AttachmentPointer\x12\x10\
-    \n\x02id\x18\x01\x20\x01(\x06R\x02idB\0\x12\"\n\x0bcontentType\x18\x02\
-    \x20\x01(\tR\x0bcontentTypeB\0\x12\x12\n\x03key\x18\x03\x20\x01(\x0cR\
-    \x03keyB\0\x12\x14\n\x04size\x18\x04\x20\x01(\rR\x04sizeB\0\x12\x1e\n\tt\
-    humbnail\x18\x05\x20\x01(\x0cR\tthumbnailB\0\x12\x18\n\x06digest\x18\x06\
-    \x20\x01(\x0cR\x06digestB\0\x12\x1c\n\x08fileName\x18\x07\x20\x01(\tR\
-    \x08fileNameB\0\x12\x16\n\x05flags\x18\x08\x20\x01(\rR\x05flagsB\0\x12\
-    \x16\n\x05width\x18\t\x20\x01(\rR\x05widthB\0\x12\x18\n\x06height\x18\n\
-    \x20\x01(\rR\x06heightB\0\x12\x1a\n\x07caption\x18\x0b\x20\x01(\tR\x07ca\
-    ptionB\0\x12\x1c\n\x08blurHash\x18\x0c\x20\x01(\tR\x08blurHashB\0\"\x1c\
-    \n\x05Flags\x12\x11\n\rVOICE_MESSAGE\x10\x01\x1a\0:\0\"\x94\x03\n\x0cGro\
-    upContext\x12\x10\n\x02id\x18\x01\x20\x01(\x0cR\x02idB\0\x126\n\x04type\
-    \x18\x02\x20\x01(\x0e2\x20.signalservice.GroupContext.TypeR\x04typeB\0\
-    \x12\x14\n\x04name\x18\x03\x20\x01(\tR\x04nameB\0\x12\"\n\x0bmembersE164\
-    \x18\x04\x20\x03(\tR\x0bmembersE164B\0\x12>\n\x07members\x18\x06\x20\x03\
-    (\x0b2\".signalservice.GroupContext.MemberR\x07membersB\0\x12:\n\x06avat\
-    ar\x18\x05\x20\x01(\x0b2\x20.signalservice.AttachmentPointerR\x06avatarB\
-    \0\x1a6\n\x06Member\x12\x14\n\x04uuid\x18\x01\x20\x01(\tR\x04uuidB\0\x12\
-    \x14\n\x04e164\x18\x02\x20\x01(\tR\x04e164B\0:\0\"J\n\x04Type\x12\x0b\n\
-    \x07UNKNOWN\x10\0\x12\n\n\x06UPDATE\x10\x01\x12\x0b\n\x07DELIVER\x10\x02\
-    \x12\x08\n\x04QUIT\x10\x03\x12\x10\n\x0cREQUEST_INFO\x10\x04\x1a\0:\0\"\
-    \x93\x03\n\x0eContactDetails\x12\x18\n\x06number\x18\x01\x20\x01(\tR\x06\
-    numberB\0\x12\x14\n\x04uuid\x18\t\x20\x01(\tR\x04uuidB\0\x12\x14\n\x04na\
-    me\x18\x02\x20\x01(\tR\x04nameB\0\x12>\n\x06avatar\x18\x03\x20\x01(\x0b2\
-    $.signalservice.ContactDetails.AvatarR\x06avatarB\0\x12\x16\n\x05color\
-    \x18\x04\x20\x01(\tR\x05colorB\0\x125\n\x08verified\x18\x05\x20\x01(\x0b\
-    2\x17.signalservice.VerifiedR\x08verifiedB\0\x12\x20\n\nprofileKey\x18\
-    \x06\x20\x01(\x0cR\nprofileKeyB\0\x12\x1a\n\x07blocked\x18\x07\x20\x01(\
-    \x08R\x07blockedB\0\x12\"\n\x0bexpireTimer\x18\x08\x20\x01(\rR\x0bexpire\
-    TimerB\0\x1aH\n\x06Avatar\x12\"\n\x0bcontentType\x18\x01\x20\x01(\tR\x0b\
-    contentTypeB\0\x12\x18\n\x06length\x18\x02\x20\x01(\rR\x06lengthB\0:\0:\
-    \0\"\xd4\x03\n\x0cGroupDetails\x12\x10\n\x02id\x18\x01\x20\x01(\x0cR\x02\
-    idB\0\x12\x14\n\x04name\x18\x02\x20\x01(\tR\x04nameB\0\x12\"\n\x0bmember\
-    sE164\x18\x03\x20\x03(\tR\x0bmembersE164B\0\x12>\n\x07members\x18\t\x20\
-    \x03(\x0b2\".signalservice.GroupDetails.MemberR\x07membersB\0\x12<\n\x06\
-    avatar\x18\x04\x20\x01(\x0b2\".signalservice.GroupDetails.AvatarR\x06ava\
-    tarB\0\x12\x1e\n\x06active\x18\x05\x20\x01(\x08:\x04trueR\x06activeB\0\
-    \x12\"\n\x0bexpireTimer\x18\x06\x20\x01(\rR\x0bexpireTimerB\0\x12\x16\n\
-    \x05color\x18\x07\x20\x01(\tR\x05colorB\0\x12\x1a\n\x07blocked\x18\x08\
-    \x20\x01(\x08R\x07blockedB\0\x1aH\n\x06Avatar\x12\"\n\x0bcontentType\x18\
-    \x01\x20\x01(\tR\x0bcontentTypeB\0\x12\x18\n\x06length\x18\x02\x20\x01(\
-    \rR\x06lengthB\0:\0\x1a6\n\x06Member\x12\x14\n\x04uuid\x18\x01\x20\x01(\
-    \tR\x04uuidB\0\x12\x14\n\x04e164\x18\x02\x20\x01(\tR\x04e164B\0:\0:\0B\0\
-    b\x06proto2\
+    \x1an\n\x06Viewed\x12\x20\n\nsenderE164\x18\x01\x20\x01(\tR\nsenderE164B\
+    \0\x12\x20\n\nsenderUuid\x18\x03\x20\x01(\tR\nsenderUuidB\0\x12\x1e\n\tt\
+    imestamp\x18\x02\x20\x01(\x04R\ttimestampB\0:\0\x1a\x89\x02\n\rConfigura\
+    tion\x12$\n\x0creadReceipts\x18\x01\x20\x01(\x08R\x0creadReceiptsB\0\x12\
+    H\n\x1eunidentifiedDeliveryIndicators\x18\x02\x20\x01(\x08R\x1eunidentif\
+    iedDeliveryIndicatorsB\0\x12,\n\x10typingIndicators\x18\x03\x20\x01(\x08\
+    R\x10typingIndicatorsB\0\x122\n\x13provisioningVersion\x18\x05\x20\x01(\
+    \rR\x13provisioningVersionB\0\x12$\n\x0clinkPreviews\x18\x06\x20\x01(\
+    \x08R\x0clinkPreviewsB\0:\0\x1a\xbd\x01\n\x14StickerPackOperation\x12\
+    \x18\n\x06packId\x18\x01\x20\x01(\x0cR\x06packIdB\0\x12\x1a\n\x07packKey\
+    \x18\x02\x20\x01(\x0cR\x07packKeyB\0\x12J\n\x04type\x18\x03\x20\x01(\x0e\
+    24.signalservice.SyncMessage.StickerPackOperation.TypeR\x04typeB\0\"!\n\
+    \x04Type\x12\x0b\n\x07INSTALL\x10\0\x12\n\n\x06REMOVE\x10\x01\x1a\0:\0\
+    \x1at\n\x0cViewOnceOpen\x12\x20\n\nsenderE164\x18\x01\x20\x01(\tR\nsende\
+    rE164B\0\x12\x20\n\nsenderUuid\x18\x03\x20\x01(\tR\nsenderUuidB\0\x12\
+    \x1e\n\ttimestamp\x18\x02\x20\x01(\x04R\ttimestampB\0:\0\x1a\x92\x01\n\
+    \x0bFetchLatest\x12A\n\x04type\x18\x01\x20\x01(\x0e2+.signalservice.Sync\
+    Message.FetchLatest.TypeR\x04typeB\0\">\n\x04Type\x12\x0b\n\x07UNKNOWN\
+    \x10\0\x12\x11\n\rLOCAL_PROFILE\x10\x01\x12\x14\n\x10STORAGE_MANIFEST\
+    \x10\x02\x1a\0:\0\x1a2\n\x04Keys\x12(\n\x0estorageService\x18\x01\x20\
+    \x01(\x0cR\x0estorageServiceB\0:\0\x1a\x98\x02\n\x16MessageRequestRespon\
+    se\x12\x20\n\nthreadE164\x18\x01\x20\x01(\tR\nthreadE164B\0\x12\x20\n\nt\
+    hreadUuid\x18\x02\x20\x01(\tR\nthreadUuidB\0\x12\x1a\n\x07groupId\x18\
+    \x03\x20\x01(\x0cR\x07groupIdB\0\x12L\n\x04type\x18\x04\x20\x01(\x0e26.s\
+    ignalservice.SyncMessage.MessageRequestResponse.TypeR\x04typeB\0\"N\n\
+    \x04Type\x12\x0b\n\x07UNKNOWN\x10\0\x12\n\n\x06ACCEPT\x10\x01\x12\n\n\
+    \x06DELETE\x10\x02\x12\t\n\x05BLOCK\x10\x03\x12\x14\n\x10BLOCK_AND_DELET\
+    E\x10\x04\x1a\0:\0\x1a\x9e\x04\n\x0fOutgoingPayment\x12&\n\rrecipientUui\
+    d\x18\x01\x20\x01(\tR\rrecipientUuidB\0\x12\x14\n\x04note\x18\x02\x20\
+    \x01(\tR\x04noteB\0\x12Y\n\nmobileCoin\x18\x03\x20\x01(\x0b25.signalserv\
+    ice.SyncMessage.OutgoingPayment.MobileCoinH\0R\nmobileCoinB\0\x1a\xde\
+    \x02\n\nMobileCoin\x12,\n\x10recipientAddress\x18\x01\x20\x01(\x0cR\x10r\
+    ecipientAddressB\0\x12&\n\ramountPicoMob\x18\x02\x20\x01(\x04R\ramountPi\
+    coMobB\0\x12\x20\n\nfeePicoMob\x18\x03\x20\x01(\x04R\nfeePicoMobB\0\x12\
+    \x1a\n\x07receipt\x18\x04\x20\x01(\x0cR\x07receiptB\0\x124\n\x14ledgerBl\
+    ockTimestamp\x18\x05\x20\x01(\x04R\x14ledgerBlockTimestampB\0\x12,\n\x10\
+    ledgerBlockIndex\x18\x06\x20\x01(\x04R\x10ledgerBlockIndexB\0\x12(\n\x0e\
+    spentKeyImages\x18\x07\x20\x03(\x0cR\x0espentKeyImagesB\0\x12,\n\x10outp\
+    utPublicKeys\x18\x08\x20\x03(\x0cR\x10outputPublicKeysB\0:\0B\x0f\n\rpay\
+    mentDetail:\0:\0\"\x91\x04\n\x11AttachmentPointer\x12\x18\n\x05cdnId\x18\
+    \x01\x20\x01(\x06H\0R\x05cdnIdB\0\x12\x1a\n\x06cdnKey\x18\x0f\x20\x01(\t\
+    H\0R\x06cdnKeyB\0\x12\"\n\x0bcontentType\x18\x02\x20\x01(\tR\x0bcontentT\
+    ypeB\0\x12\x12\n\x03key\x18\x03\x20\x01(\x0cR\x03keyB\0\x12\x14\n\x04siz\
+    e\x18\x04\x20\x01(\rR\x04sizeB\0\x12\x1e\n\tthumbnail\x18\x05\x20\x01(\
+    \x0cR\tthumbnailB\0\x12\x18\n\x06digest\x18\x06\x20\x01(\x0cR\x06digestB\
+    \0\x12\x1c\n\x08fileName\x18\x07\x20\x01(\tR\x08fileNameB\0\x12\x16\n\
+    \x05flags\x18\x08\x20\x01(\rR\x05flagsB\0\x12\x16\n\x05width\x18\t\x20\
+    \x01(\rR\x05widthB\0\x12\x18\n\x06height\x18\n\x20\x01(\rR\x06heightB\0\
+    \x12\x1a\n\x07caption\x18\x0b\x20\x01(\tR\x07captionB\0\x12\x1c\n\x08blu\
+    rHash\x18\x0c\x20\x01(\tR\x08blurHashB\0\x12*\n\x0fuploadTimestamp\x18\r\
+    \x20\x01(\x04R\x0fuploadTimestampB\0\x12\x1e\n\tcdnNumber\x18\x0e\x20\
+    \x01(\rR\tcdnNumberB\0\"5\n\x05Flags\x12\x11\n\rVOICE_MESSAGE\x10\x01\
+    \x12\x0e\n\nBORDERLESS\x10\x02\x12\x07\n\x03GIF\x10\x04\x1a\0B\x17\n\x15\
+    attachment_identifier:\0\"\xfe\x02\n\x0cGroupContext\x12\x10\n\x02id\x18\
+    \x01\x20\x01(\x0cR\x02idB\0\x126\n\x04type\x18\x02\x20\x01(\x0e2\x20.sig\
+    nalservice.GroupContext.TypeR\x04typeB\0\x12\x14\n\x04name\x18\x03\x20\
+    \x01(\tR\x04nameB\0\x12\"\n\x0bmembersE164\x18\x04\x20\x03(\tR\x0bmember\
+    sE164B\0\x12>\n\x07members\x18\x06\x20\x03(\x0b2\".signalservice.GroupCo\
+    ntext.MemberR\x07membersB\0\x12:\n\x06avatar\x18\x05\x20\x01(\x0b2\x20.s\
+    ignalservice.AttachmentPointerR\x06avatarB\0\x1a\x20\n\x06Member\x12\x14\
+    \n\x04e164\x18\x02\x20\x01(\tR\x04e164B\0:\0\"J\n\x04Type\x12\x0b\n\x07U\
+    NKNOWN\x10\0\x12\n\n\x06UPDATE\x10\x01\x12\x0b\n\x07DELIVER\x10\x02\x12\
+    \x08\n\x04QUIT\x10\x03\x12\x10\n\x0cREQUEST_INFO\x10\x04\x1a\0:\0\"t\n\
+    \x0eGroupContextV2\x12\x1e\n\tmasterKey\x18\x01\x20\x01(\x0cR\tmasterKey\
+    B\0\x12\x1c\n\x08revision\x18\x02\x20\x01(\rR\x08revisionB\0\x12\"\n\x0b\
+    groupChange\x18\x03\x20\x01(\x0cR\x0bgroupChangeB\0:\0\"\xd9\x03\n\x0eCo\
+    ntactDetails\x12\x18\n\x06number\x18\x01\x20\x01(\tR\x06numberB\0\x12\
+    \x14\n\x04uuid\x18\t\x20\x01(\tR\x04uuidB\0\x12\x14\n\x04name\x18\x02\
+    \x20\x01(\tR\x04nameB\0\x12>\n\x06avatar\x18\x03\x20\x01(\x0b2$.signalse\
+    rvice.ContactDetails.AvatarR\x06avatarB\0\x12\x16\n\x05color\x18\x04\x20\
+    \x01(\tR\x05colorB\0\x125\n\x08verified\x18\x05\x20\x01(\x0b2\x17.signal\
+    service.VerifiedR\x08verifiedB\0\x12\x20\n\nprofileKey\x18\x06\x20\x01(\
+    \x0cR\nprofileKeyB\0\x12\x1a\n\x07blocked\x18\x07\x20\x01(\x08R\x07block\
+    edB\0\x12\"\n\x0bexpireTimer\x18\x08\x20\x01(\rR\x0bexpireTimerB\0\x12&\
+    \n\rinboxPosition\x18\n\x20\x01(\rR\rinboxPositionB\0\x12\x1c\n\x08archi\
+    ved\x18\x0b\x20\x01(\x08R\x08archivedB\0\x1aH\n\x06Avatar\x12\"\n\x0bcon\
+    tentType\x18\x01\x20\x01(\tR\x0bcontentTypeB\0\x12\x18\n\x06length\x18\
+    \x02\x20\x01(\rR\x06lengthB\0:\0:\0\"\x84\x04\n\x0cGroupDetails\x12\x10\
+    \n\x02id\x18\x01\x20\x01(\x0cR\x02idB\0\x12\x14\n\x04name\x18\x02\x20\
+    \x01(\tR\x04nameB\0\x12\"\n\x0bmembersE164\x18\x03\x20\x03(\tR\x0bmember\
+    sE164B\0\x12>\n\x07members\x18\t\x20\x03(\x0b2\".signalservice.GroupDeta\
+    ils.MemberR\x07membersB\0\x12<\n\x06avatar\x18\x04\x20\x01(\x0b2\".signa\
+    lservice.GroupDetails.AvatarR\x06avatarB\0\x12\x1e\n\x06active\x18\x05\
+    \x20\x01(\x08:\x04trueR\x06activeB\0\x12\"\n\x0bexpireTimer\x18\x06\x20\
+    \x01(\rR\x0bexpireTimerB\0\x12\x16\n\x05color\x18\x07\x20\x01(\tR\x05col\
+    orB\0\x12\x1a\n\x07blocked\x18\x08\x20\x01(\x08R\x07blockedB\0\x12&\n\ri\
+    nboxPosition\x18\n\x20\x01(\rR\rinboxPositionB\0\x12\x1c\n\x08archived\
+    \x18\x0b\x20\x01(\x08R\x08archivedB\0\x1aH\n\x06Avatar\x12\"\n\x0bconten\
+    tType\x18\x01\x20\x01(\tR\x0bcontentTypeB\0\x12\x18\n\x06length\x18\x02\
+    \x20\x01(\rR\x06lengthB\0:\0\x1a\x20\n\x06Member\x12\x14\n\x04e164\x18\
+    \x02\x20\x01(\tR\x04e164B\0:\0:\0\"\xd3\x01\n\x0ePaymentAddress\x12a\n\
+    \x11mobileCoinAddress\x18\x01\x20\x01(\x0b2/.signalservice.PaymentAddres\
+    s.MobileCoinAddressH\0R\x11mobileCoinAddressB\0\x1aQ\n\x11MobileCoinAddr\
+    ess\x12\x1a\n\x07address\x18\x01\x20\x01(\x0cR\x07addressB\0\x12\x1e\n\t\
+    signature\x18\x02\x20\x01(\x0cR\tsignatureB\0:\0B\t\n\x07Address:\0\"z\n\
+    \x16DecryptionErrorMessage\x12\x20\n\nratchetKey\x18\x01\x20\x01(\x0cR\n\
+    ratchetKeyB\0\x12\x1e\n\ttimestamp\x18\x02\x20\x01(\x04R\ttimestampB\0\
+    \x12\x1c\n\x08deviceId\x18\x03\x20\x01(\rR\x08deviceIdB\0:\0B\0b\x06prot\
+    o2\
 ";
 
 static file_descriptor_proto_lazy: ::protobuf::rt::LazyV2<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::rt::LazyV2::INIT;
