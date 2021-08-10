@@ -793,7 +793,7 @@ impl AuxinMessageList {
 	}
 }
 
-impl TryFrom<auxin_protos::Content> for MessageContent {
+impl TryFrom<auxin_protos::Content> for MessageContent { 
     type Error = MessageInError;
 
     fn try_from(value: auxin_protos::Content) -> std::result::Result<Self, Self::Error> {
@@ -804,7 +804,7 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 				result.text_message = Some(data_message.get_body().to_string());
 			}
 		}
-		if value.has_receiptMessage() { 
+		if value.has_receiptMessage() {
 			let receipt_message = value.get_receiptMessage();
 			result.receipt_message = Some((receipt_message.get_field_type(), receipt_message.get_timestamp().to_vec()));
 		}

@@ -73,15 +73,7 @@ pub async fn main() -> Result<()> {
 		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number]");
 	let our_phone_number = our_phone_number.to_string();
 
-	let mut logger = stderrlog::new();
-	let mut logger = logger.module(module_path!()).timestamp(stderrlog::Timestamp::Second);
-	if args.is_present("VERBOSE") {
-		logger = logger.verbosity(4);
-	}
-	else  {
-		logger = logger.verbosity(2);
-	}
-	logger.init().unwrap();
+	simple_logger::SimpleLogger::new().init().unwrap();
 
     let base_dir = "state/data/";
 	let cert = load_root_tls_cert()?;

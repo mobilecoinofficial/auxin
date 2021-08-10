@@ -239,12 +239,14 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         }
 		//let recipient = self.context.peer_cache.get(&recipient_addr).unwrap();
         let recipient_addr = self.context.peer_cache.complete_address(&recipient_addr).unwrap();
-        let recipient = self.context.peer_cache.get(&recipient_addr).unwrap();
+        let recipient = self.context.peer_cache.get(&recipient_addr).unwrap().clone();
         let device_count = recipient.device_ids_used.len();
         // Corrupt data / missing device list! 
         if (device_count == 0) || recipient.profile.is_none() {
             self.fill_peer_info(&recipient_addr).await?;
         }
+
+        let recipient = self.context.peer_cache.get(&recipient_addr).unwrap().clone();
         
         let message_list = AuxinMessageList {
             messages: vec![message],
@@ -273,6 +275,11 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
     
         debug!("Got response to attempt to send message: {:?}", message_response);
         debug!("Response body is: {:?}", message_response.body() );
+
+
+        if recipient.profile_key.is_some() {
+            self.retrieve_profile_key_credential(&recipient_addr).await?;
+        }
         //Only necessary if fill_peer_info is called, and we do it in there. 
         //self.state_manager.save_peer_record(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
         self.state_manager.save_peer_sessions(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
@@ -294,7 +301,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         let sender_cert = libsignal_protocol::SenderCertificate::deserialize(temp_vec.as_slice())?;
 
         if sender_cert.validate(&trust_root, generate_timestamp() as u64)? { 
-            println!("Confirmed our sender certificate is valid!");
+            debug!("Confirmed our sender certificate is valid!");
         } else {
             panic!("Invalid sender certificate!");
         }
@@ -523,6 +530,42 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         let uuid = Uuid::from_slice(decrypted.as_slice())?;
         debug!("Successfully decoded discovery response! The recipient's UUID is: {:?}", uuid);
         Ok(uuid)
+    }
+
+    pub async fn retrieve_profile_key_credential(&mut self, recipient: &AuxinAddress) -> Result<()> {
+
+        debug!("a");
+        if let Some(peer) = self.context.peer_cache.get(recipient) {
+            if let Some(profile_key) = &peer.profile_key {
+
+                let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0;PROFILE_KEY_LEN];
+                let temp_bytes = base64::decode(profile_key)?;
+                profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
+                let uuid = recipient.get_uuid()?;
+                let randomness: [u8;32] = self.rng.gen();
+                let server_secret_params = zkgroup::api::ServerSecretParams::generate(randomness);
+                let server_public_params = server_secret_params.get_public_params();        
+                let randomness: [u8;32] = self.rng.gen();
+                let request_context = server_public_params.create_profile_key_credential_request_context(randomness, *uuid.as_bytes(), zkgroup::api::profiles::ProfileKey::create(profile_key_bytes));    
+                let request = request_context.get_request();
+                let encoded_request = hex::encode(&bincode::serialize(&request).unwrap());
+
+                let get_path = format!("https://textsecure-service.whispersystems.org/v1/profile/{}/{}/{}", uuid.to_string(), 1, encoded_request);
+
+                let unidentified_access = self.context.get_unidentified_access_for(recipient, &mut self.rng)?;
+                let unidentified_access = base64::encode(unidentified_access);
+                let req = http::Request::builder()
+                    .uri(get_path)
+                    .method(http::Method::GET)
+                    .header("Unidentified-Access-Key", unidentified_access)
+                    .body(String::default())?;
+                debug!("Requesitng profile key credential with {:?}", req);
+                let response = self.http_client.request(req).await?;
+
+                debug!("{:?}", response);
+            }
+        }
+        return Ok(());
     }
 }
 
