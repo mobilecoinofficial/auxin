@@ -1,7 +1,7 @@
 #![feature(associated_type_bounds)]
 
 use address::{AuxinAddress, AuxinDeviceAddress, E164};
-use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, NewAead}, aead::Payload};
 use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, process_prekey_bundle};
@@ -29,7 +29,7 @@ pub const IAS_TRUST_ANCHOR : &[u8] = include_bytes!("../data/ias.der");
 use rand::{CryptoRng, Rng, RngCore};
 use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode};
 
-use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::{AuxinMessageList, MessageSendMode}, net::common_http_headers, state::ForeignPeerProfile};
+use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::{AuxinMessageList, MessageSendMode, fix_protobuf_buf}, net::common_http_headers, state::{ForeignPeerProfile, ProfileResponse}};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -546,23 +546,73 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
                 let server_secret_params = zkgroup::api::ServerSecretParams::generate(randomness);
                 let server_public_params = server_secret_params.get_public_params();        
                 let randomness: [u8;32] = self.rng.gen();
-                let request_context = server_public_params.create_profile_key_credential_request_context(randomness, *uuid.as_bytes(), zkgroup::api::profiles::ProfileKey::create(profile_key_bytes));    
+                let zk_profile_key = zkgroup::api::profiles::ProfileKey::create(profile_key_bytes);
+                let version = zk_profile_key.get_profile_key_version(*uuid.as_bytes());
+                let request_context = server_public_params.create_profile_key_credential_request_context(randomness, *uuid.as_bytes(), zk_profile_key);    
                 let request = request_context.get_request();
                 let encoded_request = hex::encode(&bincode::serialize(&request).unwrap());
 
-                let get_path = format!("https://textsecure-service.whispersystems.org/v1/profile/{}/{}/{}", uuid.to_string(), 1, encoded_request);
+                let version_bytes = bincode::serialize(&version)?;
+                let version_string = String::from_utf8_lossy(&version_bytes);
+
+                let get_path = format!("https://textsecure-service.whispersystems.org/v1/profile/{}/{}/{}", uuid.to_string(), version_string, encoded_request);
 
                 let unidentified_access = self.context.get_unidentified_access_for(recipient, &mut self.rng)?;
                 let unidentified_access = base64::encode(unidentified_access);
-                let req = http::Request::builder()
-                    .uri(get_path)
-                    .method(http::Method::GET)
+                let req = common_http_headers(http::Method::GET, &get_path, &self.context.identity.make_auth_header())?
                     .header("Unidentified-Access-Key", unidentified_access)
                     .body(String::default())?;
                 debug!("Requesitng profile key credential with {:?}", req);
                 let response = self.http_client.request(req).await?;
 
-                debug!("{:?}", response);
+                let response_structure : ProfileResponse = serde_json::from_str(&response.body())?;
+                debug!("{:?}", &response_structure);
+
+                if let Some(address_b64) = &response_structure.payment_address { 
+
+                    let key = aes_gcm::Key::from_slice(&profile_key_bytes);
+                    let cipher = Aes256Gcm::new(key);
+
+                    let payment_address_bytes = base64::decode(&address_b64)?;
+
+                    //                              Nonce + content + ???? 
+                    assert!(payment_address_bytes.len() >= 12 + 16 + 1);
+                    
+                    let mut nonce_bytes: [u8; 12] = [0; 12];
+                    nonce_bytes.copy_from_slice(&payment_address_bytes[0..12]);
+
+                    let nonce = Nonce::from_slice(&nonce_bytes);
+
+                    let content_len = payment_address_bytes.len() - nonce_bytes.len();
+
+                    let mut content_bytes: Vec<u8> = vec![0; content_len];
+                    
+                    // Reminder that slicing [num..] in Rust gives you from index num to the end of the container.
+                    content_bytes.copy_from_slice(&payment_address_bytes[nonce_bytes.len()..]);
+                    let payload = Payload{msg: &content_bytes, aad: b"" };
+                    let decryption_result = cipher.decrypt(nonce, payload)?;
+
+                    // 4 bits len - - 32 bit (signed?) integer describing buffer length.
+                    let max_length = (decryption_result.len() - 4) as i32;
+                    let mut tag_bytes: [u8; 4] = [0;4];
+                    tag_bytes.copy_from_slice(&decryption_result[0..4]);
+                    let length = i32::from_le_bytes(tag_bytes);
+                    assert!(length < max_length);
+                    assert!(length > 0); 
+
+                    let length = length as usize;
+                    let mut content_bytes: Vec<u8> = vec![0; length];
+
+                    // 4 bytes for length - offset by that. Get "length" bytes affter the length tag itself. 
+                    // The rest is padding.
+                    content_bytes.copy_from_slice(&decryption_result[4..(length+4)]);
+
+                    let fixed_buf = fix_protobuf_buf(&content_bytes)?;
+                    let mut reader = protobuf::CodedInputStream::from_bytes(&fixed_buf);
+                    let payment_address : auxin_protos::PaymentAddress = reader.read_message()?;
+                    debug!("{:?}", payment_address);
+
+                };
             }
         }
         return Ok(());
