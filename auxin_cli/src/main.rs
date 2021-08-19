@@ -78,7 +78,7 @@ pub async fn main() -> Result<()> {
 		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number]");
 	let our_phone_number = our_phone_number.to_string();
 
-	simple_logger::SimpleLogger::new().init().unwrap();
+	simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Debug).init().unwrap();
 
     let base_dir = "state/data/";
 	let cert = load_root_tls_cert().unwrap();
