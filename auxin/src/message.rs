@@ -3,7 +3,7 @@ use std::{convert::{Infallible, TryFrom}, str::FromStr};
 use crate::{AuxinContext, ProfileKey, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
 use auxin_protos::{DataMessage_Quote, Envelope};
 use custom_error::custom_error;
-use libsignal_protocol::{CiphertextMessage, CiphertextMessageType, ProtocolAddress, SessionStore, SignalMessage, SignalProtocolError, message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
+use libsignal_protocol::{CiphertextMessage, CiphertextMessageType, SessionStore, SignalMessage, SignalProtocolError, message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
 use log::{debug};
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
@@ -766,11 +766,12 @@ impl AuxinMessageList {
 		let mut messages_to_send: Vec<OutgoingPushMessage> = Vec::default();
 		//TODO: Better error handling here. 
 		let recipient = context.peer_cache.get(&self.remote_address).unwrap().clone();
-		let dest_uuid = recipient.uuid;
+		let address: AuxinAddress = (&recipient).into();
 	
 		for i in recipient.device_ids_used.iter() { 
-			let remote_address = ProtocolAddress::new(dest_uuid.to_string(), *i);
-			debug!("Send to ProtocolAddress {:?} owned by UUID {:?}", remote_address, dest_uuid);
+			let device_address = AuxinDeviceAddress {address: address.clone(), device_id: *i };
+			let protocol_address = device_address.uuid_protocol_address()?;
+			debug!("Send to ProtocolAddress {:?} owned by UUID {:?}", protocol_address, protocol_address.name());
 
 			for message_plaintext in self.messages.iter() { 
 				let message = message_plaintext.encrypt_message(
@@ -785,7 +786,7 @@ impl AuxinMessageList {
 		}
 	
 		Ok(OutgoingPushMessageList {
-			destination_uuid: dest_uuid.to_string(),
+			destination_uuid: address.get_uuid()?.to_string(),
 			timestamp,
 			messages: messages_to_send,
 			online: context.report_as_online,
