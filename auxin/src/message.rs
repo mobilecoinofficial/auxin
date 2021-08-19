@@ -550,6 +550,7 @@ impl From<Infallible> for MessageInError {
 	}
 } 
 
+/// Decrypts a sealed-sender envelope. Note that this also calls MessageIn::update_profile_key_from() if necessary.
 pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut AuxinContext) -> std::result::Result<(MessageContent, AuxinDeviceAddress), MessageInError> {
 	let signal_ctx = context.get_signal_ctx().ctx.clone();
 	let decrypted = sealed_sender_decrypt(
@@ -585,7 +586,9 @@ pub async fn decrypt_unidentified_sender(envelope: &Envelope, context: &mut Auxi
 		None => AuxinAddress::Uuid(sender_uuid)
 	};
 
-	let remote_address = AuxinDeviceAddress{address: sender_address, device_id: decrypted.device_id};
+	let remote_address = AuxinDeviceAddress{address: sender_address.clone(), device_id: decrypted.device_id};
+
+	MessageIn::update_profile_key_from(&message, &sender_address, context)?;
 
 	debug!("Decrypted sealed sender message into: {:?}", &message);
 	return Ok((MessageContent::try_from(message).map_err(|e| { MessageInError::DecodingProblem( format!("{:?}", e)) } )?
