@@ -9,7 +9,7 @@ auxin = { path = "../auxin" }
 
 uuid = {version="0.8.2", features=["serde", "v4"]}
 
-stderrlog = "0.5.1"
+simple_logger = "1.13.0"
 log = "0.4.14"
 
 serde = {version = "1.0.126", features = ["derive"] }

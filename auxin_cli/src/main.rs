@@ -59,6 +59,11 @@ pub async fn main() -> Result<()> {
 								.required(true)
 								.takes_value(true)
 								.help("Determines the message text we will send."))
+						).subcommand(SubCommand::with_name("getpayaddress")
+							.about("Attempts to get a payment address for the user with the specified phonenumber or UUID.")
+							.version(VERSION_STR)
+							.author(AUTHOR_STR)
+							.args_from_usage("<PEER> 'Address of the peer whose payment address we're retrieving.'")
 						).subcommand(SubCommand::with_name("receive")
 							.about("Polls for incoming messages.")
 							.version(VERSION_STR)
@@ -73,26 +78,18 @@ pub async fn main() -> Result<()> {
 		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number]");
 	let our_phone_number = our_phone_number.to_string();
 
-	let mut logger = stderrlog::new();
-	let mut logger = logger.module(module_path!()).timestamp(stderrlog::Timestamp::Second);
-	if args.is_present("VERBOSE") {
-		logger = logger.verbosity(4);
-	}
-	else  {
-		logger = logger.verbosity(2);
-	}
-	logger.init().unwrap();
+	simple_logger::SimpleLogger::new().init().unwrap();
 
     let base_dir = "state/data/";
-	let cert = load_root_tls_cert()?;
+	let cert = load_root_tls_cert().unwrap();
 	let net = NetManager::new(cert);
 	let state = StateManager::new(base_dir);
 	// Get it to all come together.
-	let mut app = AuxinApp::new(our_phone_number, AuxinConfig{ }, net, state, OsRng::default()).await?;
+	let mut app = AuxinApp::new(our_phone_number, AuxinConfig{ }, net, state, OsRng::default()).await.unwrap();
 
 	if let Some(send_command) = args.subcommand_matches("send") { 
 		let dest = send_command.value_of("DESTINATION").unwrap();
-		let recipient_addr = AuxinAddress::try_from(dest)?;
+		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
 
 		let message_text = send_command.value_of("MESSAGE").unwrap();
 		let message_content = MessageContent::default().with_text(message_text.to_string());
@@ -100,17 +97,27 @@ pub async fn main() -> Result<()> {
 			content: message_content,
 		};
 
-		app.send_message(&recipient_addr, message).await?;
+		app.send_message(&recipient_addr, message).await.unwrap();
+	}
+
+	if let Some(payaddr_command) = args.subcommand_matches("getpayaddress") { 
+		let dest = payaddr_command.value_of("PEER").unwrap();
+		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
+		let payment_address = app.retrieve_payment_address(&recipient_addr).await.unwrap();
+		let payaddr_json = serde_json::to_string(&payment_address).unwrap();
+		
+		println!("[PAYMENT_ADDRESS]");
+		println!("{}",  payaddr_json);
 	}
 
 	if let Some(_) = args.subcommand_matches("receive") { 
-		let mut receiver = AuxinReceiver::new(&mut app).await?;
+		let mut receiver = AuxinReceiver::new(&mut app).await.unwrap();
 		while let Some(msg) = receiver.next().await {
-			let msg = msg?;
+			let msg = msg.unwrap();
 			if let Some(msg) = &msg.content.text_message {
 				info!("Message received with text {}", msg);
 			}
-			let msg_json = serde_json::to_string_pretty(&msg)?;
+			let msg_json = serde_json::to_string_pretty(&msg).unwrap();
 			println!("[MESSAGE]");
 			println!("{}",  msg_json);
 		}
@@ -119,14 +126,14 @@ pub async fn main() -> Result<()> {
 	if let Some(_) = args.subcommand_matches("echoserver") { 
 		let mut exit = false;
 		// Ugly hack to get around the multiple ways the borrow checker doesn't recognize what we're trying to do.
-		let receiver_main = RefCell::new( Some( AuxinReceiver::new(&mut app).await? ));
+		let receiver_main = RefCell::new( Some( AuxinReceiver::new(&mut app).await.unwrap() ));
 		while !exit {
 			let receiver = receiver_main.take();
 			let mut receiver = receiver.unwrap();
 			while let Some(msg) = receiver.next().await {
-				let msg = msg?;
+				let msg = msg.unwrap();
 
-				let msg_json = serde_json::to_string_pretty(&msg)?;
+				let msg_json = serde_json::to_string_pretty(&msg).unwrap();
 				println!("[MESSAGE]");
 				println!("{}",  msg_json);
 
@@ -136,7 +143,7 @@ pub async fn main() -> Result<()> {
 					}
 					else {
 						info!("Message received with text \"{}\", replying...", st);
-						receiver.send_message(&msg.remote_address.address, MessageOut{ content: MessageContent::default().with_text(st.clone()) }).await?;
+						receiver.send_message(&msg.remote_address.address, MessageOut{ content: MessageContent::default().with_text(st.clone()) }).await.unwrap();
 					}
 				}
 			}
@@ -146,13 +153,13 @@ pub async fn main() -> Result<()> {
 			
 			if let Err(e) = receiver.refresh().await {
 				log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-				receiver.reconnect().await.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))?;
+				receiver.reconnect().await.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e))).unwrap();
 			}
 			
 			receiver_main.replace(Some(receiver));
 		}
 	}
-	app.state_manager.save_entire_context(&app.context)?;
+	app.state_manager.save_entire_context(&app.context).unwrap();
 	
     Ok(())
 }

@@ -13,7 +13,7 @@ use crate::Result;
 pub type E164 = String;
 // Possibly move to using https://github.com/rustonaut/rust-phonenumber when needed
 
-custom_error!{AddressError
+custom_error!{pub AddressError
     NoPhone{addr:AuxinAddress} = "Attempted to get a phone number for {addr}, but it has no phone number.",
     NoUuid{addr:AuxinAddress}  = "Attempted to get a UUID for {addr}, but it has no UUID.",
     NoDevice{val: String} = "Could not convert {val} into an AuxinDeviceAddress: must end in '.[DeviceId]' where [DeviceID] is a valid integer 0..(2^32-1)",
@@ -39,16 +39,16 @@ impl std::fmt::Display for AuxinAddress {
 }
 
 impl AuxinAddress {
-    pub fn get_phone_number(&self) -> Result<&E164> {
+    pub fn get_phone_number(&self) -> std::result::Result<&E164, AddressError> {
         match &self {
             AuxinAddress::Phone(p) => Ok(p),
-            AuxinAddress::Uuid(_) => Err(Box::new(AddressError::NoPhone{addr: self.clone() })),
+            AuxinAddress::Uuid(_) => Err( AddressError::NoPhone{addr: self.clone() } ),
             AuxinAddress::Both(p, _) => Ok(p),
         }
     }
-    pub fn get_uuid(&self) -> Result<&Uuid> {
+    pub fn get_uuid(&self) -> std::result::Result<&Uuid, AddressError> {
         match &self {
-            AuxinAddress::Phone(_) => Err(Box::new(AddressError::NoUuid{addr: self.clone() })),
+            AuxinAddress::Phone(_) => Err(AddressError::NoUuid{addr: self.clone()} ),
             AuxinAddress::Uuid(u) => Ok(u),
             AuxinAddress::Both(_, u) => Ok(u),
         }
@@ -64,10 +64,10 @@ pub struct AuxinDeviceAddress {
 }
 
 impl AuxinDeviceAddress {
-    pub fn get_phone_number(&self) -> Result<&E164> {
+    pub fn get_phone_number(&self) -> std::result::Result<&E164, AddressError> {
         self.address.get_phone_number()
     }
-    pub fn get_uuid(&self) -> Result<&Uuid> {
+    pub fn get_uuid(&self) -> std::result::Result<&Uuid, AddressError> {
         self.address.get_uuid()
     }
     /// Generate a protocol address using our phone number (E164) as its "name"

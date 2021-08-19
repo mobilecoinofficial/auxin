@@ -1,7 +1,7 @@
 #![feature(associated_type_bounds)]
 
-use address::{AuxinAddress, AuxinDeviceAddress, E164};
-use aes_gcm::{Nonce, aead::{Aead, NewAead}, aead::Payload};
+use address::{AuxinAddress, AuxinDeviceAddress, E164, AddressError};
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, NewAead}, aead::Payload};
 use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, process_prekey_bundle};
@@ -29,7 +29,7 @@ pub const IAS_TRUST_ANCHOR : &[u8] = include_bytes!("../data/ias.der");
 use rand::{CryptoRng, Rng, RngCore};
 use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerRecordStructure, PeerStore, UnidentifiedAccessMode};
 
-use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::{AuxinMessageList, MessageSendMode}, net::common_http_headers, state::ForeignPeerProfile};
+use crate::{discovery::{AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse, ENCLAVE_ID}, message::{AuxinMessageList, MessageSendMode, fix_protobuf_buf}, net::common_http_headers, state::{ForeignPeerProfile, ProfileResponse}};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -143,7 +143,7 @@ pub fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> 
     Ok(cipher.encrypt(&nonce, payload)?)
 }
 
-custom_error!{ pub UnidentifiedaccessError
+custom_error!{ pub UnidentifiedAccessError
     NoProfileKey{uuid: Uuid} = "Cannot generate an unidentified access key for user {uuid}: We do not know their profile key! This would not matter for a user with UnidentifiedAccessMode::UNRESTRICTED.",
     PeerDisallowsSealedSender{uuid: Uuid} = "Tried to generatet an unidentified access key for peer {uuid}, but this user has disabled unidentified access!",
     UnrecognizedUser{address: AuxinAddress} = "Cannot generate an unidentified access key for address {address} as that is not a recognized peer.",
@@ -160,26 +160,28 @@ impl AuxinContext {
     pub fn get_unidentified_access_for<R>(&mut self, peer_address: &AuxinAddress, rng: &mut R) -> Result<Vec<u8>> where R: RngCore + CryptoRng {
         let peer = self.peer_cache.get(peer_address);
         if peer.is_none() {
-            return Err(Box::new(UnidentifiedaccessError::UnrecognizedUser{ address: peer_address.clone() } ))
+            return Err(Box::new(UnidentifiedAccessError::UnrecognizedUser{ address: peer_address.clone() } ))
         }
         let peer = peer.unwrap();
+
+        let uuid = peer.uuid.unwrap();
 
         match &peer.profile {
             Some(p) => match p.unidentified_access_mode {
                 UnidentifiedAccessMode::UNRESTRICTED => {
-                    debug!("User {} has unrestricted unidentified access, generating random key.", peer.uuid);
+                    debug!("User {} has unrestricted unidentified access, generating random key.", uuid.to_string());
                     Ok(self.get_unidentified_access_unrestricted(rng)?)
                 },
                 UnidentifiedAccessMode::ENABLED => {
-                    debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", peer.uuid);
+                    debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", uuid.to_string());
                     match &peer.profile_key { 
                         Some(pk) => Ok(get_unidentified_access_for_key(pk)?),
-                        None => { return Err( Box::new( UnidentifiedaccessError::NoProfileKey{ uuid: peer.uuid } )); },
+                        None => { return Err( Box::new( UnidentifiedAccessError::NoProfileKey{ uuid } )); },
                     }
                 },
-                UnidentifiedAccessMode::DISABLED => Err(Box::new(UnidentifiedaccessError::PeerDisallowsSealedSender{ uuid: peer.uuid } )),
+                UnidentifiedAccessMode::DISABLED => Err(Box::new(UnidentifiedAccessError::PeerDisallowsSealedSender{ uuid } )),
             },
-            None => Err(Box::new(UnidentifiedaccessError::NoProfile{ uuid: peer.uuid } )),
+            None => Err(Box::new(UnidentifiedAccessError::NoProfile{ uuid } )),
         }
     }
     pub fn get_signal_ctx(&self) -> &SignalCtx { 
@@ -212,6 +214,19 @@ custom_error!{ pub StateSaveError
     CannotSaveForPeer{msg: String} = "Couldn't save files for a peer's sessions and profile: {msg}.",
 }
 
+
+custom_error!{ pub PaymentAddressRetrievalError
+    NoProfileKey{peer: AuxinAddress} = "Couldn't retrieve payment address for peer {peer} because we do not have a profile key on file for this user.",
+    NoPeer{peer: AuxinAddress} = "Cannot retrieve payment address for peer {peer} because we have no record on this user!",
+    NoPaymentAddressForUser{peer: AuxinAddress} = "Got profile information for {peer}, but no payment address was included.",
+    EncodingError{peer: AuxinAddress, msg: String} = "Error encoding profile/payment-address request for {peer}: {msg}",
+    DecodingError{peer: AuxinAddress, msg: String} = "Error decoding profile/payment-address response for {peer}: {msg}",
+    DecryptingError{peer: AuxinAddress, msg: String} = "Error decrypting profile/payment-address response for {peer}: {msg}",
+    UnidentifiedAccess{peer: AuxinAddress, msg: String} = "Error getting unidentified access for {peer}: {msg}",
+    NoUuid{peer: AuxinAddress, err: AddressError} = "No Uuid for {peer}: {err}",
+    ErrPeer{peer: AuxinAddress, err: String} = "Error loading peer {peer}: {err}",
+}
+
 impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManager, S: AuxinStateManager {
     pub async fn new(local_phone_number: E164, config: AuxinConfig, mut net: N, mut state_manager: S, rng: R) -> Result<Self> {
         let local_identity = state_manager.load_local_identity(&local_phone_number)?;
@@ -229,23 +244,35 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         })
     }
 
-    pub async fn send_message(&mut self, recipient_addr: &AuxinAddress, message: MessageOut) -> Result<()> {
-		let recipient_addr = self.context.peer_cache.complete_address(&recipient_addr).or(Some(recipient_addr.clone())).unwrap();
+    /// Checks to see if a recipient's information is loaded and takes all actions necessary to fill out a PeerRecord if not.
+    pub async fn ensure_peer_loaded(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
+        let recipient_addr = self.context.peer_cache.complete_address(&recipient_addr).or(Some(recipient_addr.clone())).unwrap();
 		let recipient = self.context.peer_cache.get(&recipient_addr);
 
-        //If this is an unknown peer, retrieve their UUID and store an entry.
-        if recipient.is_none() {
+        //If this is an unknown peer, OR if we have their phone number but not their UUID, retrieve their UUID and store an entry.
+        if recipient.is_none() 
+            || recipient.unwrap().uuid.is_none() {
             self.retrieve_and_store_peer(recipient_addr.get_phone_number().unwrap()).await?;
         }
 		//let recipient = self.context.peer_cache.get(&recipient_addr).unwrap();
         let recipient_addr = self.context.peer_cache.complete_address(&recipient_addr).unwrap();
-        let recipient = self.context.peer_cache.get(&recipient_addr).unwrap();
+        let recipient = self.context.peer_cache.get(&recipient_addr).unwrap().clone();
         let device_count = recipient.device_ids_used.len();
         // Corrupt data / missing device list! 
         if (device_count == 0) || recipient.profile.is_none() {
             self.fill_peer_info(&recipient_addr).await?;
         }
-        
+        Ok(())
+    }
+
+    pub async fn send_message(&mut self, recipient_addr: &AuxinAddress, message: MessageOut) -> Result<()> {
+		let recipient_addr = self.context.peer_cache.complete_address(&recipient_addr).or(Some(recipient_addr.clone())).unwrap();
+		
+        //Make sure we know everything about this user that we need to.
+        self.ensure_peer_loaded(&recipient_addr).await?;
+
+		let recipient_addr = self.context.peer_cache.complete_address(&recipient_addr).or(Some(recipient_addr.clone())).unwrap();
+
         let message_list = AuxinMessageList {
             messages: vec![message],
             remote_address: recipient_addr.clone(),
@@ -273,6 +300,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
     
         debug!("Got response to attempt to send message: {:?}", message_response);
         debug!("Response body is: {:?}", message_response.body() );
+
         //Only necessary if fill_peer_info is called, and we do it in there. 
         //self.state_manager.save_peer_record(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
         self.state_manager.save_peer_sessions(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
@@ -294,7 +322,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         let sender_cert = libsignal_protocol::SenderCertificate::deserialize(temp_vec.as_slice())?;
 
         if sender_cert.validate(&trust_root, generate_timestamp() as u64)? { 
-            println!("Confirmed our sender certificate is valid!");
+            debug!("Confirmed our sender certificate is valid!");
         } else {
             panic!("Invalid sender certificate!");
         }
@@ -308,7 +336,8 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
     pub async fn fill_peer_info(&mut self, recipient_addr: &AuxinAddress) -> Result<()> { 
         let signal_ctx = self.context.get_signal_ctx().get().clone();
 
-        let uuid = self.context.peer_cache.get(recipient_addr).unwrap().uuid.clone();
+        // Once you get here, retrieve_and_store_peer() shuld have already been called, so we should definitely have a UUID. 
+        let uuid = self.context.peer_cache.get(recipient_addr).unwrap().uuid.unwrap().clone();
 
         {
             let mut profile_path: String = "https://textsecure-service.whispersystems.org/v1/profile/".to_string();
@@ -382,7 +411,7 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         let peer_record = PeerRecord {
             id: new_id,
             number: recipient_phone.clone(),
-            uuid,
+            uuid: Some(uuid),
             profile_key: None,
             profile_key_credential: None,
             contact: None,
@@ -523,6 +552,114 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         let uuid = Uuid::from_slice(decrypted.as_slice())?;
         debug!("Successfully decoded discovery response! The recipient's UUID is: {:?}", uuid);
         Ok(uuid)
+    }
+
+    pub async fn retrieve_payment_address(&mut self, recipient: &AuxinAddress) -> std::result::Result<auxin_protos::PaymentAddress, PaymentAddressRetrievalError> {
+        self.ensure_peer_loaded(recipient).await
+            .map_err(|e| PaymentAddressRetrievalError::ErrPeer{peer: recipient.clone(), err: format!("{:?}", e) })?;
+        //We may have just grabbed the UUID in ensure_peer_loaded() above, make sure we have a usable address.
+        let recipient = self.context.peer_cache.complete_address(recipient).unwrap_or(recipient.clone());
+
+        if let Some(peer) = self.context.peer_cache.get(&recipient) {
+            if let Some(profile_key) = &peer.profile_key {
+
+                let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0;PROFILE_KEY_LEN];
+                let temp_bytes = base64::decode(profile_key)
+                    .map_err(|e| PaymentAddressRetrievalError::EncodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+                profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
+                
+                let uuid = recipient.get_uuid()
+                    .map_err(|e| PaymentAddressRetrievalError::NoUuid{peer: recipient.clone(), err: e })?;
+
+                let randomness: [u8;32] = self.rng.gen();
+                let server_secret_params = zkgroup::api::ServerSecretParams::generate(randomness);
+                let server_public_params = server_secret_params.get_public_params();        
+                let randomness: [u8;32] = self.rng.gen();
+                let zk_profile_key = zkgroup::api::profiles::ProfileKey::create(profile_key_bytes);
+                let version = zk_profile_key.get_profile_key_version(*uuid.as_bytes());
+                let request_context = server_public_params.create_profile_key_credential_request_context(randomness, *uuid.as_bytes(), zk_profile_key);    
+                let request = request_context.get_request();
+                let encoded_request = hex::encode(&bincode::serialize(&request).unwrap());
+
+                let version_bytes = bincode::serialize(&version)
+                    .map_err(|e| PaymentAddressRetrievalError::EncodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+                let version_string = String::from_utf8_lossy(&version_bytes);
+
+                let get_path = format!("https://textsecure-service.whispersystems.org/v1/profile/{}/{}/{}", uuid.to_string(), version_string, encoded_request);
+
+                let unidentified_access = self.context.get_unidentified_access_for(&recipient, &mut self.rng)
+                    .map_err(|e| PaymentAddressRetrievalError::UnidentifiedAccess{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+                let unidentified_access = base64::encode(unidentified_access);
+                let req = common_http_headers(http::Method::GET, &get_path, &self.context.identity.make_auth_header())
+                        .map_err(|e| PaymentAddressRetrievalError::EncodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?
+                    .header("Unidentified-Access-Key", unidentified_access)
+                    .body(String::default())
+                        .map_err(|e| PaymentAddressRetrievalError::EncodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+                debug!("Requesitng profile key credential with {:?}", req);
+                let response = self.http_client.request(req).await
+                        .map_err(|e| PaymentAddressRetrievalError::EncodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+
+
+                let response_structure : ProfileResponse = serde_json::from_str(&response.body())
+                    .map_err(|e| PaymentAddressRetrievalError::DecodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+
+                if let Some(address_b64) = &response_structure.payment_address { 
+
+                    let key = aes_gcm::Key::from_slice(&profile_key_bytes);
+                    let cipher = Aes256Gcm::new(key);
+
+                    let payment_address_bytes = base64::decode(&address_b64)
+                        .map_err(|e| PaymentAddressRetrievalError::DecodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+
+                    //                              Nonce + content + ???? 
+                    assert!(payment_address_bytes.len() >= 12 + 16 + 1);
+                    
+                    let mut nonce_bytes: [u8; 12] = [0; 12];
+                    nonce_bytes.copy_from_slice(&payment_address_bytes[0..12]);
+
+                    let nonce = Nonce::from_slice(&nonce_bytes);
+
+                    let content_len = payment_address_bytes.len() - nonce_bytes.len();
+
+                    let mut content_bytes: Vec<u8> = vec![0; content_len];
+                    
+                    // Reminder that slicing [num..] in Rust gives you from index num to the end of the container.
+                    content_bytes.copy_from_slice(&payment_address_bytes[nonce_bytes.len()..]);
+                    let payload = Payload{msg: &content_bytes, aad: b"" };
+                    let decryption_result = cipher.decrypt(nonce, payload)
+                        .map_err(|e| PaymentAddressRetrievalError::DecryptingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+
+                    // 4 bits len - - 32 bit (signed?) integer describing buffer length.
+                    let max_length = (decryption_result.len() - 4) as i32;
+                    let mut tag_bytes: [u8; 4] = [0;4];
+                    tag_bytes.copy_from_slice(&decryption_result[0..4]);
+                    let length = i32::from_le_bytes(tag_bytes);
+                    assert!(length < max_length);
+                    assert!(length > 0); 
+
+                    let length = length as usize;
+                    let mut content_bytes: Vec<u8> = vec![0; length];
+
+                    // 4 bytes for length - offset by that. Get "length" bytes affter the length tag itself. 
+                    // The rest is padding.
+                    content_bytes.copy_from_slice(&decryption_result[4..(length+4)]);
+
+                    let fixed_buf = fix_protobuf_buf(&content_bytes)
+                    .map_err(|e| PaymentAddressRetrievalError::DecodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+                    let mut reader = protobuf::CodedInputStream::from_bytes(&fixed_buf);
+                    let payment_address : auxin_protos::PaymentAddress = reader.read_message()
+                        .map_err(|e| PaymentAddressRetrievalError::DecodingError{peer: recipient.clone(), msg: format!("{:?}", e) })?;
+                    return Ok(payment_address);
+                };
+                return Err(PaymentAddressRetrievalError::NoPaymentAddressForUser{peer:recipient.clone()});
+            }
+            else { 
+                return Err(PaymentAddressRetrievalError::NoProfileKey{peer:recipient.clone()});
+            }
+        }
+        else { 
+            return Err(PaymentAddressRetrievalError::NoPeer{peer:recipient.clone()});
+        }
     }
 }
 

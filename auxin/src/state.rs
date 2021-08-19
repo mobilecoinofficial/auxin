@@ -135,7 +135,7 @@ impl ForeignPeerProfile {
 pub struct PeerRecord {
 	pub id: u64,
 	pub number: String,
-	pub uuid: uuid::Uuid,
+	pub uuid: Option<uuid::Uuid>,
 	pub profile_key: Option<String>,
 	pub profile_key_credential: Option<String>,
 	pub contact: Option<Value>, //TODO
@@ -179,7 +179,12 @@ impl Eq for PeerRecord {}
 
 impl From<&PeerRecord> for AuxinAddress { 
     fn from(val: &PeerRecord) -> Self {
-        AuxinAddress::Both(val.number.clone(), val.uuid.clone())
+		if let Some(uuid) = &val.uuid { 
+			AuxinAddress::Both(val.number.clone(), uuid.clone())
+		}
+		else { 
+			AuxinAddress::Phone(val.number.clone())
+		}
     }
 }
 
@@ -240,13 +245,27 @@ impl PeerStore for PeerRecordStructure {
 		self.peers.iter().find(|i | i.number.eq_ignore_ascii_case(phone_number) )
 	}
 	fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord> {
-		self.peers.iter().find(|i | i.uuid == *peer_uuid )
+		self.peers.iter().find(|i | {
+			if i.uuid.is_some() {
+				i.uuid.unwrap() == *peer_uuid
+			}
+			else {
+				false
+			}
+		})
 	}
 	fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord> {
 		self.peers.iter_mut().find(|i | i.number.eq_ignore_ascii_case(phone_number) )
 	}
 	fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord> {
-		self.peers.iter_mut().find(|i | i.uuid == *peer_uuid )
+		self.peers.iter_mut().find(|i | {
+			if i.uuid.is_some() {
+				i.uuid.unwrap() == *peer_uuid
+			}
+			else {
+				false
+			}
+		})
 	}
     fn push(&mut self, peer: PeerRecord) {
         let id = peer.id;
@@ -281,7 +300,14 @@ impl PeerStore for PeerRecordStructure {
                 self.get_by_uuid_mut(&peer_uuid)
             },
             Some(AuxinAddress::Both(phone_number, peer_uuid)) => {
-                self.peers.iter_mut().find(|i | (i.number.eq_ignore_ascii_case(&phone_number) || (i.uuid == peer_uuid) ))
+                self.peers.iter_mut().find(|i | (i.number.eq_ignore_ascii_case(&phone_number) || {
+					if i.uuid.is_some() {
+						i.uuid.unwrap() == peer_uuid
+					}
+					else {
+						false
+					}
+				}))
             },
             None => None,
         }
@@ -367,6 +393,43 @@ impl PeerInfoReply {
 		}
 		return Ok(out_vec);
 	}
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ProfileCapabilitiesResponse {
+	pub gv2:bool,
+    #[serde(rename = "senderKey")] 
+	pub sender_key:bool,
+    #[serde(rename = "announcementGroup")] 
+	pub announcement_group:bool,
+    #[serde(rename = "gv1-migration")] 
+	pub gv1_migration:bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileResponse { 
+	/// Base-64 
+	pub identity_key:String,
+	/// Base-64 
+	pub name:Option<String>,
+	/// Base-64 
+	pub about:Option<String>,
+	/// Base-64 
+	pub about_emoji:Option<String>,
+	/// Follows the form of "profiles/{Base-64 string} 
+	pub avatar:Option<String>,
+	/// Base-64 encoded signalservice.proto:PaymentAddress
+	pub payment_address:Option<String>,
+	/// Base-64 
+	pub unidentified_access:Option<String>,
+	pub unrestricted_unidentified_access:bool,
+	pub capabilities:ProfileCapabilitiesResponse, 
+	/// As of yet unused, at least as far as I can see.
+	pub username:Option<String>,
+	pub uuid:Option<Uuid>,
+	/// "Credential key," base-64 encoded.
+	pub credential:Option<String>,
 }
 
 pub trait AuxinStateManager {
