@@ -9,6 +9,9 @@ default = ["std-mutex"]
 # Are we able to use rust standard library's Mutex type? (i.e. are we not inside wasm)
 std-mutex = []
 
+[lib]
+crate-type = [ "rlib" ]
+
 [dependencies]
 auxin_protos = { path = "../auxin_protos" }
 

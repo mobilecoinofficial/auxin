@@ -9,6 +9,8 @@ pub mod api_paths {
     pub const API_ROOT : &str = "https://textsecure-service.whispersystems.org";
     pub const SENDER_CERT: &str = "/v1/certificate/delivery";
     pub const MESSAGES: &str = "/v1/messages/";
+    pub const SIGNAL_CDN: &str = "https://cdn.signal.org";
+    pub const SIGNAL_CDN_2: &str = "https://cdn2.signal.org";
 }
 
 //For "User-Agent" http header

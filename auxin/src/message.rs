@@ -1,7 +1,7 @@
 use std::{convert::{Infallible, TryFrom}, str::FromStr};
 
 use crate::{AuxinContext, ProfileKey, Result, address::{AuxinAddress, AuxinDeviceAddress}, generate_timestamp, sealed_sender_trust_root, state::PeerStore};
-use auxin_protos::{DataMessage_Quote, Envelope};
+use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope};
 use custom_error::custom_error;
 use libsignal_protocol::{CiphertextMessage, CiphertextMessageType, SessionStore, SignalMessage, SignalProtocolError, message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
 use log::{debug};
@@ -365,15 +365,18 @@ pub struct MessageContent {
 	/// The Signal "content" this was deserialized from. Will only be None if this is an outgoing message.
     #[serde(skip_serializing)]
     pub source: Option<auxin_protos::Content>,
+    #[serde(skip_serializing)]
+	pub(crate) attachment_pointers: Vec<AttachmentPointer>,
 }
 
 impl MessageContent {
-	pub fn with_text(self, value: String) -> MessageContent { 
+	pub fn with_text(self, value: String) -> MessageContent {
 		MessageContent { 
 			text_message: Some(value),
 			receipt_message: self.receipt_message, 
 			quote: self.quote,
 			source: self.source,
+			attachment_pointers: self.attachment_pointers,
 		}
 	}
 
@@ -616,6 +619,7 @@ impl MessageIn {
 				text_message: None,
 				source: None,
 				quote: None,
+				attachment_pointers: Vec::default(),
 			}
 		}
 	}
@@ -675,6 +679,7 @@ impl MessageIn {
 						text_message: None,
 						source: None,
 						quote: None,
+						attachment_pointers: Vec::default(),
 					},
 					remote_address: remote_address,
 					timestamp: envelope.get_timestamp(),
@@ -806,6 +811,9 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 			let data_message= value.get_dataMessage();
 			if data_message.has_body() {
 				result.text_message = Some(data_message.get_body().to_string());
+			}
+			if data_message.attachments.len() > 0 { 
+				result.attachment_pointers = data_message.attachments.iter().map(|a| a.clone()).collect();
 			}
 		}
 		if value.has_receiptMessage() {

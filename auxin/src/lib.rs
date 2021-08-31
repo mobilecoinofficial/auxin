@@ -2,12 +2,13 @@
 
 use address::{AuxinAddress, AuxinDeviceAddress, E164, AddressError};
 use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, NewAead}, aead::Payload};
+use attachment::retrieve_attachment;
 use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, ProtocolAddress, PublicKey, SenderCertificate, process_prekey_bundle};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use message::{MessageIn, MessageInError, MessageOut};
-use net::{AuxinHttpsConnection, AuxinNetManager, AuxinWebsocketConnection};
+use net::{AuxinHttpsConnection, AuxinNetManager, AuxinWebsocketConnection, api_paths::SIGNAL_CDN};
 use serde_json::json;
 use uuid::Uuid;
 use std::{error::Error, pin::Pin, time::{SystemTime, UNIX_EPOCH}};
@@ -15,10 +16,11 @@ use custom_error::custom_error;
 use std::fmt::Debug;
 
 pub mod address;
-pub mod state;
-pub mod net;
-pub mod message;
+pub mod attachment;
 pub mod discovery;
+pub mod state;
+pub mod message;
+pub mod net;
 
 /// Self-signing root cert for TLS connections to Signal's web API..
 pub const SIGNAL_TLS_CERT : &str = include_str!("../data/whisper.pem");
@@ -65,17 +67,14 @@ pub struct LocalIdentity {
 impl LocalIdentity {
     /// Required HTTP header for our Signal requests.
     /// Authorization: "Basic {AUTH}""
-    /// AUTH is a base64-encoding of: NUMBER:B64PWD, where NUMBER is our phone number and 
-    /// B64PWD is our base64-encoded password.
+    /// AUTH is a base64-encoding of: NUMBER:B64PWD, where NUMBER is our UUID and 
+    /// B64PWD is our base64-encoded password. It used to require NUMBER=E164 phone number but this has been changed.
     /// NOTE: Discovery requests will require a different user-ID and password, which is retrieved with a GET request to https://textsecure-service.whispersystems.org/v1/directory/auth
     pub fn make_auth_header(&self) -> String {
         let mut our_auth_value = String::default();
-        // We have to supply our own address as a phone number
-        // It will not accept this if we use our UUID. 
-        our_auth_value.push_str(self.address.address.get_phone_number().unwrap());
+        our_auth_value.push_str(&self.address.address.get_uuid().unwrap().to_string());
         our_auth_value.push_str(":");
         our_auth_value.push_str(&self.password);
-
 
         let b64_auth = base64::encode(our_auth_value);
 
@@ -312,8 +311,13 @@ impl<R, N, S>  AuxinApp<R, N, S> where R: RngCore + CryptoRng, N: AuxinNetManage
         let trust_root = sealed_sender_trust_root();
 
         let sender_cert_request: http::Request<String> = self.context.identity.build_sendercert_request()?;
+        let req_str: String = format!("{:?}", &sender_cert_request);
         //TODO: Better error handling here.
         let sender_cert_response = self.http_client.request(sender_cert_request).await.map_err(|e| Box::new(AuxinInitError::CannotRequestSenderCert{msg: format!("{:?}", e)}))?;
+        if !sender_cert_response.status().is_success() { 
+            error!("Response to sender certificate request was: {:?}", sender_cert_response);
+            error!("Our request was: {}", req_str);
+        }
         assert!(sender_cert_response.status().is_success());
 
         let cert_structure : serde_json::Value = serde_json::from_str(sender_cert_response.body())?;
@@ -679,6 +683,7 @@ pub enum ReceiveError {
     InError(MessageInError),
     StoreStateError(String),
     ReconnectErr(String),
+    AttachmentErr(String),
     UnknownWebsocketTy,
 }
 impl std::fmt::Display for ReceiveError {
@@ -689,6 +694,7 @@ impl std::fmt::Display for ReceiveError {
             Self::InError(e) => write!(f, "Unable to decode or decrypt message: {:?}", e),
             Self::StoreStateError(e) => write!(f, "Unable to store state after receiving message: {:?}", e),
             Self::ReconnectErr(e) => write!(f, "Error while attempting to reconnect websocket: {:?}", e),
+            Self::AttachmentErr(e) => write!(f, "Error while attempting to retrieve attachment: {:?}", e),
             Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
         }
     }
@@ -773,10 +779,18 @@ impl<'a, R, N, S> AuxinReceiver<'a, R, N, S> where  R: RngCore + CryptoRng, N: A
                     Err(e) => { return Err(e.into());},
                     Ok(m) => Some(m),
                 };
+
                 //This will at least acknowledge to WebSocket that we have received this message.
                 self.acknowledge_message(&msg, &req).await?;
 
                 if let Some(msg) = &msg {
+                    //Handle attachments. 
+                    for att in msg.content.attachment_pointers.iter() { 
+                        retrieve_attachment(&SIGNAL_CDN, &mut self.app.http_client, att).await
+                            .map_err(|e| ReceiveError::AttachmentErr(format!("{:?}", e)))?;
+                        //TODO 
+                    }
+                    //Save session.
                     self.app.state_manager.save_peer_sessions(&msg.remote_address.address, &self.app.context)
                         .map_err(|e| ReceiveError::StoreStateError(format!("{:?}", e)))?;
                 }
