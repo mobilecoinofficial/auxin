@@ -7,38 +7,38 @@ use std::time::Duration;
 use auxin::address::AuxinAddress;
 use auxin::message::{MessageContent, MessageOut};
 use auxin::state::AuxinStateManager;
-use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
 use auxin::Result;
+use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
 use log::info;
 use rand::rngs::OsRng;
 
 use clap::{Arg, SubCommand};
 
 pub mod app;
+pub mod net;
 pub mod repl_wrapper;
 pub mod state;
-pub mod net;
 
 use net::load_root_tls_cert;
 pub type Context = auxin::AuxinContext;
 
-#[cfg(feature="repl")]
+#[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
 
-#[cfg(feature="repl")]
+#[cfg(feature = "repl")]
 pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 	use papyrus::repl;
 
-	let mut app = AppWrapper{app_inner: app};
+	let mut app = AppWrapper { app_inner: app };
 
 	let mut repl = repl!(AppWrapper);
 
-	let mut library_dir:String = "target/".into();
+	let mut library_dir: String = "target/".into();
 
-    #[cfg(debug_assertions)]
-    library_dir.push_str("debug/");
-    #[cfg(not(debug_assertions))]
-    library_dir.push_str("release/");
+	#[cfg(debug_assertions)]
+	library_dir.push_str("debug/");
+	#[cfg(not(debug_assertions))]
+	library_dir.push_str("release/");
 
 	let mut auxin_cli_lib_dir = library_dir.clone();
 	auxin_cli_lib_dir.push_str("libauxin_cli.rlib");
@@ -55,19 +55,18 @@ pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 	repl.data.with_external_lib(auxin_cli_lib);
 	repl.data.with_external_lib(auxin_lib);
 	repl.data.with_external_lib(auxin_proto_lib);
-  
+
 	repl.run(papyrus::run::RunCallbacks::new(&mut app))?;
 
 	Ok(())
 }
-#[cfg(not(feature="repl"))]
+#[cfg(not(feature = "repl"))]
 pub fn launch_repl(app: &mut AuxinApp<OsRng, NetManager, StateManager>) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
 }
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
-
 	const AUTHOR_STR: &str = "Millie C. <gyrocoder@gmail.com>";
 	const VERSION_STR: &str = "PRE-RELEASE DO NOT USE";
 
@@ -124,16 +123,27 @@ pub async fn main() -> Result<()> {
 		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number]");
 	let our_phone_number = our_phone_number.to_string();
 
-	simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Error).init().unwrap();
+	simple_logger::SimpleLogger::new()
+		.with_level(log::LevelFilter::Error)
+		.init()
+		.unwrap();
 
-    let base_dir = "state/data/";
+	let base_dir = "state/data/";
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
 	let state = crate::state::StateManager::new(base_dir);
 	// Get it to all come together.
-	let mut app = AuxinApp::new(our_phone_number, AuxinConfig{ }, net, state, OsRng::default()).await.unwrap();
+	let mut app = AuxinApp::new(
+		our_phone_number,
+		AuxinConfig {},
+		net,
+		state,
+		OsRng::default(),
+	)
+	.await
+	.unwrap();
 
-	if let Some(send_command) = args.subcommand_matches("send") { 
+	if let Some(send_command) = args.subcommand_matches("send") {
 		let dest = send_command.value_of("DESTINATION").unwrap();
 		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
 
@@ -146,17 +156,17 @@ pub async fn main() -> Result<()> {
 		app.send_message(&recipient_addr, message).await.unwrap();
 	}
 
-	if let Some(payaddr_command) = args.subcommand_matches("getpayaddress") { 
+	if let Some(payaddr_command) = args.subcommand_matches("getpayaddress") {
 		let dest = payaddr_command.value_of("PEER").unwrap();
 		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
 		let payment_address = app.retrieve_payment_address(&recipient_addr).await.unwrap();
 		let payaddr_json = serde_json::to_string(&payment_address).unwrap();
-		
+
 		println!("[PAYMENT_ADDRESS]");
-		println!("{}",  payaddr_json);
+		println!("{}", payaddr_json);
 	}
 
-	if let Some(_) = args.subcommand_matches("receive") { 
+	if let Some(_) = args.subcommand_matches("receive") {
 		let mut receiver = AuxinReceiver::new(&mut app).await.unwrap();
 		while let Some(msg) = receiver.next().await {
 			let msg = msg.unwrap();
@@ -165,14 +175,14 @@ pub async fn main() -> Result<()> {
 			}
 			let msg_json = serde_json::to_string_pretty(&msg).unwrap();
 			println!("[MESSAGE]");
-			println!("{}",  msg_json);
+			println!("{}", msg_json);
 		}
 	}
 
-	if let Some(_) = args.subcommand_matches("echoserver") { 
+	if let Some(_) = args.subcommand_matches("echoserver") {
 		let mut exit = false;
 		// Ugly hack to get around the multiple ways the borrow checker doesn't recognize what we're trying to do.
-		let receiver_main = RefCell::new( Some( AuxinReceiver::new(&mut app).await.unwrap() ));
+		let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app).await.unwrap()));
 		while !exit {
 			let receiver = receiver_main.take();
 			let mut receiver = receiver.unwrap();
@@ -181,37 +191,48 @@ pub async fn main() -> Result<()> {
 
 				let msg_json = serde_json::to_string_pretty(&msg).unwrap();
 				println!("[MESSAGE]");
-				println!("{}",  msg_json);
+				println!("{}", msg_json);
 
 				if let Some(st) = msg.content.text_message {
 					if st.eq_ignore_ascii_case("/stop") {
 						exit = true;
-					}
-					else {
+					} else {
 						info!("Message received with text \"{}\", replying...", st);
-						receiver.send_message(&msg.remote_address.address, MessageOut{ content: MessageContent::default().with_text(st.clone()) }).await.unwrap();
+						receiver
+							.send_message(
+								&msg.remote_address.address,
+								MessageOut {
+									content: MessageContent::default().with_text(st.clone()),
+								},
+							)
+							.await
+							.unwrap();
 					}
 				}
 			}
-			
+
 			let sleep_time = Duration::from_millis(100);
 			tokio::time::sleep(sleep_time).await;
-			
+
 			if let Err(e) = receiver.refresh().await {
 				log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-				receiver.reconnect().await.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e))).unwrap();
+				receiver
+					.reconnect()
+					.await
+					.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+					.unwrap();
 			}
-			
+
 			receiver_main.replace(Some(receiver));
 		}
 	}
 
-	if let Some(_) = args.subcommand_matches("repl") { 
+	if let Some(_) = args.subcommand_matches("repl") {
 		app.retrieve_sender_cert().await?;
 		launch_repl(&mut app)?;
 	}
 
 	app.state_manager.save_entire_context(&app.context).unwrap();
-	
-    Ok(())
+
+	Ok(())
 }
