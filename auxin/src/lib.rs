@@ -1,4 +1,5 @@
 #![feature(associated_type_bounds)]
+#![deny(bare_trait_objects)]
 
 use address::{AddressError, AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{
@@ -404,13 +405,12 @@ where
 			)
 			.await?;
 
-		let request: http::Request<String> = outgoing_push_list.build_http_request(
+		let request: http::Request<Vec<u8>> = outgoing_push_list.build_http_request(
 			&recipient_addr,
 			mode,
 			&mut self.context,
 			&mut self.rng,
 		)?;
-		debug!("Attempting to send message: {:?}", request);
 		let message_response = self.http_client.request(request).await.map_err(|e| {
 			Box::new(SendMessageError::CannotMakeMessageRequest {
 				msg: format!("{:?}", e),
@@ -421,7 +421,6 @@ where
 			"Got response to attempt to send message: {:?}",
 			message_response
 		);
-		debug!("Response body is: {:?}", message_response.body());
 
 		//Only necessary if fill_peer_info is called, and we do it in there.
 		//self.state_manager.save_peer_record(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
@@ -439,7 +438,7 @@ where
 	pub async fn retrieve_sender_cert(&mut self) -> Result<()> {
 		let trust_root = sealed_sender_trust_root();
 
-		let sender_cert_request: http::Request<String> =
+		let sender_cert_request: http::Request<Vec<u8>> =
 			self.context.identity.build_sendercert_request()?;
 		let req_str: String = format!("{:?}", &sender_cert_request);
 		//TODO: Better error handling here.
@@ -461,7 +460,9 @@ where
 		}
 		assert!(sender_cert_response.status().is_success());
 
-		let cert_structure: serde_json::Value = serde_json::from_str(sender_cert_response.body())?;
+        let sender_cert_response_str = String::from_utf8(sender_cert_response.body().to_vec())?;
+
+		let cert_structure: serde_json::Value = serde_json::from_str(&sender_cert_response_str)?;
 		let encoded_cert_str = cert_structure.get("certificate").unwrap();
 		let temp_vec = base64::decode(encoded_cert_str.as_str().unwrap())?;
 		let sender_cert = libsignal_protocol::SenderCertificate::deserialize(temp_vec.as_slice())?;
@@ -499,13 +500,15 @@ where
 			let auth = self.context.identity.make_auth_header();
 
 			let req = common_http_headers(http::Method::GET, profile_path.as_str(), auth.as_str())?;
-			let req = req.body(String::default())?;
+			let req = req.body(Vec::default())?;
 
 			let res = self.http_client.request(req).await?;
 			debug!("Profile response: {:?}", res);
 			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
 
-			let prof: ForeignPeerProfile = serde_json::from_str(res.body())?;
+            let res_str = String::from_utf8(res.body().to_vec())?;
+
+			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
 
 			recipient.profile = Some(prof.to_local());
 		}
@@ -594,11 +597,12 @@ where
 		let auth = self.context.identity.make_auth_header();
 
 		let req = common_http_headers(http::Method::GET, path.as_str(), auth.as_str())?;
-		let req = req.body(String::default())?;
+		let req = req.body(Vec::default())?;
 
 		let res = self.http_client.request(req).await?;
+        let res_str = String::from_utf8(res.body().to_vec())?;
 		debug!("Peer keys response: {:?}", res);
-		let info: PeerInfoReply = serde_json::from_str(res.body().as_str())?;
+		let info: PeerInfoReply = serde_json::from_str(&res_str)?;
 		Ok(info)
 	}
 
@@ -610,7 +614,7 @@ where
 			"https://textsecure-service.whispersystems.org/v1/directory/auth",
 			auth.as_str(),
 		)?;
-		let req = req.body(String::default())?;
+		let req = req.body(Vec::default())?;
 
 		let auth_upgrade_response = self.http_client.request(req).await.map_err(|e| {
 			Box::new(SendMessageError::CannotSendAuthUpgrade {
@@ -619,8 +623,9 @@ where
 		})?;
 		assert!(auth_upgrade_response.status().is_success());
 
-		let upgraded_auth: DirectoryAuthResponse =
-			serde_json::from_str(auth_upgrade_response.body())?;
+        let auth_upgrade_response_str = String::from_utf8(auth_upgrade_response.body().to_vec())?;
+
+		let upgraded_auth: DirectoryAuthResponse = serde_json::from_str(&auth_upgrade_response_str)?;
 		let mut upgraded_auth_token = upgraded_auth.username.clone();
 		upgraded_auth_token.push_str(":");
 		upgraded_auth_token.push_str(&upgraded_auth.password);
@@ -647,7 +652,7 @@ where
 		let attestation_request = attestation_request.to_string();
 		req = req.header("Content-Type", "application/json; charset=utf-8");
 		req = req.header("Content-Length", attestation_request.len());
-		let req = req.body(attestation_request)?;
+		let req = req.body(attestation_request.into_bytes())?;
 
 		debug!("Sending attestation request: {:?}", req);
 
@@ -657,8 +662,8 @@ where
 			})
 		})?;
 
-		let attestation_response_body: AttestationResponseList =
-			serde_json::from_str(&attestation_response.body())?;
+        let attestation_response_str = String::from_utf8(attestation_response.body().to_vec())?;
+		let attestation_response_body: AttestationResponseList = serde_json::from_str(&attestation_response_str)?;
 
 		attestation_response_body.verify_attestations()?;
 		let att_list = attestation_response_body.decode_attestations(&attestation_keys)?;
@@ -719,7 +724,7 @@ where
 		req = req.header("Content-Type", "application/json; charset=utf-8");
 		req = req.header("Content-Length", query_str.len());
 		req = req.header("Cookie", resulting_cookie_string);
-		let req = req.body(query_str)?;
+		let req = req.body(query_str.into_bytes())?;
 
 		let response = self.http_client.request(req).await.map_err(|e| {
 			Box::new(SendMessageError::CannotSendDiscoveryReq {
@@ -728,7 +733,8 @@ where
 		})?;
 		debug!("{:?}", response);
 
-		let discovery_response: DiscoveryResponse = serde_json::from_str(response.body())?;
+        let response_str = String::from_utf8(response.body().to_vec())?;
+		let discovery_response: DiscoveryResponse = serde_json::from_str(&response_str)?;
 		let decrypted = discovery_response.decrypt(&att_list)?;
 		let uuid = Uuid::from_slice(decrypted.as_slice())?;
 		debug!(
@@ -822,7 +828,7 @@ where
 					msg: format!("{:?}", e),
 				})?
 				.header("Unidentified-Access-Key", unidentified_access)
-				.body(String::default())
+				.body(Vec::default())
 				.map_err(|e| PaymentAddressRetrievalError::EncodingError {
 					peer: recipient.clone(),
 					msg: format!("{:?}", e),
@@ -835,7 +841,13 @@ where
 					}
 				})?;
 
-				let response_structure: ProfileResponse = serde_json::from_str(&response.body())
+                let response_str = String::from_utf8(response.body().to_vec())
+                    .map_err(|e| PaymentAddressRetrievalError::DecodingError {
+                        peer: recipient.clone(),
+                        msg: format!("{:?}", e),
+                    })?;
+
+				let response_structure: ProfileResponse = serde_json::from_str(&response_str)
 					.map_err(|e| PaymentAddressRetrievalError::DecodingError {
 						peer: recipient.clone(),
 						msg: format!("{:?}", e),

@@ -18,6 +18,8 @@ pub const USER_AGENT: &str = "auxin";
 //For "X-Signal-Agent" http header
 pub const X_SIGNAL_AGENT: &str = "auxin";
 
+pub type Body = Vec<u8>;
+
 pub fn common_http_headers(
 	verb: http::Method,
 	uri: &str,
@@ -38,8 +40,8 @@ pub trait AuxinHttpsConnection {
 	type Error: 'static + std::error::Error + Send;
 	async fn request(
 		&self,
-		req: http::request::Request<String>,
-	) -> std::result::Result<http::Response<String>, Self::Error>;
+		req: http::request::Request<Body>,
+	) -> std::result::Result<http::Response<Body>, Self::Error>;
 }
 pub trait AuxinWebsocketConnection {
 	type Message: From<auxin_protos::WebSocketMessage>

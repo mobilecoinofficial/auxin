@@ -1,4 +1,5 @@
 #![feature(async_closure)]
+#![deny(bare_trait_objects)]
 
 pub mod app;
 pub mod net;

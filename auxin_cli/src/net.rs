@@ -2,7 +2,6 @@ use core::fmt;
 use std::pin::Pin;
 
 use auxin::message::fix_protobuf_buf;
-use auxin::Result;
 use auxin::{net::*, LocalIdentity, SIGNAL_TLS_CERT};
 
 use async_trait::async_trait;
@@ -120,24 +119,7 @@ fn read_wsmessage(
 pub struct AuxinHyperConnection {
 	pub client: hyper::Client<HttpsConnector<HttpConnector>, hyper::Body>,
 }
-impl AuxinHyperConnection {
-	fn body_convert_out(
-		req: http::request::Request<String>,
-	) -> http::request::Request<hyper::Body> {
-		let (parts, b) = req.into_parts();
-		let body = hyper::Body::from(b);
-		http::request::Request::from_parts(parts, body)
-	}
-	async fn body_convert_in(
-		res: http::Response<hyper::Body>,
-	) -> Result<http::response::Response<String>> {
-		let (parts, body) = res.into_parts();
-		let bytes = hyper::body::to_bytes(body).await?;
-		let string_body = String::from_utf8_lossy(&bytes);
-		let resp = http::response::Response::from_parts(parts, string_body.to_string());
-		Ok(resp)
-	}
-}
+
 
 #[derive(Debug, Clone)]
 pub enum SendAttemptError {
@@ -189,16 +171,22 @@ impl AuxinHttpsConnection for AuxinHyperConnection {
 	type Error = SendAttemptError;
 	async fn request(
 		&self,
-		req: http::request::Request<String>,
-	) -> std::result::Result<http::Response<String>, Self::Error> {
+		req: http::request::Request<Vec<u8>>,
+	) -> std::result::Result<http::Response<Vec<u8>>, Self::Error> {
+		let (parts, b) = req.into_parts();
+		let body = hyper::Body::from(b);
+
 		let res = self
 			.client
-			.request(AuxinHyperConnection::body_convert_out(req))
+			.request(http::request::Request::from_parts(parts, body))
 			.await
 			.map_err(|e| SendAttemptError::CannotRequest(e.to_string()))?;
-		let converted_res = AuxinHyperConnection::body_convert_in(res)
-			.await
+
+		let (parts, body) = res.into_parts();
+		let bytes = hyper::body::to_bytes(body).await
 			.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))?;
+		let converted_res = http::response::Response::from_parts(parts, bytes.to_vec());
+
 		Ok(converted_res)
 	}
 }

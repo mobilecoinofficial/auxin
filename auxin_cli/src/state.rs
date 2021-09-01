@@ -251,8 +251,6 @@ pub async fn load_sessions(
 			}
 		};
 
-	debug!("Recipient structure loaded: {:?}", recipient_structure);
-
 	//---Look for recorded sessions in our sessions directory.
 
 	let mut session_path = our_path.clone();
@@ -310,11 +308,7 @@ pub async fn load_sessions(
 
 					//Let's also build some extra cached information we keep around for convenience!
 					recip.device_ids_used.push(device_id_num);
-
-					debug!(
-						"Recipient {:?} with device number {:?} has protocol address {:?}",
-						recipient_id_num, recipient_device_id, recipient_address
-					);
+					
 					//Open session file.
 					let mut buffer = Vec::new();
 					let mut f = File::open(file_path.as_str())?;

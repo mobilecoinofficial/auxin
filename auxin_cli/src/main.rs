@@ -1,4 +1,5 @@
 #![feature(async_closure)]
+#![deny(bare_trait_objects)]
 
 use std::cell::RefCell;
 use std::convert::TryFrom;
@@ -124,7 +125,7 @@ pub async fn main() -> Result<()> {
 	let our_phone_number = our_phone_number.to_string();
 
 	simple_logger::SimpleLogger::new()
-		.with_level(log::LevelFilter::Error)
+		.with_level(log::LevelFilter::Debug)
 		.init()
 		.unwrap();
 

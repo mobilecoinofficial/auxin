@@ -10,7 +10,7 @@ pub async fn retrieve_attachment<N: AuxinHttpsConnection>(
 	let download_path = format!("{}/attachments/{}", cdn_url, attachment_pointer.get_cdnId());
 
 	//Make a request with a body that's an empty string.
-	let req = http::Request::get(download_path).body(String::default())?;
+	let req = http::Request::get(download_path).body(String::default().into_bytes())?;
 	let res = net.request(req).await?;
 	debug!("{:?}", res);
 	Ok(())
