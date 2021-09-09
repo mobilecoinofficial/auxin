@@ -19,3 +19,6 @@ launch.json
 
 #REPL stuff 
 papyrus.*.crash-report
+
+#Attachments downloaded
+downloads/ 

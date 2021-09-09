@@ -7,10 +7,7 @@ use aes_gcm::{
 	aead::{Aead, NewAead},
 	Aes256Gcm, Nonce,
 };
-use attachment::retrieve_attachment;
-use auxin_protos::{
-	WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage,
-};
+use auxin_protos::{AttachmentPointer, WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
 use custom_error::custom_error;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use libsignal_protocol::{
@@ -22,7 +19,7 @@ use log::{debug, error, info, warn};
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager, AuxinWebsocketConnection};
 use serde_json::json;
-use std::fmt::Debug;
+use std::{convert::TryFrom, fmt::Debug};
 use std::{
 	error::Error,
 	pin::Pin,
@@ -48,15 +45,10 @@ use state::{
 	UnidentifiedAccessMode,
 };
 
-use crate::{
-	discovery::{
+use crate::{attachment::{AttachmentMetadata, EncryptedAttachment}, discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
-	},
-	message::{fix_protobuf_buf, AuxinMessageList, MessageSendMode},
-	net::common_http_headers,
-	state::{ForeignPeerProfile, ProfileResponse},
-};
+	}, message::{fix_protobuf_buf, AuxinMessageList, MessageSendMode}, net::common_http_headers, state::{ForeignPeerProfile, ProfileResponse}};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -933,6 +925,29 @@ where
 			});
 		}
 	}
+    
+
+    pub async fn retrieve_attachment(&mut self, attachment: &AttachmentPointer) -> Result<EncryptedAttachment> {
+		let meta = AttachmentMetadata::try_from(attachment)?;
+		let download_path = match &meta.attachment_identifier {
+			attachment::AttachmentIdentifier::CdnId(id) => format!("{}/attachments/{}", &SIGNAL_CDN, id),
+			//TODO: Test this second path. I have an intuitive sense I'm missing something here, but I'm not sure why.
+			attachment::AttachmentIdentifier::CdnKey(key) => format!("{}/attachments/{}", &SIGNAL_CDN, key),
+		};
+
+		//Make a request with a body that's an empty string.
+		let req = http::Request::get(download_path).body(String::default().into_bytes())?;
+		let res = self.http_client.request(req).await?;
+
+		let (parts, body) = res.into_parts();
+
+		debug!("Retrieved a {}-byte attachment with the following HTTP response: {:?}", body.len(), parts);
+		debug!("If we were to save this as a file, the filename would be: {}", meta.get_or_generate_filename());
+        Ok(EncryptedAttachment {
+			metadata: meta,
+            ciphertext: body,
+		})
+    }
 }
 
 impl<R, N, S> Drop for AuxinApp<R, N, S>
@@ -1118,13 +1133,6 @@ where
 				self.acknowledge_message(&msg, &req).await?;
 
 				if let Some(msg) = &msg {
-					//Handle attachments.
-					for att in msg.content.attachment_pointers.iter() {
-						retrieve_attachment(&SIGNAL_CDN, &mut self.app.http_client, att)
-							.await
-							.map_err(|e| ReceiveError::AttachmentErr(format!("{:?}", e)))?;
-						//TODO
-					}
 					//Save session.
 					self.app
 						.state_manager
@@ -1240,5 +1248,13 @@ where
 		self.instream = instream;
 
 		Ok(())
+	}
+
+	pub async fn retrieve_attachment(&mut self, att: &AttachmentPointer) -> Result<EncryptedAttachment> {
+		self.app.retrieve_attachment(att).await
+	}
+
+	pub fn borrow_app(&mut self) -> &mut AuxinApp<R, N, S> {
+		self.app
 	}
 }

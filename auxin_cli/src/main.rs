@@ -6,10 +6,12 @@ use std::convert::TryFrom;
 use std::time::Duration;
 
 use auxin::address::AuxinAddress;
+use auxin::attachment::AttachmentMetadata;
 use auxin::message::{MessageContent, MessageOut};
 use auxin::state::AuxinStateManager;
 use auxin::Result;
 use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
+use futures::{Future, TryFutureExt};
 use log::info;
 use rand::rngs::OsRng;
 
@@ -21,10 +23,12 @@ pub mod repl_wrapper;
 pub mod state;
 
 use net::load_root_tls_cert;
+use tokio::io::AsyncWriteExt;
 pub type Context = auxin::AuxinContext;
 
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
+
 
 #[cfg(feature = "repl")]
 pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
@@ -64,6 +68,28 @@ pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 #[cfg(not(feature = "repl"))]
 pub fn launch_repl(app: &mut AuxinApp<OsRng, NetManager, StateManager>) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
+}
+
+
+/// Writes an attachment, returning the path & filename saved if successful.
+pub async fn save_attachment(attachment_filename: String, decrypted: &Vec<u8>) -> Result<String> {
+	use tokio::fs;
+
+	let download_path_name = "downloads";
+	let completed_filename = format!("{}/{}", download_path_name, &attachment_filename);
+
+	//Create the directory if it's not there.
+	let download_path = std::path::Path::new(download_path_name);
+	if !download_path.exists() { 
+		std::fs::create_dir(download_path)?;
+	}
+
+	//(Optionally create, and) write our file.
+	let mut file = fs::File::create(&completed_filename).await?;
+	file.write(&decrypted).await?;
+	file.flush().await?;
+
+	return Ok(completed_filename);
 }
 
 #[tokio::main]
@@ -144,6 +170,9 @@ pub async fn main() -> Result<()> {
 	.await
 	.unwrap();
 
+	//Prepare to download attachments, asynchronously.
+	//let mut 
+
 	if let Some(send_command) = args.subcommand_matches("send") {
 		let dest = send_command.value_of("DESTINATION").unwrap();
 		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
@@ -171,6 +200,15 @@ pub async fn main() -> Result<()> {
 		let mut receiver = AuxinReceiver::new(&mut app).await.unwrap();
 		while let Some(msg) = receiver.next().await {
 			let msg = msg.unwrap();
+
+			//Download any attachment we received.
+			for att in msg.content.attachments.iter() {
+					let downloaded = receiver.retrieve_attachment(att).await?;
+					let name = downloaded.metadata.get_or_generate_filename();
+					let decrypted = downloaded.decrypt()?;
+					save_attachment(name, &decrypted).await?;
+			};
+
 			if let Some(msg) = &msg.content.text_message {
 				info!("Message received with text {}", msg);
 			}

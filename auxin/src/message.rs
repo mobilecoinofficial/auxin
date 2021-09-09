@@ -421,8 +421,7 @@ pub struct MessageContent {
 	/// The Signal "content" this was deserialized from. Will only be None if this is an outgoing message.
 	#[serde(skip_serializing)]
 	pub source: Option<auxin_protos::Content>,
-	#[serde(skip_serializing)]
-	pub(crate) attachment_pointers: Vec<AttachmentPointer>,
+	pub attachments: Vec<AttachmentPointer>,
 }
 
 impl MessageContent {
@@ -432,7 +431,7 @@ impl MessageContent {
 			receipt_message: self.receipt_message,
 			quote: self.quote,
 			source: self.source,
-			attachment_pointers: self.attachment_pointers,
+			attachments: self.attachments,
 		}
 	}
 
@@ -731,7 +730,7 @@ impl MessageIn {
 				text_message: None,
 				source: None,
 				quote: None,
-				attachment_pointers: Vec::default(),
+				attachments: Vec::default(),
 			},
 		}
 	}
@@ -817,7 +816,7 @@ impl MessageIn {
 						text_message: None,
 						source: None,
 						quote: None,
-						attachment_pointers: Vec::default(),
+						attachments: Vec::default(),
 					},
 					remote_address: remote_address,
 					timestamp: envelope.get_timestamp(),
@@ -988,7 +987,7 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 				result.text_message = Some(data_message.get_body().to_string());
 			}
 			if data_message.attachments.len() > 0 {
-				result.attachment_pointers =
+				result.attachments =
 					data_message.attachments.iter().map(|a| a.clone()).collect();
 			}
 		}
