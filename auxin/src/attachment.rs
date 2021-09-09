@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 
 use auxin_protos::protos::signalservice::AttachmentPointer;
+use log::warn;
 use serde::{Serialize, Deserialize};
 //use ring::hmac::{self, HMAC_SHA256};
 
@@ -26,7 +27,7 @@ pub struct AttachmentMetadata {
     pub attachment_identifier: AttachmentIdentifier,
     pub content_type: Option<String>,
     pub key: Vec<u8>,
-    pub size: Option<u32>,
+    pub size: u32,
     pub thumbnail: Option<Vec<u8>>,
     pub digest: Vec<u8>,
     pub file_name: Option<String>,
@@ -82,6 +83,7 @@ pub enum AttachmentMetaError {
     NoIdent,
     NoKey(AttachmentIdentifier),
     NoDigest(AttachmentIdentifier),
+    NoSize(AttachmentIdentifier),
 }
 
 impl std::fmt::Display for AttachmentMetaError {
@@ -90,6 +92,7 @@ impl std::fmt::Display for AttachmentMetaError {
             AttachmentMetaError::NoIdent => write!(f, "Attempted to decode an attachment pointer with no CDN ID and no CDN Key. There is no identifier with which to retrieve the attachment."),
             AttachmentMetaError::NoKey(id) => write!(f, "Attempted to decode an attachment pointer (identifier {:?}) which has no key, and wouldn't be possible to decrypt.", id),
             AttachmentMetaError::NoDigest(id) => write!(f, "Attempted to decode an attachment pointer (identifier {:?}) which has no digest, and wouldn't be possible to decrypt.", id),
+            AttachmentMetaError::NoSize(id) => write!(f, "Attempted to decode an attachment pointer (identifier {:?}) which has no size, and wouldn't be possible to deserialize.", id),
         }
     }
 }
@@ -134,19 +137,23 @@ impl TryFrom<&AttachmentPointer> for AttachmentMetadata {
                 return Err(AttachmentMetaError::NoDigest(attachment_ident.clone()));
             }
         };
+        let size = { 
+            if value.has_size() { 
+                value.get_size()
+            }
+            else { 
+                return Err(AttachmentMetaError::NoSize(attachment_ident.clone()));
+            }
+        };
 
         //All of the mandatory fields have been filled.
         let mut result = AttachmentMetadata { 
             attachment_identifier: attachment_ident,
-            content_type: None, key: key, size: None, thumbnail: None, digest: digest, 
+            content_type: None, key, size, thumbnail: None, digest, 
             file_name: None, flags: None, width: None, height: None, caption: None,
             blur_hash: None, upload_timestamp: None, cdn_number: None,
             download_start_timestamp: None, download_done_timestamp: None,
         };
-
-        if value.has_size() { 
-            result.size = Some(value.get_size())
-        }
 
         if value.has_contentType() { 
             result.content_type = Some(value.get_contentType().to_string());
@@ -208,6 +215,7 @@ type AttachmentCipher = Cbc<Aes256, Pkcs7>;
 
 impl EncryptedAttachment { 
     pub fn decrypt(&self) -> std::result::Result<Vec<u8>, AttachmentDecryptError> { 
+        //After some testing THESE ARE DEFINITELY CORRECT!
         const BLOCK_SIZE: usize = 16;
         const CIPHER_KEY_SIZE: usize = 32; 
         const MAC_KEY_SIZE: usize = 32; 
@@ -223,7 +231,7 @@ impl EncryptedAttachment {
         //Set up our ciphers.
         //The IV is built-in with the ciphertext here. We beed to split it out so there isn't a weird little 
         let (iv_slice, ciphertext_slice) = self.ciphertext.split_at(BLOCK_SIZE);
-        // MAC key lives at the end of the ciphertext 
+        // MAC key lives at the end of the ciphertext. This is required. The Mac Key is not ciphertext. Tested - this is necessary.
         let ciphertext_slice = &ciphertext_slice[0.. ( ciphertext_slice.len() - MAC_KEY_SIZE)];
 
         let mut cipher_key_bytes: [u8; CIPHER_KEY_SIZE] = [0; CIPHER_KEY_SIZE];
@@ -243,7 +251,15 @@ impl EncryptedAttachment {
             let mac_key = hmac::Key::new(hmac::HMAC_SHA256, &mac_key_bytes);
         }*/
 
-        Ok(decrypted)
+        if decrypted.len() < (self.metadata.size as usize) {
+            warn!("Received file {}, but the expected size was {} and the actual size was {}", &self.metadata.get_or_generate_filename(), (self.metadata.size as usize), decrypted.len());
+        }
+
+        //Snip off trailing padding.
+        let mut result = Vec::default();
+        result.extend_from_slice(&decrypted[0..(self.metadata.size as usize)]); 
+
+        Ok(result)
     }
 /*
     fn verify_mac(&self) -> std::result::Result<(), AttachmentDecryptError> { 
