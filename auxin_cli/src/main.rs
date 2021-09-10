@@ -3,29 +3,34 @@
 
 use std::cell::RefCell;
 use std::convert::TryFrom;
-use std::io::Write;
-use std::time::Duration;
+use tokio::time::{Duration};
 
 use auxin::address::AuxinAddress;
 use auxin::message::{MessageContent, MessageOut};
 use auxin::state::AuxinStateManager;
 use auxin::Result;
 use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
+use auxin_protos::AttachmentPointer;
 use log::info;
 use rand::rngs::OsRng;
 
 use clap::{Arg, SubCommand};
 
 pub mod app;
+pub mod attachment;
 pub mod net;
 pub mod repl_wrapper;
 pub mod state;
+
+pub use crate::attachment::*;
 
 use net::load_root_tls_cert;
 pub type Context = auxin::AuxinContext;
 
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
+
+pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
 
 #[cfg(feature = "repl")]
@@ -66,28 +71,6 @@ pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 #[cfg(not(feature = "repl"))]
 pub fn launch_repl(app: &mut AuxinApp<OsRng, NetManager, StateManager>) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
-}
-
-
-/// Writes an attachment, returning the path & filename saved if successful.
-pub async fn save_attachment(attachment_filename: String, decrypted: &Vec<u8>) -> Result<String> {
-	use std::fs;
-
-	let download_path_name = "downloads";
-	let completed_filename = format!("{}/{}", download_path_name, &attachment_filename);
-
-	//Create the directory if it's not there.
-	let download_path = std::path::Path::new(download_path_name);
-	if !download_path.exists() { 
-		std::fs::create_dir(download_path)?;
-	}
-
-	//(Optionally create, and) write our file.
-	let mut file = fs::File::create(&completed_filename)?;
-	file.write_all(&decrypted)?;
-	file.flush()?;
-
-	return Ok(completed_filename);
 }
 
 #[tokio::main]
@@ -194,18 +177,14 @@ pub async fn main() -> Result<()> {
 		println!("{}", payaddr_json);
 	}
 
+	let mut attachments_to_download : Vec<AttachmentPointer> = Vec::default(); 
+
 	if let Some(_) = args.subcommand_matches("receive") {
 		let mut receiver = AuxinReceiver::new(&mut app).await.unwrap();
 		while let Some(msg) = receiver.next().await {
 			let msg = msg.unwrap();
 
-			//Download any attachment we received.
-			for att in msg.content.attachments.iter() {
-				let downloaded = receiver.retrieve_attachment(att).await?;
-				let name = downloaded.metadata.get_or_generate_filename();
-				let decrypted = downloaded.decrypt()?;
-				save_attachment(name, &decrypted).await?;
-			};
+			attachments_to_download.extend_from_slice(&msg.content.attachments);
 
 			if let Some(msg) = &msg.content.text_message {
 				info!("Message received with text {}", msg);
@@ -214,6 +193,13 @@ pub async fn main() -> Result<()> {
 			println!("[MESSAGE]");
 			println!("{}", msg_json);
 		}
+	}
+
+	if !attachments_to_download.is_empty() { 
+		let pending_downloads = initiate_attachment_downloads(attachments_to_download, app.get_http_client(), Some(ATTACHMENT_TIMEOUT_DURATION) );
+
+		//Force all downloads to complete.
+		futures::future::try_join_all(pending_downloads.into_iter()).await?;
 	}
 
 	if let Some(_) = args.subcommand_matches("echoserver") {

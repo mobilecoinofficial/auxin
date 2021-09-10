@@ -11,5 +11,6 @@ use auxin::Result;
 pub type Context = auxin::AuxinContext;
 
 pub use crate::net::NetManager;
+pub use crate::net::AuxinHyperConnection;
 pub use crate::repl_wrapper::AppWrapper;
 pub use crate::state::StateManager;

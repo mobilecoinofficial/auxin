@@ -4,8 +4,7 @@ use std::pin::Pin;
 use auxin::message::fix_protobuf_buf;
 use auxin::{net::*, LocalIdentity, SIGNAL_TLS_CERT};
 
-use async_trait::async_trait;
-use futures::{Sink, SinkExt, Stream, StreamExt, TryFutureExt};
+use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt, TryFutureExt, future};
 use hyper::client::HttpConnector;
 use hyper_tls::HttpsConnector;
 use hyper_tls::TlsStream;
@@ -51,7 +50,7 @@ async fn connect_tls_for_websocket(
 
 // Signal's API lives at textsecure-service.whispersystems.org.
 async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
-	local_identity: &LocalIdentity,
+	local_identity: LocalIdentity,
 	stream: S,
 ) -> std::result::Result<
 	(WebSocketStream<S>, tungstenite::http::Response<()>),
@@ -116,10 +115,10 @@ fn read_wsmessage(
 		.map_err(|e| WebsocketError::FailedtoDeserialize(format!("{:?}", e)))
 }
 
+#[derive(Clone)]
 pub struct AuxinHyperConnection {
 	pub client: hyper::Client<HttpsConnector<HttpConnector>, hyper::Body>,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum SendAttemptError {
@@ -166,37 +165,37 @@ impl fmt::Display for WebsocketError {
 
 impl std::error::Error for WebsocketError {}
 
-#[async_trait]
 impl AuxinHttpsConnection for AuxinHyperConnection {
 	type Error = SendAttemptError;
-	async fn request(
+	
+	fn request(
 		&self,
 		req: http::request::Request<Vec<u8>>,
-	) -> std::result::Result<http::Response<Vec<u8>>, Self::Error> {
+	) -> ResponseFuture<Self::Error> {
 		let (parts, b) = req.into_parts();
 		let body = hyper::Body::from(b);
 
-		let res = self
-			.client
+		let fut = self.client
 			.request(http::request::Request::from_parts(parts, body))
-			.await
-			.map_err(|e| SendAttemptError::CannotRequest(e.to_string()))?;
-
-		let (parts, body) = res.into_parts();
-		let bytes = hyper::body::to_bytes(body).await
-			.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))?;
-		let converted_res = http::response::Response::from_parts(parts, bytes.to_vec());
-
-		Ok(converted_res)
+			.map_err(|e| SendAttemptError::CannotRequest(e.to_string()))
+			.map_ok( move |res | { 
+				let (parts, body) = res.into_parts();
+				Box::pin(hyper::body::to_bytes(body)).map_ok( move |bytes| {
+					http::response::Response::from_parts(parts, bytes.to_vec())
+				})
+				.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))
+			})
+			.try_flatten();
+		Box::pin(fut)
 	}
 }
 
 pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;
+
 pub struct AuxinTungsteniteConnection {
 	client: WsStream,
 }
 
-#[async_trait]
 impl AuxinWebsocketConnection for AuxinTungsteniteConnection {
 	type Message = auxin_protos::WebSocketMessage;
 	type SinkError = tungstenite::Error;
@@ -294,55 +293,78 @@ impl fmt::Display for EstablishConnectionError {
 }
 impl std::error::Error for EstablishConnectionError {}
 
-#[async_trait]
 impl AuxinNetManager for NetManager {
 	type C = AuxinHyperConnection;
 	type W = AuxinTungsteniteConnection;
 	type Error = EstablishConnectionError;
 
 	/// Initialize an https connection to Signal which recognizes Signal's self-signed TLS certificate.
-	async fn connect_to_signal_https(&mut self) -> std::result::Result<Self::C, Self::Error> {
+	fn connect_to_signal_https(&mut self) -> ConnectFuture<Self::C, Self::Error> {
 		//Regular TLS connection (not websocket) for getting a sender cert.
-		let connector = build_tls_connector(self.cert.clone())
-			.await
-			.map_err(|e| EstablishConnectionError::CannotTls(e.to_string()))?;
-		let mut http_connector = HttpConnector::new();
-		//Critically important. If we do not set this value to false, it will defalt to true,
-		//and the connector will errror out when we attempt to connect using https://
-		//(Because technically it isn't http)
-		http_connector.enforce_http(false);
-		let https_connector = hyper_tls::HttpsConnector::from((http_connector, connector));
-
-		let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-		Ok(AuxinHyperConnection { client })
+		let fut = Box::pin(build_tls_connector(self.cert.clone()))
+			.map_err(|e| EstablishConnectionError::CannotTls(e.to_string()))
+			.map_ok(|tls_connector| {
+				let mut http_connector = HttpConnector::new();
+				//Critically important. If we do not set this value to false, it will defalt to true,
+				//and the connector will errror out when we attempt to connect using https://
+				//(Because technically it isn't http)
+				http_connector.enforce_http(false);
+				let https_connector = hyper_tls::HttpsConnector::from((http_connector, tls_connector));
+		
+				let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
+				AuxinHyperConnection { client }
+			});
+		Box::pin(fut)
 	}
 
 	/// Initialize a websocket connection to Signal's "https://textsecure-service.whispersystems.org" address, taking our credentials as an argument.
-	async fn connect_to_signal_websocket(
+	fn connect_to_signal_websocket(
 		&mut self,
-		credentials: &LocalIdentity,
-	) -> std::result::Result<Self::W, Self::Error> {
-		let tls_stream = connect_tls_for_websocket(load_root_tls_cert()?).await?;
-		let (websocket_client, connect_response) =
-			connect_websocket(credentials, tls_stream).await?;
-
-		// Check to make sure our status code is success.
-		if !((connect_response.status().as_u16() == 200)
-			|| (connect_response.status().as_u16() == 101))
-		{
-			let r = connect_response.status().as_u16();
-			let s = connect_response.status().to_string();
-			let err = format!("Status {}: {}", r, s);
-			return Err(EstablishConnectionError::BadUpgradeResponse(err));
+		credentials: LocalIdentity,
+	) -> ConnectFuture<Self::W, Self::Error> {
+		match load_root_tls_cert() { 
+			Ok(cert) => { 
+				let fut = Box::pin(connect_tls_for_websocket(cert))
+					.map_ok(move |tls_stream| { 
+						Box::pin(connect_websocket(credentials, tls_stream))
+					})
+					.try_flatten()
+					.map(|r| {
+						match r { 
+							Ok( (websocket_client, connect_response) ) => {
+								//It's successful... or is it? 
+								// Check to make sure our status code is success.
+								if !((connect_response.status().as_u16() == 200)
+									|| (connect_response.status().as_u16() == 101))
+								{
+									let r = connect_response.status().as_u16();
+									let s = connect_response.status().to_string();
+									let err = format!("Status {}: {}", r, s);
+									Err(EstablishConnectionError::BadUpgradeResponse(err))
+								}
+								else { 
+									//If it's successful, pass along our value.
+									debug!(
+										"Constructed websocket client streans, got response: {:?}",
+										connect_response
+									);
+									
+									Ok(AuxinTungsteniteConnection {
+										client: websocket_client,
+									})
+								}
+							},
+							Err(e) => { 
+								Err(e)
+							}
+						}
+					});
+				Box::pin(fut)
+			}, 
+			Err(e) => { 
+				//Construct a future which is immediately ready with the error.
+				Box::pin(future::ready(Err(e)))
+			},
 		}
-
-		debug!(
-			"Constructed websocket client streans, got response: {:?}",
-			connect_response
-		);
-
-		Ok(AuxinTungsteniteConnection {
-			client: websocket_client,
-		})
 	}
 }

@@ -7,22 +7,22 @@ use aes_gcm::{
 	aead::{Aead, NewAead},
 	Aes256Gcm, Nonce,
 };
-use auxin_protos::{AttachmentPointer, WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
+use attachment::download::{self, AttachmentDownloadError};
+use auxin_protos::AttachmentPointer;
 use custom_error::custom_error;
-use futures::{Sink, SinkExt, Stream, StreamExt};
+use futures::{TryFutureExt};
 use libsignal_protocol::{
 	process_prekey_bundle, IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore,
 	InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore,
 	ProtocolAddress, PublicKey, SenderCertificate,
 };
-use log::{debug, error, info, warn};
-use message::{MessageIn, MessageInError, MessageOut};
-use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager, AuxinWebsocketConnection};
+use log::{debug, error};
+use message::MessageOut;
+use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
 use serde_json::json;
-use std::{convert::TryFrom, fmt::Debug};
+use std::{fmt::Debug};
 use std::{
 	error::Error,
-	pin::Pin,
 	time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
@@ -32,6 +32,7 @@ pub mod attachment;
 pub mod discovery;
 pub mod message;
 pub mod net;
+pub mod receiver;
 pub mod state;
 
 /// Self-signing root cert for TLS connections to Signal's web API..
@@ -45,10 +46,22 @@ use state::{
 	UnidentifiedAccessMode,
 };
 
-use crate::{attachment::{AttachmentMetadata, EncryptedAttachment}, discovery::{
+use crate::{
+	attachment::download::EncryptedAttachment, 
+	discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
-	}, message::{fix_protobuf_buf, AuxinMessageList, MessageSendMode}, net::common_http_headers, state::{ForeignPeerProfile, ProfileResponse}};
+	}, 
+	message::{
+		fix_protobuf_buf, 
+		AuxinMessageList, 
+		MessageSendMode}, 
+	net::common_http_headers, 
+	state::{
+		ForeignPeerProfile,
+		ProfileResponse
+	}
+};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -292,11 +305,11 @@ where
 	) -> Result<Self> {
 		let local_identity = state_manager.load_local_identity(&local_phone_number)?;
 		//TODO: Better error handling here.
-		let http_client = net.connect_to_signal_https().await.map_err(|e| {
+		let http_client = net.connect_to_signal_https().map_err(|e| {
 			Box::new(AuxinInitError::CannotConnect {
 				msg: format!("{:?}", e),
 			})
-		})?;
+		}).await?;
 
 		let context = state_manager.load_context(&local_identity, config)?;
 
@@ -403,11 +416,11 @@ where
 			&mut self.context,
 			&mut self.rng,
 		)?;
-		let message_response = self.http_client.request(request).await.map_err(|e| {
+		let message_response = self.http_client.request(request).map_err(|e| {
 			Box::new(SendMessageError::CannotMakeMessageRequest {
 				msg: format!("{:?}", e),
 			})
-		})?;
+		}).await?;
 
 		debug!(
 			"Got response to attempt to send message: {:?}",
@@ -437,12 +450,11 @@ where
 		let sender_cert_response = self
 			.http_client
 			.request(sender_cert_request)
-			.await
 			.map_err(|e| {
 				Box::new(AuxinInitError::CannotRequestSenderCert {
 					msg: format!("{:?}", e),
 				})
-			})?;
+			}).await?;
 		if !sender_cert_response.status().is_success() {
 			error!(
 				"Response to sender certificate request was: {:?}",
@@ -925,29 +937,17 @@ where
 			});
 		}
 	}
-    
+	pub async fn retrieve_attachment(&self, attachment: &AttachmentPointer) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
+		//TODO: Test to see if there is any time when we need to use a different CDN address.
+		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), SIGNAL_CDN).await
+	}
 
-    pub async fn retrieve_attachment(&mut self, attachment: &AttachmentPointer) -> Result<EncryptedAttachment> {
-		let meta = AttachmentMetadata::try_from(attachment)?;
-		let download_path = match &meta.attachment_identifier {
-			attachment::AttachmentIdentifier::CdnId(id) => format!("{}/attachments/{}", &SIGNAL_CDN, id),
-			//TODO: Test this second path. I have an intuitive sense I'm missing something here, but I'm not sure why.
-			attachment::AttachmentIdentifier::CdnKey(key) => format!("{}/attachments/{}", &SIGNAL_CDN, key),
-		};
-
-		//Make a request with a body that's an empty string.
-		let req = http::Request::get(download_path).body(String::default().into_bytes())?;
-		let res = self.http_client.request(req).await?;
-
-		let (parts, body) = res.into_parts();
-
-		debug!("Retrieved a {}-byte attachment with the following HTTP response: {:?}", body.len(), parts);
-		debug!("If we were to save this as a file, the filename would be: {}", meta.get_or_generate_filename());
-        Ok(EncryptedAttachment {
-			metadata: meta,
-            ciphertext: body,
-		})
-    }
+	pub fn get_http_client(&self) -> &N::C {
+		return &self.http_client;
+	}
+	pub fn get_http_client_mut(&mut self) -> &mut N::C {
+		return &mut self.http_client;
+	}
 }
 
 impl<R, N, S> Drop for AuxinApp<R, N, S>
@@ -965,296 +965,4 @@ where
 	}
 }
 
-#[derive(Debug)]
-pub enum ReceiveError {
-	NetSpecific(String),
-	SendErr(String),
-	InError(MessageInError),
-	StoreStateError(String),
-	ReconnectErr(String),
-	AttachmentErr(String),
-	UnknownWebsocketTy,
-}
-impl std::fmt::Display for ReceiveError {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		match self {
-			Self::NetSpecific(e) => {
-				write!(f, "Net manager implementation produced an error: {:?}", e)
-			}
-			Self::SendErr(e) => write!(
-				f,
-				"Net manager errored while attempting to send a response: {:?}",
-				e
-			),
-			Self::InError(e) => write!(f, "Unable to decode or decrypt message: {:?}", e),
-			Self::StoreStateError(e) => {
-				write!(f, "Unable to store state after receiving message: {:?}", e)
-			}
-			Self::ReconnectErr(e) => {
-				write!(f, "Error while attempting to reconnect websocket: {:?}", e)
-			}
-			Self::AttachmentErr(e) => {
-				write!(f, "Error while attempting to retrieve attachment: {:?}", e)
-			}
-			Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
-		}
-	}
-}
-
-impl std::error::Error for ReceiveError {}
-
-impl From<MessageInError> for ReceiveError {
-	fn from(val: MessageInError) -> Self {
-		Self::InError(val)
-	}
-}
-
-type OutstreamT<N> = Pin<
-	Box<
-		dyn Sink<
-			<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message,
-			Error = <<N as AuxinNetManager>::W as AuxinWebsocketConnection>::SinkError,
-		>,
-	>,
->;
-type InstreamT<N> = Pin<
-	Box<
-		dyn Stream<
-			Item = std::result::Result<
-				<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::Message,
-				<<N as AuxinNetManager>::W as AuxinWebsocketConnection>::StreamError,
-			>,
-		>,
-	>,
->;
-
-pub struct AuxinReceiver<'a, R, N, S>
-where
-	R: RngCore + CryptoRng,
-	N: AuxinNetManager,
-	S: AuxinStateManager,
-{
-	pub(crate) app: &'a mut AuxinApp<R, N, S>,
-	//Disregard these type signatures. They are weird and gnarly for unavoidable reasons.
-	pub(crate) outstream: OutstreamT<N>,
-	pub(crate) instream: InstreamT<N>,
-}
-
-impl<'a, R, N, S> AuxinReceiver<'a, R, N, S>
-where
-	R: RngCore + CryptoRng,
-	N: AuxinNetManager,
-	S: AuxinStateManager,
-{
-	pub async fn new(app: &'a mut AuxinApp<R, N, S>) -> Result<AuxinReceiver<'a, R, N, S>> {
-		let ws = app
-			.net
-			.connect_to_signal_websocket(&app.context.identity)
-			.await?;
-		let (outstream, instream) = ws.into_streams();
-		Ok(AuxinReceiver {
-			app,
-			outstream,
-			instream,
-		})
-	}
-
-	/// Notify the server that we have received a message. If it is a non-receipt Signal message, we will send our receipt indicating we got this message.
-	async fn acknowledge_message(
-		&mut self,
-		msg: &Option<MessageIn>,
-		req: &WebSocketRequestMessage,
-	) -> std::result::Result<(), ReceiveError> {
-		// Sending responses goes here.
-		let reply_id = req.get_id();
-		let mut res = WebSocketResponseMessage::default();
-		res.set_id(reply_id);
-		res.set_status(200); // Success
-		res.set_message(String::from("OK"));
-		res.set_headers(req.get_headers().clone().into());
-		let mut res_m = WebSocketMessage::default();
-		res_m.set_response(res);
-		res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
-
-		self.outstream
-			.send(res_m.into())
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
-		if let Some(msg) = msg {
-			// Send receipts if we have to.
-			if msg.needs_receipt() {
-				let receipt = msg.generate_receipt(auxin_protos::ReceiptMessage_Type::DELIVERY);
-				self.app
-					.send_message(&msg.remote_address.address, receipt)
-					.await
-					.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-			}
-		}
-
-		self.outstream
-			.flush()
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-		Ok(())
-	}
-	async fn next_inner(
-		&mut self,
-		wsmessage: &auxin_protos::WebSocketMessage,
-	) -> std::result::Result<Option<MessageIn>, ReceiveError> {
-		match wsmessage.get_field_type() {
-			auxin_protos::WebSocketMessage_Type::UNKNOWN => Err(ReceiveError::UnknownWebsocketTy),
-			auxin_protos::WebSocketMessage_Type::REQUEST => {
-				let req = wsmessage.get_request();
-
-				// Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
-				let msg = match MessageIn::decode_envelope_bin(
-					req.get_body(),
-					&mut self.app.context,
-					&mut self.app.rng,
-				)
-				.await
-				{
-					Err(MessageInError::ProtocolError(e)) => {
-						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
-						None
-					}
-					Err(MessageInError::DecodingProblem(e)) => {
-						warn!("Message failed to decode (bad envelope?) - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
-						None
-					}
-					Err(e) => {
-						return Err(e.into());
-					}
-					Ok(m) => Some(m),
-				};
-
-				//This will at least acknowledge to WebSocket that we have received this message.
-				self.acknowledge_message(&msg, &req).await?;
-
-				if let Some(msg) = &msg {
-					//Save session.
-					self.app
-						.state_manager
-						.save_peer_sessions(&msg.remote_address.address, &self.app.context)
-						.map_err(|e| ReceiveError::StoreStateError(format!("{:?}", e)))?;
-				}
-				Ok(msg)
-			}
-			auxin_protos::WebSocketMessage_Type::RESPONSE => {
-				let res = wsmessage.get_response();
-				info!("WebSocket response message received: {:?}", res);
-				Ok(None)
-			}
-		}
-	}
-	/// Polls for the next available message.  Returns none for end of stream.
-	pub async fn next(&mut self) -> Option<std::result::Result<MessageIn, ReceiveError>> {
-		//Try up to 64 times if necessary.
-		for _ in 0..64 {
-			let msg = self.instream.next().await;
-
-			match msg {
-				None => {
-					return None;
-				}
-				Some(Err(e)) => {
-					return Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))));
-				}
-				Some(Ok(m)) => {
-					let wsmessage: WebSocketMessage = m.into();
-					//Check to see if we're done.
-					if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST {
-						let req = wsmessage.get_request();
-						if req.has_path() {
-							// The server has sent us all the messages it has waiting for us.
-							if req.get_path().contains("/api/v1/queue/empty") {
-								debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
-								//Acknowledge we received the end-of-queue and do many clunky error-handling things:
-								let res = self
-									.acknowledge_message(&None, &req)
-									.await
-									.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
-								let res = match res {
-									Ok(()) => None,
-									Err(e) => Some(Err(e)),
-								};
-
-								// Receive operation is done. Indicate there are no further messages left to poll for.
-								return res; //Usually this returns None.
-							}
-						}
-					}
-
-					//Actually parse our message otherwise.
-					match self.next_inner(&wsmessage).await {
-						Ok(Some(message)) => return Some(Ok(message)),
-						Ok(None) =>
-							/*Message failed to decode - ignoring error and continuing to receive messages to clear out prior bad state*/
-							{}
-						Err(e) => return Some(Err(e)),
-					}
-				}
-			}
-		}
-		None
-	}
-
-	/// Convenience method so we don't have to work around the borrow checker to call send_message on our app when the Receiver has an &mut app.
-	pub async fn send_message(
-		&mut self,
-		recipient_addr: &AuxinAddress,
-		message: MessageOut,
-	) -> Result<()> {
-		self.app.send_message(recipient_addr, message).await
-	}
-
-	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
-	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
-		let mut req = WebSocketRequestMessage::default();
-		req.set_id(self.app.rng.next_u64());
-		req.set_verb("GET".to_string());
-		req.set_path("/v1/messages/".to_string());
-		let mut req_m = WebSocketMessage::default();
-		req_m.set_request(req);
-		req_m.set_field_type(WebSocketMessage_Type::REQUEST);
-
-		self.outstream
-			.send(req_m.into())
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
-		self.outstream
-			.flush()
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
-		Ok(())
-	}
-
-	pub async fn reconnect(&mut self) -> Result<()> {
-		self.outstream
-			.close()
-			.await
-			.map_err(|e| ReceiveError::ReconnectErr(format!("Could not close: {:?}", e)))?;
-		let ws = self
-			.app
-			.net
-			.connect_to_signal_websocket(&self.app.context.identity)
-			.await?;
-		let (outstream, instream) = ws.into_streams();
-
-		self.outstream = outstream;
-		self.instream = instream;
-
-		Ok(())
-	}
-
-	pub async fn retrieve_attachment(&mut self, att: &AttachmentPointer) -> Result<EncryptedAttachment> {
-		self.app.retrieve_attachment(att).await
-	}
-
-	pub fn borrow_app(&mut self) -> &mut AuxinApp<R, N, S> {
-		self.app
-	}
-}
+pub use crate::receiver::{AuxinReceiver, ReceiveError};
