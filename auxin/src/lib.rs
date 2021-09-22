@@ -7,7 +7,7 @@ use aes_gcm::{
 	aead::{Aead, NewAead},
 	Aes256Gcm, Nonce,
 };
-use attachment::download::{self, AttachmentDownloadError};
+use attachment::{download::{self, AttachmentDownloadError}, upload::AttachmentUploadError};
 use auxin_protos::AttachmentPointer;
 use custom_error::custom_error;
 use futures::{TryFutureExt};
@@ -32,6 +32,7 @@ pub mod attachment;
 pub mod discovery;
 pub mod message;
 pub mod net;
+pub mod profile;
 pub mod receiver;
 pub mod state;
 
@@ -940,6 +941,15 @@ where
 	pub async fn retrieve_attachment(&self, attachment: &AttachmentPointer) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
 		//TODO: Test to see if there is any time when we need to use a different CDN address.
 		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), SIGNAL_CDN).await
+	}
+
+	pub async fn request_attachment_id(&self) -> std::result::Result<(), AttachmentUploadError> { 
+
+		let auth = self.context.identity.make_auth_header();
+
+		attachment::upload::request_attachment_token(self.http_client.clone(), 
+														SIGNAL_CDN, 
+														("Authorization", auth.as_str()) ).await
 	}
 
 	pub fn get_http_client(&self) -> &N::C {

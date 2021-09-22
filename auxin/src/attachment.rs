@@ -1,4 +1,6 @@
-
+use aes_gcm::aes::Aes256;
+use block_modes::Cbc;
+use block_padding::Pkcs7;
 
 // NOTE: According to Wikipedia, 
 // "PKCS#5 padding is identical to PKCS#7 padding, except that it has only been 
@@ -7,17 +9,22 @@
 
 pub const UNNAMED_ATTACHMENT_PREFIX: &str = "unnamed_attachment_";
 
+pub const ATTACHMENT_UPLOAD_START_PATH: &str = "v2/attachments/form/upload";
+
+type AttachmentCipher = Cbc<Aes256, Pkcs7>;
+
 pub mod download { 
+    use super::AttachmentCipher;
+
     use std::convert::TryFrom;
 
     use auxin_protos::protos::signalservice::AttachmentPointer;
     use log::{debug, warn};
-    use aes_gcm::aes::Aes256;
-    use block_modes::{BlockMode, Cbc};
-    use block_padding::Pkcs7;
     use serde::{Serialize, Deserialize};
 
     use crate::net::AuxinHttpsConnection;
+
+    use block_modes::BlockMode;
     //use ring::hmac::{self, HMAC_SHA256};
         
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,8 +222,6 @@ pub mod download {
 
     impl std::error::Error for AttachmentDecryptError {}
 
-    type AttachmentCipher = Cbc<Aes256, Pkcs7>;
-
     impl EncryptedAttachment { 
         pub fn decrypt(&self) -> std::result::Result<Vec<u8>, AttachmentDecryptError> { 
             //After some testing THESE ARE DEFINITELY CORRECT!
@@ -240,7 +245,6 @@ pub mod download {
 
             let mut cipher_key_bytes: [u8; CIPHER_KEY_SIZE] = [0; CIPHER_KEY_SIZE];
             cipher_key_bytes.copy_from_slice(&self.metadata.key.as_slice()[0..CIPHER_KEY_SIZE]);
-
 
             let cipher = AttachmentCipher::new_from_slices(&cipher_key_bytes, &iv_slice)
                 .map_err(|e| AttachmentDecryptError::CantConstructCipher(filename.clone(), format!("{:?}", e)))?;
@@ -307,7 +311,6 @@ pub mod download {
 	// internally calls "self.clone()" inside of 
 	// its "Client::request()"
 
-    
     pub async fn retrieve_attachment<H: AuxinHttpsConnection>(attachment: AttachmentPointer, http_client: H, cdn_address: &str) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
 		let meta = AttachmentMetadata::try_from(&attachment).map_err(|e| AttachmentDownloadError::Meta(e))?;
 		let download_path = match &meta.attachment_identifier {
@@ -330,5 +333,153 @@ pub mod download {
 			metadata: meta,
             ciphertext: body,
 		})
+    }
+}
+
+pub mod upload {
+    use log::debug;
+    use rand::{CryptoRng, Rng, RngCore};
+    use block_modes::BlockMode;
+    use ring::hmac::{self};
+
+    use crate::net::AuxinHttpsConnection;
+
+    use super::AttachmentCipher;
+
+
+    #[derive(Debug, Clone)]
+    pub enum AttachmentEncryptError { 
+        CantConstructCipher(String, String),
+    }
+    impl std::fmt::Display for AttachmentEncryptError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self { 
+                AttachmentEncryptError::CantConstructCipher(filename, error_text) => write!(f, "Could not construct a cipher to encrypt attachment with name {} due to the following error: {}", filename, error_text),
+            }
+        }
+    }
+    impl std::error::Error for AttachmentEncryptError {}
+
+
+
+    #[derive(Debug, Clone)]
+    pub enum AttachmentUploadError { 
+        CantConstructRequest(String,String),
+        AttachmentIdNetworkErr(String),
+    }
+
+    impl std::fmt::Display for AttachmentUploadError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self { 
+                AttachmentUploadError::CantConstructRequest(uri, err) => write!(f, "Cannot construct initial request for an attachment ID - tried to make a request to {}, got error: {}", uri, err),
+                AttachmentUploadError::AttachmentIdNetworkErr(err) => write!(f, "Initial request for attachment ID errored: {}",err),
+            }
+        }
+    }
+    impl std::error::Error for AttachmentUploadError {}
+
+    //fn guess_ciphertext_length(plaintext_length: usize) -> usize { (((plaintext_length / 16) +1) * 16) + 32 }
+
+    fn get_padded_size(initial_size: usize) -> usize {
+        std::cmp::max(541, (
+            //Do not ask me why this is the math. I'm replicating the math from libsignal-service-java's PaddingInputStream,
+            //to stay consistent.
+            //This uses Java's Math.log - which appears to be a natural logarithm.
+            (
+                (initial_size as f64).ln() / 1.05_f64.ln()
+            ).ceil()
+            .powf(1.05_f64)
+        ).floor() as usize)
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct PreparedAttachment {
+        pub attachment_key: [u8;32],
+        pub digest_key: [u8;32],
+        pub filename: String,
+        data: Vec<u8>,
+        pub unpadded_size: usize,
+    }
+
+    pub fn encrypt_attachment<R: CryptoRng + Rng + RngCore>(filename: &str, attachment: &[u8], rng: &mut R) -> std::result::Result<PreparedAttachment, AttachmentEncryptError> {
+        
+        let unpadded_size = attachment.len();
+
+        //Set up ciphers and such
+        let attachment_key: [u8;32] = rng.gen();
+        let digest_key_bytes: [u8;32] = rng.gen();
+
+        let iv: [u8; 16] = rng.gen(); //Initialization vector / nonce.
+
+        let padded_length = get_padded_size(attachment.len());
+
+        //Assert we're not attempting to create a negative amount of padding.  
+        assert!( padded_length >= attachment.len());
+
+        let mut padded_plaintext: Vec<u8> = Vec::with_capacity(padded_length);
+        padded_plaintext[0..attachment.len()].copy_from_slice(&attachment);
+
+        let mime_type_guess = mime_guess::from_path(filename);
+        let mime = mime_type_guess.first_or_octet_stream();
+        let mime_name = mime.essence_str();
+
+        debug!("Guessed MIME type {} for {}", mime_name, filename);
+
+        let cipher = AttachmentCipher::new_from_slices(&attachment_key, &iv)
+            .map_err(|e| AttachmentEncryptError::CantConstructCipher(filename.to_string(), format!("{:?}", e)))?;
+
+        let digest_key = hmac::Key::new(hmac::HMAC_SHA256, &digest_key_bytes);
+        let mut digest: hmac::Context = hmac::Context::with_key(&digest_key);
+
+        //Actually write our data.
+        let mut output: Vec<u8> = Vec::default();
+
+        //You start by writing the IV - see line 241 in this file, in decrypt()
+        output.extend_from_slice(&iv);
+        digest.update(&iv);
+
+        let ciphertext = cipher.encrypt_vec(attachment);
+        //Mac is updated from ciphertext, not plaintext.
+        output.extend_from_slice(&ciphertext);
+        digest.update(&ciphertext);
+
+        let signature = digest.sign();
+        //Write the tag after our ciphertext.
+        output.extend_from_slice(&signature.as_ref());
+
+        Ok(PreparedAttachment {
+            filename: filename.to_string(),
+            data: output,
+            unpadded_size,
+            attachment_key,
+            digest_key: digest_key_bytes,
+        })
+    }
+
+    // "Reserve an ID for me, I am going to start an upload" with a reply of "Okay, here's your ID," basically.
+    /// Ask the server for a set of pre-attachment-upload information that will be used to upload an attachment
+    pub async fn request_attachment_token<H: AuxinHttpsConnection>(http_client: H, cdn_address: &str, auth: (&str, &str)) -> std::result::Result<(), AttachmentUploadError> { 
+        let req_addr = format!("{}/{}", cdn_address, super::ATTACHMENT_UPLOAD_START_PATH);
+
+        let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
+                            .header(auth.0, auth.1)
+                            .header("X-Signal-Agent", crate::net::X_SIGNAL_AGENT)
+                            .header("User-Agent", crate::net::USER_AGENT)
+                            .body(Vec::default())
+                            .map_err(|e| AttachmentUploadError::CantConstructRequest(req_addr.clone(), format!("{:?}", e)))?;
+        let response = http_client.request(request).await
+            .map_err(|e| AttachmentUploadError::AttachmentIdNetworkErr(format!("{:?}", e)))?;
+
+
+		let (parts, body) = response.into_parts();
+
+        let body = String::from_utf8_lossy(&body);
+
+        debug!("Received response with headers {:?} and body {}", &parts, &body);
+        Ok(())
+    }
+
+    pub fn upload_attachment<H: AuxinHttpsConnection>(attachment: PreparedAttachment, http_client: H, cdn_address: &str) {
+        let upload_address = format!("{}/attachments/", cdn_address);
     }
 }

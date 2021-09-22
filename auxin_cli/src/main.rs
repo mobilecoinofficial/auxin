@@ -202,6 +202,8 @@ pub async fn main() -> Result<()> {
 		futures::future::try_join_all(pending_downloads.into_iter()).await?;
 	}
 
+	app.request_attachment_id().await?;
+
 	if let Some(_) = args.subcommand_matches("echoserver") {
 		let mut exit = false;
 		// Ugly hack to get around the multiple ways the borrow checker doesn't recognize what we're trying to do.
