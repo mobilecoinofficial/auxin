@@ -8,7 +8,7 @@ COPY auxin_protos/Cargo* ./auxin_protos/
 COPY auxin_cli/Cargo* ./auxin_cli/
 # write something so it can compile deps. bash is needed for globs
 RUN bash -c "mkdir -p auxin{,_protos,_cli}/src  \
-    && echo 'fn main() { println!("h"); }' | tee auxin{,_protos,_cli}/src/main.rs"
+    && echo 'fn main() { println!(\"h\"); }' | tee auxin{,_protos,_cli}/src/main.rs"
 RUN cargo build --release 
 # release with our actual code
 RUN bash -c "rm auxin{,_protos,_cli}/src/main.rs target/release/deps/auxin*"
