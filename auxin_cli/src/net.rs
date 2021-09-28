@@ -188,6 +188,14 @@ impl AuxinHttpsConnection for AuxinHyperConnection {
 			.try_flatten();
 		Box::pin(fut)
 	}
+
+	fn multipart_request(
+			&self,
+			req: MultipartRequest,
+	) -> ResponseFuture<Self::Error> {
+		let (parts, body) = req.into_parts();
+        todo!()
+    }
 }
 
 pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;

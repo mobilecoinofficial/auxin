@@ -1,6 +1,7 @@
 use aes_gcm::aes::Aes256;
 use block_modes::Cbc;
 use block_padding::Pkcs7;
+use serde;
 
 // NOTE: According to Wikipedia, 
 // "PKCS#5 padding is identical to PKCS#7 padding, except that it has only been 
@@ -9,7 +10,7 @@ use block_padding::Pkcs7;
 
 pub const UNNAMED_ATTACHMENT_PREFIX: &str = "unnamed_attachment_";
 
-pub const ATTACHMENT_UPLOAD_START_PATH: &str = "v2/attachments/form/upload";
+pub const ATTACHMENT_UPLOAD_START_PATH: &str = "https://textsecure-service.whispersystems.org/v2/attachments/form/upload";
 
 type AttachmentCipher = Cbc<Aes256, Pkcs7>;
 
@@ -342,6 +343,10 @@ pub mod upload {
     use block_modes::BlockMode;
     use ring::hmac::{self};
 
+    use serde::{
+        Deserialize, Serialize,
+    };
+
     use crate::net::AuxinHttpsConnection;
 
     use super::AttachmentCipher;
@@ -456,10 +461,32 @@ pub mod upload {
         })
     }
 
+
+    /// A ticket received in response to a GET request to https://textsecure-service.whispersystems.org/v2/attachments/form/upload
+    /// This will include everyting you need to send the cdn an attachment it won't reject. 
+    #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PreUploadToken { 
+        pub key: String,
+        //I got: "<16 capital-alphanumerics>/<date in YYYYMMDD>/us-east-1/s3/aws4_request"
+        pub credential: String,
+        // "private"
+        pub acl: String,
+        // "AWS4-HMAC-SHA256"
+        pub algorithm: String,
+        pub date: String,
+        //Still alphanumerics, capital and lowercase.
+        pub policy: String,
+        //Also alphanumerics, but lowercase-only for me
+        pub signature: String,
+        pub attachment_id: u64,
+        pub attachment_id_string:String,
+    }
+
     // "Reserve an ID for me, I am going to start an upload" with a reply of "Okay, here's your ID," basically.
     /// Ask the server for a set of pre-attachment-upload information that will be used to upload an attachment
-    pub async fn request_attachment_token<H: AuxinHttpsConnection>(http_client: H, cdn_address: &str, auth: (&str, &str)) -> std::result::Result<(), AttachmentUploadError> { 
-        let req_addr = format!("{}/{}", cdn_address, super::ATTACHMENT_UPLOAD_START_PATH);
+    pub async fn request_attachment_token<H: AuxinHttpsConnection>(http_client: H, auth: (&str, &str)) -> std::result::Result<(), AttachmentUploadError> { 
+        let req_addr = super::ATTACHMENT_UPLOAD_START_PATH.to_string();
 
         let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
                             .header(auth.0, auth.1)

@@ -947,8 +947,7 @@ where
 
 		let auth = self.context.identity.make_auth_header();
 
-		attachment::upload::request_attachment_token(self.http_client.clone(), 
-														SIGNAL_CDN, 
+		attachment::upload::request_attachment_token(self.http_client.clone(),
 														("Authorization", auth.as_str()) ).await
 	}
 

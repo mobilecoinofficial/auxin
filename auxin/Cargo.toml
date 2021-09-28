@@ -12,11 +12,6 @@ std-mutex = []
 [lib]
 crate-type = [ "rlib" ]
 
-
-[patch.crates-io]
-# Required by Mobilecoin API 
-schnorrkel-og = { package = "schnorrkel", git = "https://github.com/mobilecoinfoundation/schnorrkel.git", rev = "9b48418556b0af476be2313309bc5a23fb8b351d" }
-
 [dependencies]
 #Internal dependency - protocol buffers for our application. 
 auxin_protos = { path = "../auxin_protos" }
