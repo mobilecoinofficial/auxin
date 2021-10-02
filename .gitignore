@@ -21,4 +21,6 @@ launch.json
 papyrus.*.crash-report
 
 #Attachments downloaded
-downloads/ 
+downloads/
+
+/auxin_protos/src/protos/*.rs

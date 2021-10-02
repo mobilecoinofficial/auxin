@@ -136,7 +136,7 @@ pub async fn main() -> Result<()> {
 		.init()
 		.unwrap();
 
-	let base_dir = "state/data/";
+	let base_dir = "state/data";
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
 	let state = crate::state::StateManager::new(base_dir);
