@@ -1,7 +1,6 @@
 use aes_gcm::aes::Aes256;
 use block_modes::Cbc;
 use block_padding::Pkcs7;
-use serde;
 
 // NOTE: According to Wikipedia, 
 // "PKCS#5 padding is identical to PKCS#7 padding, except that it has only been 
@@ -371,6 +370,7 @@ pub mod upload {
     pub enum AttachmentUploadError { 
         CantConstructRequest(String,String),
         AttachmentIdNetworkErr(String),
+        CantDeserializePreUploadToken(String),
     }
 
     impl std::fmt::Display for AttachmentUploadError {
@@ -378,6 +378,7 @@ pub mod upload {
             match self { 
                 AttachmentUploadError::CantConstructRequest(uri, err) => write!(f, "Cannot construct initial request for an attachment ID - tried to make a request to {}, got error: {}", uri, err),
                 AttachmentUploadError::AttachmentIdNetworkErr(err) => write!(f, "Initial request for attachment ID errored: {}",err),
+                AttachmentUploadError::CantDeserializePreUploadToken(err) => write!(f, "Deserializing the response to an initial request for an attachment ID failed: {}",err),
             }
         }
     }
@@ -466,7 +467,7 @@ pub mod upload {
     /// This will include everyting you need to send the cdn an attachment it won't reject. 
     #[derive(Serialize, Deserialize, Debug, Clone, Default)]
     #[serde(rename_all = "camelCase")]
-    pub struct PreUploadToken { 
+    pub struct PreUploadToken {
         pub key: String,
         //I got: "<16 capital-alphanumerics>/<date in YYYYMMDD>/us-east-1/s3/aws4_request"
         pub credential: String,
@@ -485,7 +486,7 @@ pub mod upload {
 
     // "Reserve an ID for me, I am going to start an upload" with a reply of "Okay, here's your ID," basically.
     /// Ask the server for a set of pre-attachment-upload information that will be used to upload an attachment
-    pub async fn request_attachment_token<H: AuxinHttpsConnection>(http_client: H, auth: (&str, &str)) -> std::result::Result<(), AttachmentUploadError> { 
+    pub async fn request_attachment_token<H: AuxinHttpsConnection>(http_client: H, auth: (&str, &str)) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
         let req_addr = super::ATTACHMENT_UPLOAD_START_PATH.to_string();
 
         let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
@@ -498,12 +499,14 @@ pub mod upload {
             .map_err(|e| AttachmentUploadError::AttachmentIdNetworkErr(format!("{:?}", e)))?;
 
 
-		let (parts, body) = response.into_parts();
+		let (_parts, body) = response.into_parts();
 
         let body = String::from_utf8_lossy(&body);
 
-        debug!("Received response with headers {:?} and body {}", &parts, &body);
-        Ok(())
+        //debug!("Received response with headers {:?} and body {}", &parts, &body);
+        let result: PreUploadToken = serde_json::from_str(&body)
+            .map_err(|e| AttachmentUploadError::CantDeserializePreUploadToken(format!("{:?}", e)))?;
+        Ok(result)
     }
 
     pub fn upload_attachment<H: AuxinHttpsConnection>(attachment: PreparedAttachment, http_client: H, cdn_address: &str) {

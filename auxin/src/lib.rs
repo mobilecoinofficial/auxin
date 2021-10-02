@@ -7,7 +7,7 @@ use aes_gcm::{
 	aead::{Aead, NewAead},
 	Aes256Gcm, Nonce,
 };
-use attachment::{download::{self, AttachmentDownloadError}, upload::AttachmentUploadError};
+use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentUploadError, PreUploadToken}};
 use auxin_protos::AttachmentPointer;
 use custom_error::custom_error;
 use futures::{TryFutureExt};
@@ -943,7 +943,7 @@ where
 		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), SIGNAL_CDN).await
 	}
 
-	pub async fn request_attachment_id(&self) -> std::result::Result<(), AttachmentUploadError> { 
+	pub async fn request_attachment_id(&self) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
 
 		let auth = self.context.identity.make_auth_header();
 

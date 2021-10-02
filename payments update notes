@@ -1,0 +1,20 @@
+getSelfPaymentsAddressProtobuf(),
+
+ProfileCipher and ProfileUtil
+
+getSelfPaymentsAddressProtobuf() calls into MobileCoinPublicAddressProfileUtil.signPaymentsAddress(publicAddress.serialize(), identityKeyPair);
+
+I can paste it verbatim: 
+  private static @Nullable SignalServiceProtos.PaymentAddress getSelfPaymentsAddressProtobuf() {
+    if (!SignalStore.paymentsValues().mobileCoinPaymentsEnabled()) {
+      return null;
+    } else {
+      IdentityKeyPair         identityKeyPair = IdentityKeyUtil.getIdentityKeyPair(ApplicationDependencies.getApplication());
+      MobileCoinPublicAddress publicAddress   = ApplicationDependencies.getPayments()
+                                                                       .getWallet()
+                                                                       .getMobileCoinPublicAddress();
+
+      return MobileCoinPublicAddressProfileUtil.signPaymentsAddress(publicAddress.serialize(), identityKeyPair);
+    }
+  }
+
