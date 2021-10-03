@@ -32,7 +32,6 @@ pub mod attachment;
 pub mod discovery;
 pub mod message;
 pub mod net;
-pub mod profile;
 pub mod receiver;
 pub mod state;
 
