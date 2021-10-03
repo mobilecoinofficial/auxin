@@ -12,6 +12,9 @@ auxin = { path = "../auxin" }
 
 uuid = {version="0.8.2", features=["serde", "v4"]}
 
+tracing = "0.1"
+tracing-subscriber = "0.2.0"
+tracing-futures = {version = "0.2.5", tokio = true, futures-03 = true}
 simple_logger = "1.13.0"
 log = "0.4.14"
 
