@@ -8,7 +8,7 @@ use aes_gcm::{
 	Aes256Gcm, Nonce,
 };
 use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentUploadError, PreUploadToken}};
-use auxin_protos::AttachmentPointer;
+use auxin_protos::{AttachmentPointer, Envelope};
 use custom_error::custom_error;
 use futures::{TryFutureExt};
 use libsignal_protocol::{
@@ -17,7 +17,7 @@ use libsignal_protocol::{
 	ProtocolAddress, PublicKey, SenderCertificate,
 };
 use log::{debug, error};
-use message::MessageOut;
+use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
 use serde_json::json;
 use std::{fmt::Debug};
@@ -108,10 +108,8 @@ impl LocalIdentity {
 	/// B64PWD is our base64-encoded password. It used to require NUMBER=E164 phone number but this has been changed.
 	/// NOTE: Discovery requests will require a different user-ID and password, which is retrieved with a GET request to https://textsecure-service.whispersystems.org/v1/directory/auth
 	pub fn make_auth_header(&self) -> String {
-		let mut our_auth_value = String::default();
-		our_auth_value.push_str(&self.address.address.get_uuid().unwrap().to_string());
-		our_auth_value.push_str(":");
-		our_auth_value.push_str(&self.password);
+		
+		let our_auth_value = format!("{}.{}:{}",&self.address.address.get_uuid().unwrap().to_string(), self.address.device_id, &self.password);
 
 		let b64_auth = base64::encode(our_auth_value);
 
@@ -955,6 +953,25 @@ where
 	}
 	pub fn get_http_client_mut(&mut self) -> &mut N::C {
 		return &mut self.http_client;
+	}
+
+	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
+	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
+	pub async fn handle_inbound_envelope(&mut self, envelope: Envelope) -> std::result::Result<Option<MessageIn>, MessageInError> { 
+		Ok(match envelope.get_field_type() {
+			auxin_protos::Envelope_Type::UNKNOWN => {
+				return Err(MessageInError::DecodingProblem(format!(
+					"Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",
+					envelope
+				)));
+			}
+			auxin_protos::Envelope_Type::CIPHERTEXT => Some(MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng).await?),
+			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
+			auxin_protos::Envelope_Type::PREKEY_BUNDLE => todo!(),
+			auxin_protos::Envelope_Type::RECEIPT => Some(MessageIn::from_receipt(envelope, &mut self.context).await?),
+			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER =>  Some(MessageIn::from_sealed_sender(envelope, &mut self.context).await?),
+			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
+		})
 	}
 }
 

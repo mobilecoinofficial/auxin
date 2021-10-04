@@ -7,10 +7,18 @@ use std::{
 	pin::Pin,
 };
 
+use crate::message::fix_protobuf_buf;
 use crate::{message::{MessageIn, MessageInError, MessageOut}, state::AuxinStateManager};
 use crate::net::{AuxinNetManager, AuxinWebsocketConnection};
 use crate::AuxinApp; 
 use crate::address::AuxinAddress;
+
+// (Try to) read a raw byte buffer as a Signal Envelope protobuf.
+pub fn read_envelope_from_bin(buf: &[u8]) -> crate::Result<auxin_protos::Envelope> {
+	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
+	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
+	Ok(reader.read_message()?)
+}
 
 #[derive(Debug)]
 pub enum ReceiveError {
@@ -20,8 +28,10 @@ pub enum ReceiveError {
 	StoreStateError(String),
 	ReconnectErr(String),
 	AttachmentErr(String),
+	DeserializeErr(String),
 	UnknownWebsocketTy,
 }
+
 impl std::fmt::Display for ReceiveError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match self {
@@ -44,6 +54,7 @@ impl std::fmt::Display for ReceiveError {
 				write!(f, "Error while attempting to retrieve attachment: {:?}", e)
 			}
 			Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
+			Self::DeserializeErr(e) => write!(f, "Failed to deserialize incoming message: {:?}", e),
 		}
 	}
 }
@@ -154,14 +165,14 @@ where
 			auxin_protos::WebSocketMessage_Type::REQUEST => {
 				let req = wsmessage.get_request();
 
+				let envelope = read_envelope_from_bin(req.get_body())
+					.map_err(|e| ReceiveError::DeserializeErr(format!("{:?}", e)))?;
+
+				let maybe_a_message = self.app.handle_inbound_envelope(envelope).await;
+				//.map_err(|e| ReceiveError::InError(e))?;
+
 				// Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
-				let msg = match MessageIn::decode_envelope_bin(
-					req.get_body(),
-					&mut self.app.context,
-					&mut self.app.rng,
-				)
-				.await
-				{
+				let msg = match maybe_a_message {
 					Err(MessageInError::ProtocolError(e)) => {
 						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
 						None
@@ -173,7 +184,9 @@ where
 					Err(e) => {
 						return Err(e.into());
 					}
-					Ok(m) => Some(m),
+					Ok(m) => m,
+					//It's okay that this can return None, because next() will continue to poll on a None return from this method, and try getting more messages.
+					//"None" returns from handle_inbound_envelope() imply messages meant for the protocol rather than the end-user.
 				};
 
 				//This will at least acknowledge to WebSocket that we have received this message.

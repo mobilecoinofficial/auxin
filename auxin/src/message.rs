@@ -9,7 +9,7 @@ use crate::{
 	state::PeerStore,
 	AuxinContext, ProfileKey, Result,
 };
-use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope};
+use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope, Envelope_Type};
 use custom_error::custom_error;
 use libsignal_protocol::{
 	message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt,
@@ -293,13 +293,6 @@ pub fn fix_protobuf_buf(buf: &Vec<u8>) -> Result<Vec<u8>> {
 
 /// (Try to) read a raw byte buffer as a Signal Websocketmessage protobuf.
 pub fn read_wsmessage_from_bin(buf: &[u8]) -> Result<auxin_protos::WebSocketMessage> {
-	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
-	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
-	Ok(reader.read_message()?)
-}
-
-// (Try to) read a raw byte buffer as a Signal Envelope protobuf.
-pub fn read_envelope_from_bin(buf: &[u8]) -> Result<auxin_protos::Envelope> {
 	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
 	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
 	Ok(reader.read_message()?)
@@ -760,11 +753,12 @@ impl MessageIn {
 		Ok(())
 	}
 
-	pub async fn decode_envelope<R: RngCore + CryptoRng>(
+	pub async fn from_ciphertext_message<R: RngCore + CryptoRng>(
 		envelope: Envelope,
 		context: &mut AuxinContext,
 		rng: &mut R,
 	) -> std::result::Result<MessageIn, MessageInError> {
+		assert_eq!(envelope.get_field_type(), Envelope_Type::CIPHERTEXT);
 		debug!(
 			"Decoding envelope from source: (E164: {}, UUID: {})",
 			envelope.get_sourceE164(),
@@ -780,67 +774,83 @@ impl MessageIn {
 				.unwrap_or(a.address.clone());
 			new_addr
 		});
-		Ok(match envelope.get_field_type() {
-			auxin_protos::Envelope_Type::UNKNOWN => {
-				return Err(MessageInError::DecodingProblem(format!(
-					"Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",
-					envelope
-				)));
-			}
-			auxin_protos::Envelope_Type::CIPHERTEXT => {
-				let remote_address = remote_address.unwrap();
-				let signal_message = SignalMessage::try_from(envelope.get_content())?;
-				let ciph = CiphertextMessage::SignalMessage(signal_message);
-				let decrypted = decrypt_ciphertext(&ciph, context, rng, &remote_address).await?;
 
-				Self::update_profile_key_from(&decrypted, &remote_address.address, context)?;
+		let remote_address = remote_address.unwrap();
 
-				MessageIn {
-					content: MessageContent::try_from(decrypted)?,
-					remote_address,
-					timestamp: envelope.get_timestamp(),
-					timestamp_received: generate_timestamp(), //Keep track of when we got it.
-					server_guid: envelope.get_serverGuid().to_string(),
-				}
-			}
-			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
-			auxin_protos::Envelope_Type::PREKEY_BUNDLE => todo!(),
-			auxin_protos::Envelope_Type::RECEIPT => {
-				let remote_address = remote_address.unwrap();
-				MessageIn {
-					content: MessageContent {
-						receipt_message: Some((
-							ReceiptMode::DELIVERY,
-							vec![envelope.get_timestamp()],
-						)),
-						text_message: None,
-						source: None,
-						quote: None,
-						attachments: Vec::default(),
-					},
-					remote_address: remote_address,
-					timestamp: envelope.get_timestamp(),
-					timestamp_received: generate_timestamp(), //Keep track of when we got it.
-					server_guid: envelope.get_serverGuid().to_string(),
-				}
-			}
-			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => {
-				// Decrypt the sealed sender message and also unpad the
-				let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;
+		let signal_message = SignalMessage::try_from(envelope.get_content())?;
+		let ciph = CiphertextMessage::SignalMessage(signal_message);
+		let decrypted = decrypt_ciphertext(&ciph, context, rng, &remote_address).await?;
 
-				MessageIn {
-					content: MessageContent::try_from(content)?,
-					remote_address: sender,
-					timestamp: envelope.get_timestamp(),
-					timestamp_received: generate_timestamp(), //Keep track of when we got it.
-					server_guid: envelope.get_serverGuid().to_string(),
-				}
-			}
-			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
+		Self::update_profile_key_from(&decrypted, &remote_address.address, context)?;
+
+		Ok(MessageIn {
+			content: MessageContent::try_from(decrypted)?,
+			remote_address,
+			timestamp: envelope.get_timestamp(),
+			timestamp_received: generate_timestamp(), //Keep track of when we got it.
+			server_guid: envelope.get_serverGuid().to_string(),
 		})
 	}
 
-	pub async fn decode_envelope_bin<R: RngCore + CryptoRng>(
+	pub async fn from_sealed_sender(
+		envelope: Envelope,
+		context: &mut AuxinContext
+	) -> std::result::Result<MessageIn, MessageInError> {
+		assert_eq!(envelope.get_field_type(), Envelope_Type::UNIDENTIFIED_SENDER);
+
+		// Decrypt the sealed sender message and also unpad its data
+		let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;
+
+		Ok(MessageIn {
+			content: MessageContent::try_from(content)?,
+			remote_address: sender,
+			timestamp: envelope.get_timestamp(),
+			timestamp_received: generate_timestamp(), //Keep track of when we got it.
+			server_guid: envelope.get_serverGuid().to_string(),
+		})
+	}
+
+	pub async fn from_receipt(
+		envelope: Envelope,
+		context: &mut AuxinContext
+	) -> std::result::Result<MessageIn, MessageInError> {
+		assert_eq!(envelope.get_field_type(), Envelope_Type::RECEIPT);
+		debug!(
+			"Decoding envelope from source: (E164: {}, UUID: {})",
+			envelope.get_sourceE164(),
+			envelope.get_sourceUuid()
+		);
+		// Build our remote address if this is not a sealed sender message.
+		let remote_address = address_from_envelope(&envelope);
+		let remote_address = remote_address.map(|a| {
+			let mut new_addr = a.clone();
+			new_addr.address = context
+				.peer_cache
+				.complete_address(&a.address)
+				.unwrap_or(a.address.clone());
+			new_addr
+		});
+
+		let remote_address = remote_address.unwrap();
+		Ok(MessageIn {
+			content: MessageContent {
+				receipt_message: Some((
+					ReceiptMode::DELIVERY,
+					vec![envelope.get_timestamp()],
+				)),
+				text_message: None,
+				source: None,
+				quote: None,
+				attachments: Vec::default(),
+			},
+			remote_address: remote_address,
+			timestamp: envelope.get_timestamp(),
+			timestamp_received: generate_timestamp(), //Keep track of when we got it.
+			server_guid: envelope.get_serverGuid().to_string(),
+		})
+	}
+
+	/*pub async fn decode_envelope_bin<R: RngCore + CryptoRng>(
 		bin: &[u8],
 		context: &mut AuxinContext,
 		rng: &mut R,
@@ -848,7 +858,7 @@ impl MessageIn {
 		let envelope = read_envelope_from_bin(bin)
 			.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 		MessageIn::decode_envelope(envelope, context, rng).await
-	}
+	}*/
 
 	pub fn needs_receipt(&self) -> bool {
 		// TODO: Evaluate if Receipt Messages are ever delivered alongside anything else in the same envelope.

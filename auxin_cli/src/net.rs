@@ -75,6 +75,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
 			.to_string()
 			.as_str(),
 	);
+	filled_uri.push_str(format!(".{}", local_identity.address.device_id).as_str()); // Device ID 
 	filled_uri.push_str("&password=");
 	filled_uri.push_str(&local_identity.password);
 
