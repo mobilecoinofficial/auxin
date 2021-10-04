@@ -11,8 +11,11 @@ use auxin::state::AuxinStateManager;
 use auxin::Result;
 use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
 use auxin_protos::AttachmentPointer;
-use log::info;
 use rand::rngs::OsRng;
+
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
+use tracing_futures::Instrument;
 
 use clap::{Arg, SubCommand};
 
@@ -73,8 +76,17 @@ pub fn launch_repl(app: &mut AuxinApp<OsRng, NetManager, StateManager>) -> Resul
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<()> {
+    let subscriber = FmtSubscriber::builder()
+    // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+    // will be written to stdout.
+    .with_max_level(Level::TRACE)
+    // completes the builder.
+    .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
 	const AUTHOR_STR: &str = "Millie C. <gyrocoder@gmail.com>";
 	const VERSION_STR: &str = "PRE-RELEASE DO NOT USE";
 
@@ -136,7 +148,7 @@ pub async fn main() -> Result<()> {
 		.init()
 		.unwrap();
 
-	let base_dir = "state/data/";
+	let base_dir = "state/data";
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
 	let state = crate::state::StateManager::new(base_dir);
@@ -148,6 +160,7 @@ pub async fn main() -> Result<()> {
 		state,
 		OsRng::default(),
 	)
+    .instrument(tracing::info_span!("AuxinApp"))
 	.await
 	.unwrap();
 
