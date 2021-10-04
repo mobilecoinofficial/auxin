@@ -1,11 +1,12 @@
 FROM rust:latest as libbuilder
 WORKDIR /app/auxin
-RUN rustup update nightly
+RUN rustup update nightly && rustup default nightly
 # copy in our deps
 COPY Cargo* ./
 COPY auxin/Cargo* ./auxin/
 COPY auxin_protos/Cargo* ./auxin_protos/
 COPY auxin_cli/Cargo* ./auxin_cli/
+COPY rust-toolchain ./
 # write something so it can compile deps. bash is needed for globs
 RUN bash -c "mkdir -p auxin{,_protos,_cli}/src  \
     && echo 'fn main() { println!(\"h\"); }' | tee auxin{,_protos,_cli}/src/main.rs"
