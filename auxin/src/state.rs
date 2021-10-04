@@ -143,7 +143,8 @@ impl ForeignPeerProfile {
 #[serde(rename_all = "camelCase")]
 pub struct PeerRecord {
 	pub id: u64,
-	pub number: String,
+	///Phone number.
+	pub number: Option<String>,
 	pub uuid: Option<uuid::Uuid>,
 	pub profile_key: Option<String>,
 	pub profile_key_credential: Option<String>,
@@ -181,9 +182,19 @@ impl PartialOrd for PeerRecord {
 
 impl PartialEq for PeerRecord {
 	fn eq(&self, other: &Self) -> bool {
-		self.id == other.id
-			&& self.number.eq_ignore_ascii_case(other.number.as_str())
-			&& self.uuid == other.uuid
+		if self.number.is_some() && other.number.is_some() {
+			self.id == other.id
+			   && self.number.eq(&other.number)
+			   && self.uuid == other.uuid
+		}
+		else if self.number.is_none() && other.number.is_none() { 
+			//Don't bother checking phone number.
+			self.id == other.id
+			   && self.uuid == other.uuid
+		}
+		else { 
+			false
+		}
 	}
 }
 
@@ -192,9 +203,19 @@ impl Eq for PeerRecord {}
 impl From<&PeerRecord> for AuxinAddress {
 	fn from(val: &PeerRecord) -> Self {
 		if let Some(uuid) = &val.uuid {
-			AuxinAddress::Both(val.number.clone(), uuid.clone())
+			if let Some(number) = &val.number { 
+				AuxinAddress::Both(number.clone(), uuid.clone())
+			}
+			else {
+				AuxinAddress::Uuid(uuid.clone())
+			}
 		} else {
-			AuxinAddress::Phone(val.number.clone())
+			if let Some(number) = &val.number { 
+				AuxinAddress::Phone(number.clone())
+			}
+			else {
+				panic!("Attempted to construct an AuxinAddress from a peer record with no phone number and no UUID. It should not be possible to have a peer record with no phone number and no UUID.")
+			}
 		}
 	}
 }
@@ -265,7 +286,13 @@ impl PeerStore for PeerRecordStructure {
 	fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord> {
 		self.peers
 			.iter()
-			.find(|i| i.number.eq_ignore_ascii_case(phone_number))
+			.find(|i| {
+				if let Some(number) = &i.number { 
+					number.eq_ignore_ascii_case(&phone_number)
+				} else {
+					false
+				}
+			})
 	}
 	fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord> {
 		self.peers.iter().find(|i| {
@@ -279,7 +306,13 @@ impl PeerStore for PeerRecordStructure {
 	fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord> {
 		self.peers
 			.iter_mut()
-			.find(|i| i.number.eq_ignore_ascii_case(phone_number))
+			.find(|i| {
+				if let Some(number) = &i.number { 
+					number.eq_ignore_ascii_case(&phone_number)
+				} else {
+					false
+				}
+			})
 	}
 	fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord> {
 		self.peers.iter_mut().find(|i| {
@@ -315,13 +348,19 @@ impl PeerStore for PeerRecordStructure {
 			Some(AuxinAddress::Phone(phone_number)) => self.get_by_number_mut(&phone_number),
 			Some(AuxinAddress::Uuid(peer_uuid)) => self.get_by_uuid_mut(&peer_uuid),
 			Some(AuxinAddress::Both(phone_number, peer_uuid)) => self.peers.iter_mut().find(|i| {
-				i.number.eq_ignore_ascii_case(&phone_number) || {
-					if i.uuid.is_some() {
-						i.uuid.unwrap() == peer_uuid
+				let uuid_flag = if i.uuid.is_some() {
+					i.uuid.unwrap() == peer_uuid
+				} else {
+					false
+				};
+				let phone_flag = {
+					if let Some(phone) = &i.number {
+						phone.eq_ignore_ascii_case(&phone_number)
 					} else {
 						false
 					}
-				}
+				};
+				uuid_flag || phone_flag
 			}),
 			None => None,
 		}
@@ -467,7 +506,7 @@ pub trait AuxinStateManager {
 	/// Save the entire InMemSessionStore from this AuxinContext to wherever state is held
 	fn save_all_sessions(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		for peer in context.peer_cache.peers.iter() {
-			let address = AuxinAddress::Phone(peer.number.clone());
+			let address = AuxinAddress::from(peer);
 			self.save_peer_sessions(&address, &context)?;
 		}
 		Ok(())

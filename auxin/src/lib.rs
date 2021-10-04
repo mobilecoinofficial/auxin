@@ -575,7 +575,7 @@ where
 		// TODO: Retrieve device IDs and such.
 		let peer_record = PeerRecord {
 			id: new_id,
-			number: recipient_phone.clone(),
+			number: Some(recipient_phone.clone()),
 			uuid: Some(uuid),
 			profile_key: None,
 			profile_key_credential: None,

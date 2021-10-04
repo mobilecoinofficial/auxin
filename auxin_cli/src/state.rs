@@ -201,12 +201,14 @@ pub async fn load_known_peers(
 			let decoded_key: Vec<u8> = base64::decode(&peer_identity.identity_key)?;
 			let id_key = IdentityKey::decode(decoded_key.as_slice())?;
 			for i in recip.device_ids_used.iter() {
-				if recip.uuid.is_some() {
-					let addr = ProtocolAddress::new(recip.uuid.unwrap().to_string(), *i);
+				if let Some(uuid) =  &recip.uuid {
+					let addr = ProtocolAddress::new(uuid.to_string(), *i);
 					identity_store.save_identity(&addr, &id_key, ctx);
 				}
-				let addr = ProtocolAddress::new(recip.number.clone(), *i);
-				identity_store.save_identity(&addr, &id_key, ctx);
+				if let Some(number) = &recip.number {
+					let addr = ProtocolAddress::new(number.clone(), *i);
+					identity_store.save_identity(&addr, &id_key, ctx);
+				}
 			}
 			recip.identity = Some(peer_identity);
 		}
@@ -324,7 +326,7 @@ pub async fn load_sessions(
 						.await?;
 				} else {
 					warn!(
-						"No UUID for {}, cannot use existing session file.",
+						"No UUID for {:?}, cannot use existing session file.",
 						&recip.number
 					);
 				}
@@ -481,7 +483,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 			if let Some(uuid) = r.uuid {
 				addresses.push((r.id, ProtocolAddress::new(uuid.to_string(), *i)));
 			} else {
-				warn!("No UUID for {}, cannot write sessions.", &r.number);
+				warn!("No UUID for {:?}, cannot write sessions.", &r.number);
 			}
 		}
 	}
@@ -673,7 +675,7 @@ impl AuxinStateManager for StateManager {
 				drop(file);
 			} else {
 				warn!(
-					"No UUID for {}, cannot write sessions.",
+					"No UUID for {:?}, cannot write sessions.",
 					&peer_record.number
 				);
 			}
