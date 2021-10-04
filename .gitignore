@@ -16,3 +16,11 @@ Cargo.lock
 # VSCode stuff 
 /.vscode/
 launch.json
+
+#REPL stuff 
+papyrus.*.crash-report
+
+#Attachments downloaded
+downloads/
+
+/auxin_protos/src/protos/*.rs
