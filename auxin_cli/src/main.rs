@@ -80,8 +80,8 @@ pub fn launch_repl(app: &mut AuxinApp<OsRng, NetManager, StateManager>) -> Resul
 pub async fn main() -> Result<()> {
     let subscriber = FmtSubscriber::builder()
     // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-    // will be written to stdout.
-    .with_max_level(Level::TRACE)
+    .with_writer(std::io::stderr)
+    .with_max_level(Level::ERROR)
     // completes the builder.
     .finish();
 
@@ -203,7 +203,7 @@ pub async fn main() -> Result<()> {
 				info!("Message received with text {}", msg);
 			}
 			let msg_json = serde_json::to_string_pretty(&msg).unwrap();
-			println!("[MESSAGE]");
+			//println!("[MESSAGE]");
 			println!("{}", msg_json);
 		}
 	}
