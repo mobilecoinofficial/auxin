@@ -145,6 +145,7 @@ pub async fn main() -> Result<()> {
 
 	simple_logger::SimpleLogger::new()
 		.with_level(log::LevelFilter::Debug)
+		.with_writer(std::io::stderr)
 		.init()
 		.unwrap();
 
