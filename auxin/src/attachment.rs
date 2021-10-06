@@ -421,7 +421,7 @@ pub mod upload {
 
         debug!("Padded length is {} and pre-padded length is {}", padded_length, attachment.len()); 
 
-        //Assert we're not attempting to create a negative amount of padding.  
+        //Assert we're not attempting to create a negative amount of padding.
         assert!( padded_length >= attachment.len());
 
         let mut padded_plaintext: Vec<u8> = vec![0; padded_length as usize];
@@ -531,7 +531,7 @@ pub mod upload {
 
         multipart_form.push(MultipartEntry::File{field_name: "file".to_string(), file_name: "file".to_string(), file: attachment.data.clone()});
 
-        let req_builder= http::request::Request::get(&upload_address)
+        let req_builder= http::request::Request::post(&upload_address)
                             .header(auth.0, auth.1)
                             .header("X-Signal-Agent", crate::net::X_SIGNAL_AGENT)
                             .header("User-Agent", crate::net::USER_AGENT);

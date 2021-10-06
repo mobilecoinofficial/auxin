@@ -1,6 +1,8 @@
 use core::fmt;
+use std::convert::TryFrom;
 use std::pin::Pin;
 
+use async_global_executor::block_on;
 use auxin::message::fix_protobuf_buf;
 use auxin::{net::*, LocalIdentity, SIGNAL_TLS_CERT};
 
@@ -209,7 +211,20 @@ impl AuxinHttpsConnection for AuxinHyperConnection {
 			}
 		}
 
-		let request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
+		//let request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
+		let mut request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
+		let (mut parts, body) = request.into_parts();
+
+		let bytes: Vec<u8> = block_on(hyper::body::to_bytes(body)).unwrap().into_iter().collect();
+
+		let size = bytes.len();
+
+		//let mut fixed_request: http::Request<Vec<u8>> = http::Request::from_parts(parts, bytes);
+
+		parts.headers.insert("Content-Length", http::HeaderValue::from(size));
+
+		let request: hyper::Request<hyper::Body> = hyper::Request::from_parts(parts, hyper::Body::try_from(bytes).unwrap());
+		
 		let fut = self.client.request(request)
 			.map_err(|e| SendAttemptError::CannotBuildMultipartRequest(format!("{:?}", e)))
 			.map_ok( move |res | { 

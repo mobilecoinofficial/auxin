@@ -249,7 +249,6 @@ pub async fn main() -> Result<()> {
 				let msg = msg.unwrap();
 
 				let msg_json = serde_json::to_string_pretty(&msg).unwrap();
-				println!("[MESSAGE]");
 				println!("{}", msg_json);
 
 				if let Some(st) = msg.content.text_message {
