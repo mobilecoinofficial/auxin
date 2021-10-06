@@ -7,7 +7,7 @@ use aes_gcm::{
 	aead::{Aead, NewAead},
 	Aes256Gcm, Nonce,
 };
-use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentUploadError, PreUploadToken}};
+use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment}};
 use auxin_protos::{AttachmentPointer, Envelope};
 use custom_error::custom_error;
 use futures::{TryFutureExt};
@@ -940,12 +940,15 @@ where
 		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), SIGNAL_CDN).await
 	}
 
-	pub async fn request_attachment_id(&self) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
-
+	pub async fn request_upload_id(&self) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
 		let auth = self.context.identity.make_auth_header();
+		attachment::upload::request_attachment_token(("Authorization", auth.as_str()), self.http_client.clone()).await
+	}
 
-		attachment::upload::request_attachment_token(self.http_client.clone(),
-														("Authorization", auth.as_str()) ).await
+	pub async fn upload_attachment(&self, upload_attributes: &PreUploadToken, attachment: &PreparedAttachment) -> std::result::Result<(), AttachmentUploadError> { 
+		let auth = self.context.identity.make_auth_header();
+		attachment::upload::upload_attachment(&upload_attributes, &attachment, ("Authorization", auth.as_str()), self.http_client.clone(), SIGNAL_CDN).await?;
+		Ok(())
 	}
 
 	pub fn get_http_client(&self) -> &N::C {
