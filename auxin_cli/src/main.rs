@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::convert::TryFrom;
+use log::debug;
 use tokio::time::{Duration};
 
 use auxin::address::AuxinAddress;
@@ -118,9 +119,17 @@ pub async fn main() -> Result<()> {
 								.short("m")
 								.long("message")
 								.value_name("MESSAGE_BODY")
-								.required(true)
+								.required(false)
 								.takes_value(true)
 								.help("Determines the message text we will send."))
+							.arg(Arg::with_name("ATTACHMENT")
+								.short("a")
+								.long("attachment")
+								.value_name("FILE_PATH")
+								.required(false)
+								.takes_value(true)
+								.multiple(true) //Add one or more attachment.
+								.help("Add one or more attachments to this message, using <FILE_PATH> to select a file"))
 						).subcommand(SubCommand::with_name("upload")
 							.about("Uploads an attachment to Signal's CDN.")
 							.version(VERSION_STR)
@@ -179,8 +188,36 @@ pub async fn main() -> Result<()> {
 		let dest = send_command.value_of("DESTINATION").unwrap();
 		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
 
-		let message_text = send_command.value_of("MESSAGE").unwrap();
-		let message_content = MessageContent::default().with_text(message_text.to_string());
+		let mut message_content = MessageContent::default();
+		//Do we have a regular text message?
+		let message_text: Option<&str> = send_command.value_of("MESSAGE");
+		message_content.text_message = message_text.map(|s| s.to_string());
+
+		//Do we have one or more attachments? 
+		//Note the use of values_of rather than value_of because there may be more than one of these. 
+		let maybe_attach = send_command.values_of("ATTACHMENT");
+		if let Some(to_attach) = maybe_attach { 
+			//Iterate over each attachment.
+			for att in to_attach.into_iter() { 
+				let upload_attributes = app.request_upload_id().await?;
+				let file_path_str = att;
+				let file_path = std::path::Path::new(&file_path_str);
+				let file_name = file_path.file_name().unwrap().to_str().unwrap();
+		
+				let data = std::fs::read(&file_path)?;
+		
+				//Encrypt our attachment.
+				let mut rng = OsRng::default();
+				let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
+				
+				//Upload the attachment, generating an attachment pointer in the process.
+				let attachment_pointer = app.upload_attachment(&upload_attributes, &encrypted_attahcment).await?;
+				
+				//Add it to our list! 
+				message_content.attachments.push(attachment_pointer);
+			}
+		}
+		//Wrap our message content in one of these.
 		let message = MessageOut {
 			content: message_content,
 		};
@@ -235,7 +272,8 @@ pub async fn main() -> Result<()> {
 
 		let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
 		
-		app.upload_attachment(&upload_attributes, &encrypted_attahcment).await?;
+		let attachment_pointer = app.upload_attachment(&upload_attributes, &encrypted_attahcment).await?;
+		debug!("{:?}", attachment_pointer);
 	}
 
 	if let Some(_) = args.subcommand_matches("echoserver") {

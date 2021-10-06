@@ -454,6 +454,11 @@ impl MessageContent {
 			data_message.set_body(msg.clone());
 			let _ = protobuf::Message::compute_size(&data_message);
 		}
+		//Add any attachments on this MessageOut to the DataMessage.
+		for attachment in self.attachments.iter() { 
+			use_data_message = true;
+			data_message.attachments.push(attachment.clone());
+		}
 
 		if let Some((mode, acknowledging_timestamp)) = &self.receipt_message {
 			let mut receipt_message = auxin_protos::ReceiptMessage::default();
