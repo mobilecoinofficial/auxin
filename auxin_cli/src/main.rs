@@ -144,8 +144,8 @@ pub async fn main() -> Result<()> {
 	let our_phone_number = our_phone_number.to_string();
 
 	simple_logger::SimpleLogger::new()
-		.with_level(log::LevelFilter::Debug)
-		.with_writer(std::io::stderr)
+		.with_level(log::LevelFilter::Error)
+		//.with_writer(std::io::stderr)
 		.init()
 		.unwrap();
 
