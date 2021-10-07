@@ -14,7 +14,7 @@ use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
 use auxin_protos::AttachmentPointer;
 use rand::rngs::OsRng;
 
-use tracing::{info, Level};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 use tracing_futures::Instrument;
 
@@ -82,8 +82,11 @@ pub async fn main() -> Result<()> {
     let subscriber = FmtSubscriber::builder()
     // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
     // will be written to stdout.
-    .with_max_level(Level::TRACE)
+    //.with_max_level(Level::TRACE)
 	.with_writer(std::io::stderr)
+	//Ensure Tracing respects the same logging verbosity configuration environment variable as env_logger does,
+	//so that one setting controls all logging in Auxin.
+	.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
     // completes the builder.
     .finish();
 
