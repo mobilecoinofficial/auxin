@@ -21,13 +21,15 @@ pub type Body = Vec<u8>;
 pub type Request = http::request::Request<Body>;
 pub type Response = http::Response<Body>;
 
+#[derive(Debug, Clone)]
 ///An element in a multipart form HMTL request. 
 pub enum MultipartEntry {
 	Text{ field_name: String, value: String },
 	File{ field_name: String, file_name: String, file: Vec<u8>},
 }
 
-pub type MultipartRequest = http::request::Request<Vec<MultipartEntry>>;
+//pub type MultipartRequest = http::request::Request<>;
+pub type MultipartForm = Vec<MultipartEntry>;
 
 pub fn common_http_headers(
 	verb: http::Method,
@@ -59,7 +61,8 @@ pub trait AuxinHttpsConnection {
 	///Make a form / multipart request
 	fn multipart_request(
 		&self,
-		req: MultipartRequest,
+		form: MultipartForm,
+		req: http::request::Builder,
 	) -> ResponseFuture<Self::Error>;
 }
 pub trait AuxinWebsocketConnection {

@@ -22,5 +22,7 @@ papyrus.*.crash-report
 
 #Attachments downloaded
 downloads/
+#Used in testing to upload an attachment
+upload/
 
 /auxin_protos/src/protos/*.rs

@@ -1,13 +1,18 @@
 use core::fmt;
+use std::convert::TryFrom;
 use std::pin::Pin;
 
+use async_global_executor::block_on;
 use auxin::message::fix_protobuf_buf;
 use auxin::{net::*, LocalIdentity, SIGNAL_TLS_CERT};
 
 use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt, TryFutureExt, future};
+use std::io::Cursor;
 use hyper::client::HttpConnector;
 use hyper_tls::HttpsConnector;
 use hyper_tls::TlsStream;
+use hyper_multipart_rfc7578::client::multipart;
+
 use log::{debug, trace};
 use protobuf::{CodedOutputStream, Message};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -125,16 +130,14 @@ pub struct AuxinHyperConnection {
 pub enum SendAttemptError {
 	CannotRequest(String),
 	CannotCompleteResponseBody(String),
+	CannotBuildMultipartRequest(String),
 }
 impl fmt::Display for SendAttemptError {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match &self {
 			Self::CannotRequest(e) => write!(f, "Unable to send an HTTP request: {}", e),
-			Self::CannotCompleteResponseBody(e) => write!(
-				f,
-				"Unable to complete a streaming http response body: {}",
-				e
-			),
+			Self::CannotCompleteResponseBody(e) => write!(f, "Unable to complete a streaming http response body: {}", e),
+			Self::CannotBuildMultipartRequest(e)  => write!(f, "Could not construct a multipart request: {}", e),
 		}
 	}
 }
@@ -190,12 +193,49 @@ impl AuxinHttpsConnection for AuxinHyperConnection {
 		Box::pin(fut)
 	}
 
-	fn multipart_request(
-			&self,
-			req: MultipartRequest,
-	) -> ResponseFuture<Self::Error> {
-		let (parts, body) = req.into_parts();
-        todo!()
+	fn multipart_request(&self,
+				form: MultipartForm,
+				req: http::request::Builder,
+			) -> ResponseFuture<Self::Error> {
+		let form = form.clone();
+		let mut hyper_form = multipart::Form::default();
+		for entry in form.iter() { 
+			match entry {
+				MultipartEntry::Text { field_name, value } => {
+					hyper_form.add_text(field_name.clone(), value.clone());
+				},
+				MultipartEntry::File { field_name, file_name, file } => {
+					let cursor = Cursor::new(file.clone());
+					hyper_form.add_reader_file(field_name.clone(), cursor, file_name.clone());
+				},
+			}
+		}
+
+		//let request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
+		let mut request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
+		let (mut parts, body) = request.into_parts();
+
+		let bytes: Vec<u8> = block_on(hyper::body::to_bytes(body)).unwrap().into_iter().collect();
+
+		let size = bytes.len();
+
+		//let mut fixed_request: http::Request<Vec<u8>> = http::Request::from_parts(parts, bytes);
+
+		parts.headers.insert("Content-Length", http::HeaderValue::from(size));
+
+		let request: hyper::Request<hyper::Body> = hyper::Request::from_parts(parts, hyper::Body::try_from(bytes).unwrap());
+		
+		let fut = self.client.request(request)
+			.map_err(|e| SendAttemptError::CannotBuildMultipartRequest(format!("{:?}", e)))
+			.map_ok( move |res | { 
+				let (parts, body) = res.into_parts();
+				Box::pin(hyper::body::to_bytes(body)).map_ok( move |bytes| {
+					http::response::Response::from_parts(parts, bytes.to_vec())
+				})
+				.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))
+			})
+			.try_flatten();
+		Box::pin(fut)
     }
 }
 

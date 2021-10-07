@@ -80,8 +80,9 @@ pub fn launch_repl(app: &mut AuxinApp<OsRng, NetManager, StateManager>) -> Resul
 pub async fn main() -> Result<()> {
     let subscriber = FmtSubscriber::builder()
     // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-    .with_writer(std::io::stderr)
-    .with_max_level(Level::ERROR)
+    // will be written to stdout.
+    .with_max_level(Level::TRACE)
+	.with_writer(std::io::stderr)
     // completes the builder.
     .finish();
 
@@ -120,6 +121,11 @@ pub async fn main() -> Result<()> {
 								.required(true)
 								.takes_value(true)
 								.help("Determines the message text we will send."))
+						).subcommand(SubCommand::with_name("upload")
+							.about("Uploads an attachment to Signal's CDN.")
+							.version(VERSION_STR)
+							.author(AUTHOR_STR)
+							.args_from_usage("<FILEPATH> 'Specifies the path to the file we are uploading.'")
 						).subcommand(SubCommand::with_name("getpayaddress")
 							.about("Attempts to get a payment address for the user with the specified phonenumber or UUID.")
 							.version(VERSION_STR)
@@ -143,11 +149,12 @@ pub async fn main() -> Result<()> {
 		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number]");
 	let our_phone_number = our_phone_number.to_string();
 
-	simple_logger::SimpleLogger::new()
-		.with_level(log::LevelFilter::Error)
-		//.with_writer(std::io::stderr)
-		.init()
-		.unwrap();
+	//simple_logger::SimpleLogger::new()
+	//	.with_level(log::LevelFilter::Debug)
+	//	.init()
+	//	.unwrap();
+
+	env_logger::init();
 
 	let base_dir = "state/data";
 	let cert = load_root_tls_cert().unwrap();
@@ -216,7 +223,20 @@ pub async fn main() -> Result<()> {
 		futures::future::try_join_all(pending_downloads.into_iter()).await?;
 	}
 
-	app.request_attachment_id().await?;
+	if let Some(send_command) = args.subcommand_matches("upload") {
+		let upload_attributes = app.request_upload_id().await?;
+		let file_path_str = send_command.value_of("FILEPATH").unwrap();
+		let file_path = std::path::Path::new(&file_path_str);
+		let file_name = file_path.file_name().unwrap().to_str().unwrap();
+
+		let data = std::fs::read(&file_path)?;
+
+		let mut rng = OsRng::default();
+
+		let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
+		
+		app.upload_attachment(&upload_attributes, &encrypted_attahcment).await?;
+	}
 
 	if let Some(_) = args.subcommand_matches("echoserver") {
 		let mut exit = false;
@@ -229,7 +249,6 @@ pub async fn main() -> Result<()> {
 				let msg = msg.unwrap();
 
 				let msg_json = serde_json::to_string_pretty(&msg).unwrap();
-				println!("[MESSAGE]");
 				println!("{}", msg_json);
 
 				if let Some(st) = msg.content.text_message {

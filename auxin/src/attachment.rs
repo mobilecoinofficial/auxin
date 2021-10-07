@@ -346,7 +346,7 @@ pub mod upload {
         Deserialize, Serialize,
     };
 
-    use crate::net::AuxinHttpsConnection;
+    use crate::net::{AuxinHttpsConnection, MultipartEntry};
 
     use super::AttachmentCipher;
 
@@ -371,6 +371,7 @@ pub mod upload {
         CantConstructRequest(String,String),
         AttachmentIdNetworkErr(String),
         CantDeserializePreUploadToken(String),
+        CouldNotUpload(String),
     }
 
     impl std::fmt::Display for AttachmentUploadError {
@@ -379,6 +380,7 @@ pub mod upload {
                 AttachmentUploadError::CantConstructRequest(uri, err) => write!(f, "Cannot construct initial request for an attachment ID - tried to make a request to {}, got error: {}", uri, err),
                 AttachmentUploadError::AttachmentIdNetworkErr(err) => write!(f, "Initial request for attachment ID errored: {}",err),
                 AttachmentUploadError::CantDeserializePreUploadToken(err) => write!(f, "Deserializing the response to an initial request for an attachment ID failed: {}",err),
+                AttachmentUploadError::CouldNotUpload(err) => write!(f, "Could not upload attachment: {}",err),
             }
         }
     }
@@ -386,15 +388,13 @@ pub mod upload {
 
     //fn guess_ciphertext_length(plaintext_length: usize) -> usize { (((plaintext_length / 16) +1) * 16) + 32 }
 
-    fn get_padded_size(initial_size: usize) -> usize {
+    pub fn get_padded_size(initial_size: usize) -> usize {
         std::cmp::max(541, (
-            //Do not ask me why this is the math. I'm replicating the math from libsignal-service-java's PaddingInputStream,
-            //to stay consistent.
-            //This uses Java's Math.log - which appears to be a natural logarithm.
-            (
+            //Important, raise 1.05 to the power of ( (initial_size as f64).ln() / 1.05_f64.ln() ).ceil()
+            //If you raise ( (initial_size as f64).ln() / 1.05_f64.ln() ).ceil() to the power of 1.05, that won't work.
+            1.05_f64.powf((
                 (initial_size as f64).ln() / 1.05_f64.ln()
-            ).ceil()
-            .powf(1.05_f64)
+            ).ceil())
         ).floor() as usize)
     }
 
@@ -403,7 +403,7 @@ pub mod upload {
         pub attachment_key: [u8;32],
         pub digest_key: [u8;32],
         pub filename: String,
-        data: Vec<u8>,
+        pub(crate) data: Vec<u8>,
         pub unpadded_size: usize,
     }
 
@@ -419,10 +419,12 @@ pub mod upload {
 
         let padded_length = get_padded_size(attachment.len());
 
-        //Assert we're not attempting to create a negative amount of padding.  
+        debug!("Padded length is {} and pre-padded length is {}", padded_length, attachment.len()); 
+
+        //Assert we're not attempting to create a negative amount of padding.
         assert!( padded_length >= attachment.len());
 
-        let mut padded_plaintext: Vec<u8> = Vec::with_capacity(padded_length);
+        let mut padded_plaintext: Vec<u8> = vec![0; padded_length as usize];
         padded_plaintext[0..attachment.len()].copy_from_slice(&attachment);
 
         let mime_type_guess = mime_guess::from_path(filename);
@@ -486,7 +488,7 @@ pub mod upload {
 
     // "Reserve an ID for me, I am going to start an upload" with a reply of "Okay, here's your ID," basically.
     /// Ask the server for a set of pre-attachment-upload information that will be used to upload an attachment
-    pub async fn request_attachment_token<H: AuxinHttpsConnection>(http_client: H, auth: (&str, &str)) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
+    pub async fn request_attachment_token<H: AuxinHttpsConnection>(auth: (&str, &str), http_client: H) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
         let req_addr = super::ATTACHMENT_UPLOAD_START_PATH.to_string();
 
         let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
@@ -509,7 +511,34 @@ pub mod upload {
         Ok(result)
     }
 
-    pub fn upload_attachment<H: AuxinHttpsConnection>(attachment: PreparedAttachment, http_client: H, cdn_address: &str) {
+    pub async fn upload_attachment<H: AuxinHttpsConnection>(upload_attributes: &PreUploadToken, attachment: &PreparedAttachment, auth: (&str, &str), http_client: H, cdn_address: &str) -> std::result::Result<(), AttachmentUploadError> {
         let upload_address = format!("{}/attachments/", cdn_address);
+        
+        let mut multipart_form = Vec::default();
+
+        //let mime_type_guess = mime_guess::from_path(&attachment.filename);
+        //let mime = mime_type_guess.first_or_octet_stream();
+        //let mime_name = mime.essence_str();
+
+        multipart_form.push(MultipartEntry::Text{field_name: "acl".to_string(), value: upload_attributes.acl.clone()});
+        multipart_form.push(MultipartEntry::Text{field_name: "key".to_string(), value: upload_attributes.key.clone()});
+        multipart_form.push(MultipartEntry::Text{field_name: "policy".to_string(), value: upload_attributes.policy.clone()});
+        multipart_form.push(MultipartEntry::Text{field_name: "Content-Type".to_string(), value: "application/octet-stream".to_string()});
+        multipart_form.push(MultipartEntry::Text{field_name: "x-amz-algorithm".to_string(), value: upload_attributes.algorithm.clone()});
+        multipart_form.push(MultipartEntry::Text{field_name: "x-amz-credential".to_string(), value: upload_attributes.credential.clone()});
+        multipart_form.push(MultipartEntry::Text{field_name: "x-amz-date".to_string(), value: upload_attributes.date.clone()});
+        multipart_form.push(MultipartEntry::Text{field_name: "x-amz-signature".to_string(), value: upload_attributes.signature.clone()});
+
+        multipart_form.push(MultipartEntry::File{field_name: "file".to_string(), file_name: "file".to_string(), file: attachment.data.clone()});
+
+        let req_builder= http::request::Request::post(&upload_address)
+                            .header(auth.0, auth.1)
+                            .header("X-Signal-Agent", crate::net::X_SIGNAL_AGENT)
+                            .header("User-Agent", crate::net::USER_AGENT);
+
+        let response = http_client.multipart_request(multipart_form, req_builder).await
+            .map_err(|e| AttachmentUploadError::CouldNotUpload(format!("{:?}", e)))?;
+        debug!("Got response to attempt to upload attachment {}: {:?}", &attachment.filename, response);
+        Ok(())
     }
 }
