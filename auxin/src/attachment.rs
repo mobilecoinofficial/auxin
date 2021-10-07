@@ -341,7 +341,7 @@ pub mod upload {
     use log::debug;
     use rand::{CryptoRng, Rng, RngCore};
     use block_modes::BlockMode;
-    use ring::hmac::{self};
+    use ring::{digest::SHA256, hmac::{self}};
 
     use serde::{
         Deserialize, Serialize,
@@ -402,8 +402,8 @@ pub mod upload {
     #[derive(Clone, Debug)]
     pub struct PreparedAttachment {
         pub attachment_key: [u8;32],
-        pub digest_key: [u8;32],
-        pub digest: ring::hmac::Tag,
+        pub mac_key: [u8;32],
+        pub mac: ring::hmac::Tag,
         pub filename: String,
         pub(crate) data: Vec<u8>,
         pub unpadded_size: usize,
@@ -462,8 +462,8 @@ pub mod upload {
             data: output,
             unpadded_size,
             attachment_key,
-            digest: signature,
-            digest_key: digest_key_bytes,
+            mac: signature,
+            mac_key: digest_key_bytes,
         })
     }
 
@@ -543,6 +543,9 @@ pub mod upload {
             .map_err(|e| AttachmentUploadError::CouldNotUpload(format!("{:?}", e)))?;
         debug!("Got response to attempt to upload attachment {}: {:?}", &attachment.filename, response);
 
+        //Build our digest - separate from the mac, actually hashes the mac and the whole data buffer. 
+        let digest = ring::digest::digest(&SHA256, &attachment.data);
+
         let mut attachment_pointer =  AttachmentPointer::default();
 
         attachment_pointer.set_cdnId(upload_attributes.attachment_id);
@@ -553,10 +556,10 @@ pub mod upload {
         let mut attachment_keys: [u8; 64] = [0; 64];
 
         attachment_keys[0..32].copy_from_slice(&attachment.attachment_key);
-        attachment_keys[32..64].copy_from_slice(&attachment.digest_key);
+        attachment_keys[32..64].copy_from_slice(&attachment.mac_key);
         
         attachment_pointer.set_key(attachment_keys.to_vec());
-        attachment_pointer.set_digest(attachment.digest.as_ref().to_vec());
+        attachment_pointer.set_digest(digest.as_ref().to_vec());
         attachment_pointer.set_fileName(attachment.filename.clone());
         attachment_pointer.set_uploadTimestamp(crate::generate_timestamp());
         attachment_pointer.set_size(attachment.unpadded_size as u32);
