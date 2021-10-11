@@ -3,7 +3,7 @@
 
 use std::cell::RefCell;
 use std::convert::TryFrom;
-use log::debug;
+use log::{debug, warn};
 use tokio::time::{Duration};
 
 use auxin::address::AuxinAddress;
@@ -92,8 +92,8 @@ pub async fn main() -> Result<()> {
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("setting default subscriber failed");
-	const AUTHOR_STR: &str = "Millie C. <gyrocoder@gmail.com>";
-	const VERSION_STR: &str = "PRE-RELEASE DO NOT USE";
+	const AUTHOR_STR: &str = "Forest Contact team";
+	const VERSION_STR: &str = "0.1.1";
 
 	let args = clap::App::new("auxin-cli")
 						.version(VERSION_STR)
@@ -171,7 +171,7 @@ pub async fn main() -> Result<()> {
 						.get_matches();
 
 	let our_phone_number = args.value_of("USER")
-		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number]");
+		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number])");
 	let our_phone_number = our_phone_number.to_string();
 
 	//simple_logger::SimpleLogger::new()
@@ -277,6 +277,7 @@ pub async fn main() -> Result<()> {
 	}
 
 	if let Some(payaddr_command) = args.subcommand_matches("getpayaddress") {
+		warn!("The \"getpayaddress\" command is still experimental! Please do not use this command in production.");
 		let dest = payaddr_command.value_of("PEER").unwrap();
 		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
 		let payment_address = app.retrieve_payment_address(&recipient_addr).await.unwrap();
@@ -324,7 +325,8 @@ pub async fn main() -> Result<()> {
 		let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
 		
 		let attachment_pointer = app.upload_attachment(&upload_attributes, &encrypted_attahcment).await?;
-		debug!("{:?}", attachment_pointer);
+		println!("[ATTACHMENT_POINTER]");
+		println!("{:?}", attachment_pointer);
 	}
 
 	if let Some(_) = args.subcommand_matches("echoserver") {
