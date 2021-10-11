@@ -2,7 +2,7 @@
 #![deny(bare_trait_objects)]
 
 use address::{AddressError, AuxinAddress, AuxinDeviceAddress, E164};
-use aes_gcm::{Aes256Gcm, Nonce, aead::{Payload, generic_array::typenum::private::IsGreaterOrEqualPrivate}, aead::{Aead, NewAead}};
+use aes_gcm::{Aes256Gcm, Nonce, aead::Payload, aead::{Aead, NewAead}};
 use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment}};
 use auxin_protos::{AttachmentPointer, Envelope};
 use custom_error::custom_error;
@@ -42,7 +42,7 @@ use state::{
 use crate::{attachment::download::EncryptedAttachment, discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
-	}, message::{AuxinMessageList, MessageSendMode, address_from_envelope, fix_protobuf_buf, remove_message_padding}, net::common_http_headers, state::{
+	}, message::{AuxinMessageList, MessageContent, MessageSendMode, address_from_envelope, fix_protobuf_buf, remove_message_padding}, net::common_http_headers, state::{
 		ForeignPeerProfile,
 		ProfileResponse
 	}};
@@ -341,16 +341,43 @@ where
 
 	/// Checks to see if a recipient's information is loaded and takes all actions necessary to fill out a PeerRecord if not.
 	pub async fn ensure_peer_loaded(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
+		debug!("Attempting to ensure all necessary information is present for peer {}", recipient_addr);
 		let recipient_addr = self
 			.context
 			.peer_cache
 			.complete_address(&recipient_addr)
 			.or(Some(recipient_addr.clone()))
 			.unwrap();
+
+		debug!("Completed address to: {}", recipient_addr);
+
 		let recipient = self.context.peer_cache.get(&recipient_addr);
 
-		//If this is an unknown peer, OR if we have their phone number but not their UUID, retrieve their UUID and store an entry.
-		if recipient.is_none() || recipient.unwrap().uuid.is_none() {
+		//If we have their UUID and no peer entry, just write a new entry.
+		if recipient.is_none() && recipient_addr.has_uuid() { 
+
+			let new_id = self.context.peer_cache.last_id + 1;
+			self.context.peer_cache.last_id = new_id;
+			// TODO: Retrieve device IDs and such.
+			let peer_record = PeerRecord {
+				id: new_id,
+				number: None,
+				uuid: Some(recipient_addr.get_uuid().unwrap().clone()),
+				profile_key: None,
+				profile_key_credential: None,
+				contact: None,
+				profile: None,
+				device_ids_used: Vec::default(),
+				identity: None,
+			};
+			self.context.peer_cache.push(peer_record);
+
+			//Fill out additional information.
+			self.fill_peer_info(&recipient_addr).await?;
+		}
+		//If we have no peer entry we have their phone number but not their UUID, or we have a peer entry with no UUID,
+		//retrieve their UUID and store an entry.
+		else if recipient.is_none() || recipient.unwrap().uuid.is_none() {
 			self.retrieve_and_store_peer(recipient_addr.get_phone_number().unwrap())
 				.await?;
 		}
@@ -1041,7 +1068,26 @@ where
 
 				debug!("Produced content from PreKeyBundle message: {:?}", &content);
 
-				panic!()
+				//If they're providing us with their profile key, store / update that information. 
+				MessageIn::update_profile_key_from(&content, &remote_address.address, &mut self.context)?;
+
+				if content.has_dataMessage() { 
+					let data_message = content.get_dataMessage();
+					if data_message.has_flags() && data_message.has_profileKey() { 
+						// If this is a profile key distribution message and nothing else, return without trying to generate a MessageIn
+						if data_message.get_flags() & 4 > 0 { 
+							return Ok(None);
+						}
+					}
+				}
+
+				Ok(Some( MessageIn { 
+					content: MessageContent::try_from(content)?,
+					remote_address,
+					timestamp: envelope.get_timestamp(),
+					timestamp_received: generate_timestamp(),
+					server_guid: envelope.get_serverGuid().to_string(),
+				}))
 			},
 			auxin_protos::Envelope_Type::RECEIPT => Ok(Some(MessageIn::from_receipt(envelope, &mut self.context).await?)),
 			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some(MessageIn::from_sealed_sender(envelope, &mut self.context).await?)),

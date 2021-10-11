@@ -181,11 +181,14 @@ where
 					.map_err(|e| ReceiveError::DeserializeErr(format!("{:?}", e)))?;
 
 				let maybe_a_message = self.app.handle_inbound_envelope(envelope).await;
-				//.map_err(|e| ReceiveError::InError(e))?;
 
 				// Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
 				let msg = match maybe_a_message {
 					Err(HandleEnvelopeError::MessageDecodingErr(MessageInError::ProtocolError(e))) => {
+						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+						None
+					}
+					Err(HandleEnvelopeError::ProtocolErr(e)) => {
 						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
 						None
 					}

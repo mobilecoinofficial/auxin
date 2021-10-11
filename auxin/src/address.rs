@@ -52,6 +52,20 @@ impl AuxinAddress {
 			AuxinAddress::Both(_, u) => Ok(u),
 		}
 	}
+	pub fn has_phone_number(&self) -> bool{
+		match &self {
+			AuxinAddress::Phone(_) => true,
+			AuxinAddress::Uuid(_) => false,
+			AuxinAddress::Both(_, _) => true,
+		}
+	}
+	pub fn has_uuid(&self) -> bool {
+		match &self {
+			AuxinAddress::Phone(_) => false,
+			AuxinAddress::Uuid(_) => true,
+			AuxinAddress::Both(_, _) => true,
+		}
+	}
 }
 
 pub const DEFAULT_DEVICE_ID: u32 = 1;
