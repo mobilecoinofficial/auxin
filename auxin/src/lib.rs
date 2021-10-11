@@ -2,25 +2,18 @@
 #![deny(bare_trait_objects)]
 
 use address::{AddressError, AuxinAddress, AuxinDeviceAddress, E164};
-use aes_gcm::{
-	aead::Payload,
-	aead::{Aead, NewAead},
-	Aes256Gcm, Nonce,
-};
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Payload, generic_array::typenum::private::IsGreaterOrEqualPrivate}, aead::{Aead, NewAead}};
 use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment}};
 use auxin_protos::{AttachmentPointer, Envelope};
 use custom_error::custom_error;
 use futures::{TryFutureExt};
-use libsignal_protocol::{
-	process_prekey_bundle, IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore,
-	InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore,
-	ProtocolAddress, PublicKey, SenderCertificate,
-};
+use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate, SignalProtocolError, message_decrypt_prekey, process_prekey_bundle};
 use log::{debug, error};
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
+use protobuf::CodedInputStream;
 use serde_json::json;
-use std::{fmt::Debug};
+use std::{convert::TryFrom, fmt::Debug};
 use std::{
 	error::Error,
 	time::{SystemTime, UNIX_EPOCH},
@@ -46,22 +39,13 @@ use state::{
 	UnidentifiedAccessMode,
 };
 
-use crate::{
-	attachment::download::EncryptedAttachment, 
-	discovery::{
+use crate::{attachment::download::EncryptedAttachment, discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
-	}, 
-	message::{
-		fix_protobuf_buf, 
-		AuxinMessageList, 
-		MessageSendMode}, 
-	net::common_http_headers, 
-	state::{
+	}, message::{AuxinMessageList, MessageSendMode, address_from_envelope, fix_protobuf_buf, remove_message_padding}, net::common_http_headers, state::{
 		ForeignPeerProfile,
 		ProfileResponse
-	}
-};
+	}};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -286,6 +270,41 @@ custom_error! { pub PaymentAddressRetrievalError
 	UnidentifiedAccess{peer: AuxinAddress, msg: String} = "Error getting unidentified access for {peer}: {msg}",
 	NoUuid{peer: AuxinAddress, err: AddressError} = "No Uuid for {peer}: {err}",
 	ErrPeer{peer: AuxinAddress, err: String} = "Error loading peer {peer}: {err}",
+}
+
+
+
+#[derive(Debug)]
+pub enum HandleEnvelopeError {
+	MessageDecodingErr(MessageInError),
+	ProtocolErr(SignalProtocolError),
+	PreKeyBundleErr(String),
+	PreKeyNoAddress,
+	UnknownEnvelopeType(Envelope),
+}
+impl std::fmt::Display for HandleEnvelopeError {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match &self {
+			HandleEnvelopeError::MessageDecodingErr(e) => write!(f, "Hit a message-decoding error while attempting to handle an envelope: {:?}", e),
+			HandleEnvelopeError::ProtocolErr(e) => write!(f, "Encountered a protocol error while attempting to decode an envelope: {:?}", e),
+			HandleEnvelopeError::PreKeyBundleErr(e) => write!(f, "Error occurred while handling a pre-key bundle: {}", e),
+			HandleEnvelopeError::PreKeyNoAddress => write!(f, "No peer / foreign address on a pre-key bundle message!"),
+			HandleEnvelopeError::UnknownEnvelopeType(e) => write!(f, "Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",e)
+		}
+	}
+}
+
+impl std::error::Error for HandleEnvelopeError {}
+
+impl From<SignalProtocolError> for HandleEnvelopeError {
+	fn from(val: SignalProtocolError) -> Self {
+		HandleEnvelopeError::ProtocolErr(val)
+	}
+}
+impl From<MessageInError> for HandleEnvelopeError {
+	fn from(val: MessageInError) -> Self {
+		HandleEnvelopeError::MessageDecodingErr(val)
+	}
 }
 
 impl<R, N, S> AuxinApp<R, N, S>
@@ -962,21 +981,72 @@ where
 
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
 	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
-	pub async fn handle_inbound_envelope(&mut self, envelope: Envelope) -> std::result::Result<Option<MessageIn>, MessageInError> { 
-		Ok(match envelope.get_field_type() {
-			auxin_protos::Envelope_Type::UNKNOWN => {
-				return Err(MessageInError::DecodingProblem(format!(
-					"Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",
-					envelope
-				)));
-			}
-			auxin_protos::Envelope_Type::CIPHERTEXT => Some(MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng).await?),
+	pub async fn handle_inbound_envelope(&mut self, envelope: Envelope) -> std::result::Result<Option<MessageIn>, HandleEnvelopeError> { 
+		match envelope.get_field_type() {
+			auxin_protos::Envelope_Type::UNKNOWN =>  Err(HandleEnvelopeError::UnknownEnvelopeType(envelope)), 
+			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some(MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng).await?)),
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
-			auxin_protos::Envelope_Type::PREKEY_BUNDLE => todo!(),
-			auxin_protos::Envelope_Type::RECEIPT => Some(MessageIn::from_receipt(envelope, &mut self.context).await?),
-			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER =>  Some(MessageIn::from_sealed_sender(envelope, &mut self.context).await?),
+			auxin_protos::Envelope_Type::PREKEY_BUNDLE => { 
+
+				if ! (envelope.has_sourceUuid() || envelope.has_sourceE164()) { 
+					return Err(HandleEnvelopeError::PreKeyNoAddress);
+				}
+				debug!(
+					"Decoding PreKeyBundle envelope from source: (E164: {}, UUID: {})",
+					envelope.get_sourceE164(),
+					envelope.get_sourceUuid()
+				);
+
+				// Build our remote address if this is not a sealed sender message.
+				let remote_address = address_from_envelope(&envelope);
+				let remote_address = remote_address.map(|a| {
+					let mut new_addr = a.clone();
+					new_addr.address = self.context
+						.peer_cache
+						.complete_address(&a.address)
+						.unwrap_or(a.address.clone());
+					new_addr
+				});
+
+				if remote_address.is_none() { 
+					return Err(HandleEnvelopeError::PreKeyNoAddress);
+				}
+
+				let remote_address = remote_address.unwrap();
+
+				let protocol_address = remote_address.uuid_protocol_address().unwrap();
+
+				let pre_key_message = PreKeySignalMessage::try_from(envelope.get_content())?;
+
+				let ctx = self.context.get_signal_ctx().ctx;
+			
+				let decrypted=  message_decrypt_prekey(&pre_key_message,
+					&protocol_address, 
+					&mut self.context.session_store, 
+					&mut self.context.identity_store, 
+					&mut self.context.pre_key_store, 
+					&mut self.context.signed_pre_key_store, 
+					&mut self.rng, 
+					ctx).await?;
+
+				let unpadded_message = remove_message_padding(&decrypted)
+					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
+				let fixed_buf = fix_protobuf_buf(&unpadded_message)
+					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
+
+				let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
+				
+				let content: auxin_protos::Content = reader.read_message()
+					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
+
+				debug!("Produced content from PreKeyBundle message: {:?}", &content);
+
+				panic!()
+			},
+			auxin_protos::Envelope_Type::RECEIPT => Ok(Some(MessageIn::from_receipt(envelope, &mut self.context).await?)),
+			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some(MessageIn::from_sealed_sender(envelope, &mut self.context).await?)),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
-		})
+		}
 	}
 }
 

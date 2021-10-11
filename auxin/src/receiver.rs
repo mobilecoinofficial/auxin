@@ -10,7 +10,7 @@ use std::{
 use crate::message::fix_protobuf_buf;
 use crate::{message::{MessageIn, MessageInError, MessageOut}, state::AuxinStateManager};
 use crate::net::{AuxinNetManager, AuxinWebsocketConnection};
-use crate::AuxinApp; 
+use crate::{AuxinApp, HandleEnvelopeError}; 
 use crate::address::AuxinAddress;
 
 // (Try to) read a raw byte buffer as a Signal Envelope protobuf.
@@ -25,6 +25,7 @@ pub enum ReceiveError {
 	NetSpecific(String),
 	SendErr(String),
 	InError(MessageInError),
+	HandlerError(HandleEnvelopeError),
 	StoreStateError(String),
 	ReconnectErr(String),
 	AttachmentErr(String),
@@ -55,6 +56,7 @@ impl std::fmt::Display for ReceiveError {
 			}
 			Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
 			Self::DeserializeErr(e) => write!(f, "Failed to deserialize incoming message: {:?}", e),
+			Self::HandlerError(e) => write!(f, "Failed to handle incoming envelope inside receive loop: {:?}", e), 
 		}
 	}
 }
@@ -64,6 +66,16 @@ impl std::error::Error for ReceiveError {}
 impl From<MessageInError> for ReceiveError {
 	fn from(val: MessageInError) -> Self {
 		Self::InError(val)
+	}
+}
+impl From<HandleEnvelopeError> for ReceiveError {
+	fn from(val: HandleEnvelopeError) -> Self {
+		if let HandleEnvelopeError::MessageDecodingErr(e) = val {
+			return Self::InError(e);
+		}
+		else {
+			return Self::HandlerError(val);
+		}
 	}
 }
 
@@ -173,11 +185,11 @@ where
 
 				// Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
 				let msg = match maybe_a_message {
-					Err(MessageInError::ProtocolError(e)) => {
+					Err(HandleEnvelopeError::MessageDecodingErr(MessageInError::ProtocolError(e))) => {
 						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
 						None
 					}
-					Err(MessageInError::DecodingProblem(e)) => {
+					Err(HandleEnvelopeError::MessageDecodingErr(MessageInError::DecodingProblem(e))) => {
 						warn!("Message failed to decode (bad envelope?) - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
 						None
 					}

@@ -872,7 +872,7 @@ impl MessageIn {
 	}
 }
 
-fn address_from_envelope(envelope: &Envelope) -> Option<AuxinDeviceAddress> {
+pub(crate) fn address_from_envelope(envelope: &Envelope) -> Option<AuxinDeviceAddress> {
 	match envelope.has_sourceDevice() {
 		true => {
 			let source_device = envelope.get_sourceDevice();
