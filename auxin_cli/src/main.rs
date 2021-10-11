@@ -99,13 +99,6 @@ pub async fn main() -> Result<()> {
 						.version(VERSION_STR)
 						.author(AUTHOR_STR)
 						.about("[TODO]")
-						.arg(Arg::with_name("VERBOSE")
-							.short("v")
-							.long("verbose")
-							.value_name("PHONE_NUMBER")
-							.required(false)
-							.takes_value(false)
-							.help("Print logs to stderr (verbosely)"))
 						.arg(Arg::with_name("USER")
 							.short("u")
 							.long("user")
@@ -113,6 +106,13 @@ pub async fn main() -> Result<()> {
 							.required(true)
 							.takes_value(true)
 							.help("Select username (phone number) from which to use auxin-cli"))
+						.arg(Arg::with_name("CONFIG")
+							.long("config")
+							.short("c")
+							.takes_value(true)
+							.default_value("state/data")
+							.value_name("DIRECTORY")
+							.help("Specifies which directory auxin_cli will store and retrieve stateful configuration data in, using <DIRECTORY> to select a directory. Defaults to \"./state/data\""))
 						.subcommand(SubCommand::with_name("send")
 							.about("Sends a message to the specified address.")
 							.version(VERSION_STR)
@@ -181,7 +181,9 @@ pub async fn main() -> Result<()> {
 
 	env_logger::init();
 
-	let base_dir = "state/data";
+	let base_dir = args.value_of("CONFIG").unwrap();
+	debug!("Using {} as the directory which holds our Signal protocol state.", base_dir);
+
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
 	let state = crate::state::StateManager::new(base_dir);
@@ -256,7 +258,7 @@ pub async fn main() -> Result<()> {
 		};
 
 		if premade_content.is_some() { 
-			println!("Using premade content {:?}", premade_content);
+			debug!("Using premade content {:?}", premade_content);
 		}
 		//If there was no premade content there is no other reason for a MessageOut to have a "source" other than None.
 		message.content.source = premade_content;
