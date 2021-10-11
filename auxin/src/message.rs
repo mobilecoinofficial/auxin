@@ -2,7 +2,6 @@ use std::{
 	convert::{Infallible, TryFrom},
 	str::FromStr,
 };
-
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress},
 	generate_timestamp, sealed_sender_trust_root,
@@ -411,8 +410,8 @@ pub struct MessageContent {
 	/// and one or more timestamps of the *messages we are acknowledging we received.*
 	pub receipt_message: Option<(ReceiptMode, Vec<Timestamp>)>,
 	pub quote: Option<DataMessage_Quote>,
-	/// The Signal "content" this was deserialized from. Will only be None if this is an outgoing message.
-	#[serde(skip_serializing)]
+	/// The Signal "content" this was deserialized from. 
+	/// If this is a Some(content) on a MessageOut, all other fields will be ignored and the provided pre-built Signal content protobuf structure will be used instead.
 	pub source: Option<auxin_protos::Content>,
 	pub attachments: Vec<AttachmentPointer>,
 }
@@ -436,40 +435,53 @@ impl MessageContent {
 	) -> Result<auxin_protos::Content> {
 		// Did we create this message using a content message directly?
 		if let Some(content) = &self.source {
-			return Ok(content.clone());
+			let mut new_content = content.clone();
+			if new_content.has_dataMessage() { 
+				new_content.mut_dataMessage().set_timestamp(timestamp);
+			}
+
+			let _ = protobuf::Message::compute_size(&new_content);
+			//  RETURN EARLY
+			return Ok(new_content);
 		}
-
-		// Otherwise, build from typical Auxin data.
-		let mut result = auxin_protos::Content::default();
-
-		let mut use_data_message: bool = false;
-		let mut data_message = auxin_protos::DataMessage::default();
-		data_message.set_timestamp(timestamp);
-		let pk = base64::decode(our_profile_key.as_str())?;
-		data_message.set_profileKey(pk);
-
-		if let Some(msg) = &self.text_message {
-			use_data_message = true;
-
-			data_message.set_body(msg.clone());
-			let _ = protobuf::Message::compute_size(&data_message);
+		else { 
+			// Otherwise, build from typical Auxin data.
+			let mut result = auxin_protos::Content::default();
+	
+			let mut use_data_message: bool = false;
+			let mut data_message = auxin_protos::DataMessage::default();
+			data_message.set_timestamp(timestamp);
+			let pk = base64::decode(our_profile_key.as_str())?;
+			data_message.set_profileKey(pk);
+	
+			if let Some(msg) = &self.text_message {
+				use_data_message = true;
+	
+				data_message.set_body(msg.clone());
+				let _ = protobuf::Message::compute_size(&data_message);
+			}
+			//Add any attachments on this MessageOut to the DataMessage.
+			for attachment in self.attachments.iter() { 
+				use_data_message = true;
+				data_message.attachments.push(attachment.clone());
+			}
+	
+			if let Some((mode, acknowledging_timestamp)) = &self.receipt_message {
+				let mut receipt_message = auxin_protos::ReceiptMessage::default();
+				receipt_message.set_field_type(*mode);
+				receipt_message.set_timestamp(acknowledging_timestamp.clone());
+	
+				let _ = protobuf::Message::compute_size(&receipt_message);
+				result.set_receiptMessage(receipt_message);
+			}
+	
+			if use_data_message {
+				result.set_dataMessage(data_message);
+				let _ = protobuf::Message::compute_size(&result);
+			}
+	
+			Ok(result)
 		}
-
-		if let Some((mode, acknowledging_timestamp)) = &self.receipt_message {
-			let mut receipt_message = auxin_protos::ReceiptMessage::default();
-			receipt_message.set_field_type(*mode);
-			receipt_message.set_timestamp(acknowledging_timestamp.clone());
-
-			let _ = protobuf::Message::compute_size(&receipt_message);
-			result.set_receiptMessage(receipt_message);
-		}
-
-		if use_data_message {
-			result.set_dataMessage(data_message);
-			let _ = protobuf::Message::compute_size(&result);
-		}
-
-		Ok(result)
 	}
 }
 
@@ -556,7 +568,7 @@ impl MessageOut {
 				};
 
 				let content = base64::encode(cyphertext_message.serialize());
-				debug!("Encoded to {} bytes of bas64", content.len());
+				debug!("Encoded to {} bytes of base64", content.len());
 
 				OutgoingPushMessage {
 					envelope_type,
@@ -588,7 +600,7 @@ impl MessageOut {
 				//Serialize our cyphertext.
 				let content = base64::encode(cyphertext_message);
 
-				debug!("Encoded to {} bytes of bas64", content.len());
+				debug!("Encoded to {} bytes of base64", content.len());
 				OutgoingPushMessage {
 					envelope_type: envelope_types::UNIDENTIFIED_SENDER,
 					destination_device_id: their_address.device_id(),
@@ -849,16 +861,6 @@ impl MessageIn {
 			server_guid: envelope.get_serverGuid().to_string(),
 		})
 	}
-
-	/*pub async fn decode_envelope_bin<R: RngCore + CryptoRng>(
-		bin: &[u8],
-		context: &mut AuxinContext,
-		rng: &mut R,
-	) -> std::result::Result<Self, MessageInError> {
-		let envelope = read_envelope_from_bin(bin)
-			.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
-		MessageIn::decode_envelope(envelope, context, rng).await
-	}*/
 
 	pub fn needs_receipt(&self) -> bool {
 		// TODO: Evaluate if Receipt Messages are ever delivered alongside anything else in the same envelope.

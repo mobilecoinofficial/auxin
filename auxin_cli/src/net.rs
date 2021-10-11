@@ -212,7 +212,7 @@ impl AuxinHttpsConnection for AuxinHyperConnection {
 		}
 
 		//let request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
-		let mut request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
+		let request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
 		let (mut parts, body) = request.into_parts();
 
 		let bytes: Vec<u8> = block_on(hyper::body::to_bytes(body)).unwrap().into_iter().collect();

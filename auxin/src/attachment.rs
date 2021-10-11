@@ -337,10 +337,11 @@ pub mod download {
 }
 
 pub mod upload {
+    use auxin_protos::AttachmentPointer;
     use log::debug;
     use rand::{CryptoRng, Rng, RngCore};
     use block_modes::BlockMode;
-    use ring::hmac::{self};
+    use ring::{digest::SHA256, hmac::{self}};
 
     use serde::{
         Deserialize, Serialize,
@@ -401,7 +402,8 @@ pub mod upload {
     #[derive(Clone, Debug)]
     pub struct PreparedAttachment {
         pub attachment_key: [u8;32],
-        pub digest_key: [u8;32],
+        pub mac_key: [u8;32],
+        pub mac: ring::hmac::Tag,
         pub filename: String,
         pub(crate) data: Vec<u8>,
         pub unpadded_size: usize,
@@ -460,7 +462,8 @@ pub mod upload {
             data: output,
             unpadded_size,
             attachment_key,
-            digest_key: digest_key_bytes,
+            mac: signature,
+            mac_key: digest_key_bytes,
         })
     }
 
@@ -511,7 +514,7 @@ pub mod upload {
         Ok(result)
     }
 
-    pub async fn upload_attachment<H: AuxinHttpsConnection>(upload_attributes: &PreUploadToken, attachment: &PreparedAttachment, auth: (&str, &str), http_client: H, cdn_address: &str) -> std::result::Result<(), AttachmentUploadError> {
+    pub async fn upload_attachment<H: AuxinHttpsConnection>(upload_attributes: &PreUploadToken, attachment: &PreparedAttachment, auth: (&str, &str), http_client: H, cdn_address: &str) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
         let upload_address = format!("{}/attachments/", cdn_address);
         
         let mut multipart_form = Vec::default();
@@ -539,6 +542,36 @@ pub mod upload {
         let response = http_client.multipart_request(multipart_form, req_builder).await
             .map_err(|e| AttachmentUploadError::CouldNotUpload(format!("{:?}", e)))?;
         debug!("Got response to attempt to upload attachment {}: {:?}", &attachment.filename, response);
-        Ok(())
+
+        //Build our digest - separate from the mac, actually hashes the mac and the whole data buffer. 
+        let digest = ring::digest::digest(&SHA256, &attachment.data);
+
+        let mut attachment_pointer =  AttachmentPointer::default();
+
+        attachment_pointer.set_cdnId(upload_attributes.attachment_id);
+        //TODO: Figure out if alternative CDN numbers are ever needed. SignalServiceMessageSender hard-codes 0, though, so it's probably fine.
+        //See https://github.com/signalapp/Signal-Android/blob/6e00920c95499cc214609a29c96c4f0b6919076a/libsignal/service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java#L594
+        attachment_pointer.set_cdnNumber(0);
+
+        let mut attachment_keys: [u8; 64] = [0; 64];
+
+        attachment_keys[0..32].copy_from_slice(&attachment.attachment_key);
+        attachment_keys[32..64].copy_from_slice(&attachment.mac_key);
+        
+        attachment_pointer.set_key(attachment_keys.to_vec());
+        attachment_pointer.set_digest(digest.as_ref().to_vec());
+        attachment_pointer.set_fileName(attachment.filename.clone());
+        attachment_pointer.set_uploadTimestamp(crate::generate_timestamp());
+        attachment_pointer.set_size(attachment.unpadded_size as u32);
+
+        debug!("Size before padding / encryption was {}, size of ciphertext is {}", attachment.unpadded_size, attachment.data.len());
+        
+        let mime_type_guess = mime_guess::from_path(&attachment.filename);
+        let mime = mime_type_guess.first_or_octet_stream();
+        let mime_name = mime.essence_str();
+
+        attachment_pointer.set_contentType(mime_name.to_string());
+
+        Ok(attachment_pointer)
     }
 }

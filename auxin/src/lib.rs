@@ -399,12 +399,14 @@ where
 			false => MessageSendMode::Standard,
 		};
 
+		let timestamp = generate_timestamp();
+		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
 		let outgoing_push_list = message_list
 			.generate_messages_to_all_devices(
 				&mut self.context,
 				mode,
 				&mut self.rng,
-				generate_timestamp(),
+				timestamp,
 			)
 			.await?;
 
@@ -945,10 +947,10 @@ where
 		attachment::upload::request_attachment_token(("Authorization", auth.as_str()), self.http_client.clone()).await
 	}
 
-	pub async fn upload_attachment(&self, upload_attributes: &PreUploadToken, attachment: &PreparedAttachment) -> std::result::Result<(), AttachmentUploadError> { 
+	pub async fn upload_attachment(&self, upload_attributes: &PreUploadToken, attachment: &PreparedAttachment) -> std::result::Result<AttachmentPointer, AttachmentUploadError> { 
 		let auth = self.context.identity.make_auth_header();
-		attachment::upload::upload_attachment(&upload_attributes, &attachment, ("Authorization", auth.as_str()), self.http_client.clone(), SIGNAL_CDN).await?;
-		Ok(())
+		let result = attachment::upload::upload_attachment(&upload_attributes, &attachment, ("Authorization", auth.as_str()), self.http_client.clone(), SIGNAL_CDN).await?;
+		Ok(result)
 	}
 
 	pub fn get_http_client(&self) -> &N::C {
