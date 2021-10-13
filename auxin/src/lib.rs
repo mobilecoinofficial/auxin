@@ -281,6 +281,7 @@ pub enum HandleEnvelopeError {
 	PreKeyBundleErr(String),
 	PreKeyNoAddress,
 	UnknownEnvelopeType(Envelope),
+	ProfileError(String),
 }
 impl std::fmt::Display for HandleEnvelopeError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -289,7 +290,8 @@ impl std::fmt::Display for HandleEnvelopeError {
 			HandleEnvelopeError::ProtocolErr(e) => write!(f, "Encountered a protocol error while attempting to decode an envelope: {:?}", e),
 			HandleEnvelopeError::PreKeyBundleErr(e) => write!(f, "Error occurred while handling a pre-key bundle: {}", e),
 			HandleEnvelopeError::PreKeyNoAddress => write!(f, "No peer / foreign address on a pre-key bundle message!"),
-			HandleEnvelopeError::UnknownEnvelopeType(e) => write!(f, "Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",e)
+			HandleEnvelopeError::UnknownEnvelopeType(e) => write!(f, "Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",e),
+			HandleEnvelopeError::ProfileError(e) => write!(f, "Attempted to retrieve profile information in the process of handling an envelope, but a problem was encountered: {:?}",e)
 		}
 	}
 }
@@ -1038,8 +1040,11 @@ where
 				if remote_address.is_none() { 
 					return Err(HandleEnvelopeError::PreKeyNoAddress);
 				}
-
 				let remote_address = remote_address.unwrap();
+
+				//If we have never encountered this peer before, go get information on them remotely. 
+				self.ensure_peer_loaded(&remote_address.address).await
+					.map_err(|e| HandleEnvelopeError::ProfileError(format!("{:?}", e)))?;
 
 				let protocol_address = remote_address.uuid_protocol_address().unwrap();
 
