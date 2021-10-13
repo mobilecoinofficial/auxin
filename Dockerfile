@@ -14,11 +14,12 @@ RUN rustup update nightly && rustup default nightly
 # RUN cargo build --release 
 # # release with our actual code
 # RUN bash -c "rm auxin{,_protos,_cli}/src/main.rs target/release/deps/auxin*"
-COPY . ./
+ENV foo=bar
+COPY ./* ./
 RUN cargo build --release 
 
 FROM ubuntu:latest
 WORKDIR /app
 COPY --from=libbuilder /app/auxin/target/release /app/auxin
-COPY healthcheck.sh  ./
+COPY state healthcheck.sh  ./
 ENTRYPOINT ["/app/healthcheck.sh"] 
