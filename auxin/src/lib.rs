@@ -56,6 +56,8 @@ pub struct AuxinConfig {}
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+/// Generate a 64-bit unsigned Timestamp - this is the number of miliseconds since the
+/// Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
 pub fn generate_timestamp() -> u64 {
 	let now = SystemTime::now();
 	now.duration_since(UNIX_EPOCH)

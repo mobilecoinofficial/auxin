@@ -31,6 +31,14 @@ pub enum MultipartEntry {
 //pub type MultipartRequest = http::request::Request<>;
 pub type MultipartForm = Vec<MultipartEntry>;
 
+
+/// Convenience function to fill in some of the common HTTP headers used by Signal, such as USER_AGENT, X_SIGNAL_AGENT, and Authorization
+/// 
+/// # Arguments
+/// 
+/// * `verb` - The verb of the HTTP request, such as GET, POST, etc.
+/// * `uri` - The web address to which your request will be made.
+/// * `auth` - The authorization string. Should match the format produced by make_auth_header(). Fits the format of Base64::encode("username:pasword")
 pub fn common_http_headers(
 	verb: http::Method,
 	uri: &str,
@@ -46,14 +54,17 @@ pub fn common_http_headers(
 	Ok(req)
 }
 
+/// Represents the response pending from an HTTP request.
 pub type ResponseFuture<E> = Pin<Box<
 	dyn Future<
 		Output=std::result::Result<http::response::Response<Vec<u8>>, E>
 	> + Send + Unpin
 >>;
 
+/// A trait used to wrap an HTTP connection which you can make requests of.
 pub trait AuxinHttpsConnection {
 	type Error: 'static + std::error::Error + Send;
+	/// Make an HTTPS request. 
 	fn request(
 		&self,
 		req: Request,
@@ -65,6 +76,7 @@ pub trait AuxinHttpsConnection {
 		req: http::request::Builder,
 	) -> ResponseFuture<Self::Error>;
 }
+/// Wraps a WebSocket connection with which to poll Signal's servers for new messages to our account.
 pub trait AuxinWebsocketConnection {
 	type Message: From<auxin_protos::WebSocketMessage>
 		+ Into<auxin_protos::WebSocketMessage>
@@ -82,13 +94,14 @@ pub trait AuxinWebsocketConnection {
 		Pin<Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>>,
 	);
 }
-
+/// Wraps a future pending on initating as new connection to HTTPS or Websocket. 
 pub type ConnectFuture<O, E> = Pin<Box<
 	dyn Future<
 		Output=std::result::Result<O, E>
 	> + Send + Unpin
 >>;
 
+/// The trait used to give an AuxinApp (abstracted from any particular i/o code) the ability to initiate HTTPS and WebSocket connections.
 pub trait AuxinNetManager {
 	type C: AuxinHttpsConnection + Sized + Send + Clone;
 	type W: AuxinWebsocketConnection + Sized + Send;
@@ -100,6 +113,10 @@ pub trait AuxinNetManager {
 	fn connect_to_signal_https(&mut self) -> ConnectFuture<Self::C, Self::Error>;
 
 	/// Initialize a websocket connection to Signal's "https://textsecure-service.whispersystems.org" address, taking our credentials as an argument.
+	/// 
+	/// # Arguments
+	/// 
+	/// * `credentials` - The identity of the Signal user from whose perspective Auxin is being used.
 	fn connect_to_signal_websocket(
 		&mut self,
 		credentials: LocalIdentity,
