@@ -15,10 +15,14 @@ use crate::{
 	generate_timestamp, AuxinConfig, AuxinContext, LocalIdentity,
 };
 
+/// Represents one of the three configurations a user can set for how to handle sealed-sender messages.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum UnidentifiedAccessMode {
+	/// Regular sealed-sender messages are enabled - peers can send us sealed-sender messages as long as they have our profile key.
 	ENABLED,
+	/// No sealed-sender messages permitted.
 	DISABLED,
+	/// Unrestricted sealed-sender messages. Strangers can send us sealed-sender messages, they do not need our profile key.
 	UNRESTRICTED,
 }
 
@@ -78,6 +82,7 @@ impl<'de> Deserialize<'de> for UnidentifiedAccessMode {
 	}
 }
 
+/// Profile information for a Signal user.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerProfile {
@@ -109,6 +114,7 @@ pub(crate) struct ForeignPeerProfile {
 }
 
 impl ForeignPeerProfile {
+	/// Build an Auxin PeerProfile from this data.
 	pub fn to_local(&self) -> PeerProfile {
 		let unidentified_access_mode = match (
 			self.unrestricted_unidentified_access,
@@ -139,17 +145,22 @@ impl ForeignPeerProfile {
 	}
 }
 
+/// All of the information we 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerRecord {
+	/// An ID which is internal to the storage structure used by Auxin and signal_cli. Signal's Web API does not use this.
 	pub id: u64,
-	///Phone number.
+	/// Phone number.
 	pub number: Option<String>,
+	/// Account UUID. This is the real "primary key" for the account.
 	pub uuid: Option<uuid::Uuid>,
+	/// The profile key for this account, used for sealed sender messages. 
 	pub profile_key: Option<String>,
 	pub profile_key_credential: Option<String>,
 	pub contact: Option<Value>, //TODO
 	pub profile: Option<PeerProfile>,
+	/// A cache of all device IDs known to be used by this peer.
 	#[serde(skip)]
 	pub device_ids_used: Vec<u32>,
 	#[serde(skip)]
@@ -157,6 +168,7 @@ pub struct PeerRecord {
 }
 
 impl PeerRecord {
+	/// Returns true if we can send sealed sender messages to this peer. 
 	pub fn supports_sealed_sender(&self) -> bool {
 		match &self.profile {
 			Some(profile) => {
@@ -220,33 +232,44 @@ impl From<&PeerRecord> for AuxinAddress {
 	}
 }
 
+/// This structure holds PeerRecrods for all peers known to this auxin instance.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PeerRecordStructure {
 	#[serde(rename = "recipients")]
 	pub peers: Vec<PeerRecord>,
+	/// This is the last used ID by this structure - when a new peer is encountered and added to our cache, increment this number. 
 	#[serde(rename = "lastId")]
 	pub last_id: u64,
 }
 
 // Many helper functions.
 pub trait PeerStore {
+	/// Retrieve a Peer Record by their phone number. 
 	fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord>;
+	/// Retrieve a Peer Record by their UUID. 
 	fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord>;
+	/// Retrieve a mutable Peer Record by their phone number. 
 	fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord>;
+	/// Retrieve a mutable Peer Record by their UUID. 
 	fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord>;
+	/// Add a new peer record. 
 	fn push(&mut self, peer: PeerRecord);
+	/// Gets a peer record using an AuxinAddress, trying UUID if it one or phone number if it does not. 
 	fn get(&self, address: &AuxinAddress) -> Option<&PeerRecord>;
+	/// Gets a mutable peer record using an AuxinAddress, trying UUID if it one or phone number if it does not.
 	fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord>;
 
+	/// Finds the UUID that corresponds to this phone number.
 	fn complete_phone_address(&self, phone_number: &String) -> Option<AuxinAddress> {
 		self.get_by_number(phone_number)
 			.map(|peer| AuxinAddress::from(peer))
 	}
+	/// Finds phone number that corresponds to this UUIO.
 	fn complete_uuid_address(&self, peer_uuid: &Uuid) -> Option<AuxinAddress> {
 		self.get_by_uuid(peer_uuid)
 			.map(|peer| AuxinAddress::from(peer))
 	}
-	/// If we only have a phone number or a UUID, fill in the other one,. Returns None if no peer by this address is found.
+	/// If we only have a phone number or a UUID, fill in the other one. Returns None if no peer by this address is found.
 	fn complete_address(&self, address: &AuxinAddress) -> Option<AuxinAddress> {
 		if let AuxinAddress::Both(_, _) = address {
 			return Some(address.clone());
@@ -366,7 +389,7 @@ impl PeerStore for PeerRecordStructure {
 		}
 	}
 }
-
+/// Stores the public key of a peer (encoded as a base-64 string)
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerIdentity {
@@ -409,6 +432,11 @@ pub struct PeerDeviceInfo {
 }
 
 impl PeerDeviceInfo {
+	/// Generate a pre-key bundle from this PeerDeviceInfo, using the provided IdentityKey.
+	/// 
+	/// # Arguments
+	/// 
+	/// * `identity_key` - The identity key for this user which we also received as part of a PeerInfoReply. Note that this isn't the identity key for the local node, but it is instead the identity key for the peer whose info we are retrieving.
 	pub fn convert_to_pre_key_bundle(
 		&self,
 		identity_key: &IdentityKey,
@@ -444,10 +472,12 @@ impl PeerDeviceInfo {
 pub struct PeerInfoReply {
 	/// Identity key encoded as Base64
 	pub identity_key: String,
+	/// A list of device IDs and device-accounts associated with this user account. 
 	pub devices: Vec<PeerDeviceInfo>,
 }
 
 impl PeerInfoReply {
+	/// Iterates through each of the PeerDeviceInfo we have received, calling convert_to_pre_key_bundle() on each of them. 
 	pub fn convert_to_pre_key_bundles(self) -> crate::Result<Vec<(u32, PreKeyBundle)>> {
 		let id_key_bytes = base64::decode(&self.identity_key)?;
 		let id_key = IdentityKey::decode(&id_key_bytes)?;
@@ -459,6 +489,7 @@ impl PeerInfoReply {
 	}
 }
 
+/// Information on which capabilities this peer has, as sent to us from Signal's web API. 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProfileCapabilitiesResponse {
 	pub gv2: bool,
@@ -470,6 +501,7 @@ pub struct ProfileCapabilitiesResponse {
 	pub gv1_migration: bool,
 }
 
+/// A response from Signal's Web API containing profile information pertaining to a user.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileResponse {
@@ -497,6 +529,8 @@ pub struct ProfileResponse {
 }
 
 pub trait AuxinStateManager {
+	/// Load the local identity for this node, for the user account Auxin will operate as. 
+	/// In signal_cli's protocol store structure, this would come from the file with a name which is your phone number inside the "data" directory.
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
 	fn load_context(
 		&mut self,
