@@ -13,13 +13,14 @@ use crate::net::{AuxinNetManager, AuxinWebsocketConnection};
 use crate::{AuxinApp, HandleEnvelopeError}; 
 use crate::address::AuxinAddress;
 
-// (Try to) read a raw byte buffer as a Signal Envelope protobuf.
+/// (Try to) read a raw byte buffer as a Signal Envelope (defined by a protocol buffer).
 pub fn read_envelope_from_bin(buf: &[u8]) -> crate::Result<auxin_protos::Envelope> {
 	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
 	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
 	Ok(reader.read_message()?)
 }
 
+/// Any error encountered while receiving and decoding a message.
 #[derive(Debug)]
 pub enum ReceiveError {
 	NetSpecific(String),
@@ -98,15 +99,18 @@ type InstreamT<N> = Pin<
 	>,
 >;
 
+/// A receiver-handle, used to poll an AuxinApp for new incoming messages.
 pub struct AuxinReceiver<'a, R, N, S>
 where
 	R: RngCore + CryptoRng,
 	N: AuxinNetManager,
 	S: AuxinStateManager,
 {
+	/// A mutable reference to our AuxinApp. 
 	pub(crate) app: &'a mut AuxinApp<R, N, S>,
-	//Disregard these type signatures. They are weird and gnarly for unavoidable reasons.
+	/// Outgoing message stream (a Rust Futures sink)
 	pub(crate) outstream: OutstreamT<N>,
+	/// Incoming message stream (a Rust Futures stream)
 	pub(crate) instream: InstreamT<N>,
 }
 
@@ -116,6 +120,11 @@ where
 	N: AuxinNetManager,
 	S: AuxinStateManager,
 {
+	/// Construct an AuxinReceiver, connecting to Signal's Websocket server. 
+	/// 
+	/// # Arguments
+	/// 
+	/// * `app` - The Auxin App instance tracking state and used to poll for incoming messages.
 	pub async fn new(app: &'a mut AuxinApp<R, N, S>) -> crate::Result<AuxinReceiver<'a, R, N, S>> {
 		let ws = app
 			.net
@@ -130,6 +139,11 @@ where
 	}
 
 	/// Notify the server that we have received a message. If it is a non-receipt Signal message, we will send our receipt indicating we got this message.
+	///
+	/// # Arguments
+	/// 
+	/// * `msg` - The message we are acknowledging, if there is any valid messagehere.
+	/// * `req` - The original WebSocketRequestMessage - passed so that we can acknowledge that we've received this message even if no valid message can be parsed from it.
 	async fn acknowledge_message(
 		&mut self,
 		msg: &Option<MessageIn>,
@@ -168,6 +182,18 @@ where
 			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
 		Ok(())
 	}
+
+	/// Parse the next message. This is separated from next() to make error handling neater.
+	/// If this returns None, that means a certain kind of error has occurred in decryption.
+	/// Often there are messages with signatures which have expired, or bad keystate. 
+	/// The server will continue to re-send these messages to us perpetually unless we acknowledge 
+	/// them with a receipt. 
+	/// They will never be possible to decode and that is how the Signal protocol works.
+	/// So, it's necessary to treat this as a recoverable error, acknowledge the message, and move on.
+	///
+	/// # Arguments
+	/// 
+	/// * `wsmessage` - The WebsocketMessage we have just received.
 	async fn next_inner(
 		&mut self,
 		wsmessage: &auxin_protos::WebSocketMessage,
@@ -223,7 +249,9 @@ where
 			}
 		}
 	}
-	/// Polls for the next available message.  Returns none for end of stream.
+	/// Polls for the next available message.  Returns none when the end of the stream has been reached.
+	/// If next_inner() returns a None, that is interpreted as a recoverable error, and next()
+	/// will loop until it encounters a valid message or the end of the list is reached.
 	pub async fn next(&mut self) -> Option<std::result::Result<MessageIn, ReceiveError>> {
 		//Try up to 64 times if necessary.
 		for _ in 0..64 {
@@ -276,6 +304,12 @@ where
 	}
 
 	/// Convenience method so we don't have to work around the borrow checker to call send_message on our app when the Receiver has an &mut app.
+	///	Simply calls self.app.send_message()
+	/// 
+	/// # Arguments
+	/// 
+	/// * `recipient_addr` - The address of the peer to whom we're sending a Signal message.
+	/// * `message` - The message that we are sending.
 	pub async fn send_message(
 		&mut self,
 		recipient_addr: &AuxinAddress,
@@ -307,6 +341,7 @@ where
 		Ok(())
 	}
 
+	/// Re-initialize a Signal websocket connection so you can continue polling for messages.
 	pub async fn reconnect(&mut self) -> crate::Result<()> {
 		self.outstream
 			.close()
@@ -325,6 +360,7 @@ where
 		Ok(())
 	}
 
+	/// Get a mutable borrow to the AuxinApp this receiver is using.
 	pub fn borrow_app(&mut self) -> &mut AuxinApp<R, N, S> {
 		self.app
 	}
