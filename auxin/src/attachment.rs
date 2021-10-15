@@ -25,14 +25,15 @@ pub mod download {
     use crate::net::AuxinHttpsConnection;
 
     use block_modes::BlockMode;
-    //use ring::hmac::{self, HMAC_SHA256};
         
+    /// An identifier which can be used to retrieve an attachment from Signal's CDN.
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub enum AttachmentIdentifier { 
         CdnId(u64),
         CdnKey(String),
     }
 
+    /// All of the metadata we can glean from an AttachmentPointer.
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct AttachmentMetadata { 
         pub attachment_identifier: AttachmentIdentifier,
@@ -55,6 +56,8 @@ pub mod download {
     }
 
     impl AttachmentMetadata { 
+        /// Returns the filename if one was provided by the AttachmentPointer we used to construct this AttachmentMetadata,
+        /// or generates a generic filename (with a timestamp to avoid name collisions) for this attachment.
         pub fn get_or_generate_filename(&self) -> String { 
             match &self.file_name { 
                 Some(name) => sanitize_filename::sanitize(name.clone()),
@@ -89,6 +92,7 @@ pub mod download {
         } 
     }
 
+    /// An error encountered while trying to create an AttachmentMetadata from an AttachmentPointer.
     #[derive(Debug, Clone)]
     pub enum AttachmentMetaError { 
         NoIdent,
@@ -110,6 +114,7 @@ pub mod download {
 
     impl std::error::Error for AttachmentMetaError {}
 
+    /// An encrypted attachment we have downloaded from the CDN, with the metadata required to decode it.
     pub struct EncryptedAttachment {
         pub metadata: AttachmentMetadata,
         pub ciphertext: Vec<u8>, 
@@ -201,6 +206,7 @@ pub mod download {
         }
     }
 
+    /// An error encountered while attempting to decrypt an attachment downloaded from Signal's CDN.
     #[derive(Debug, Clone)]
     pub enum AttachmentDecryptError { 
         TooSmall(String, usize, usize),
@@ -223,6 +229,7 @@ pub mod download {
     impl std::error::Error for AttachmentDecryptError {}
 
     impl EncryptedAttachment { 
+        /// Decrypt this attachment, producing a buffer of plaintext bytes - with padding snipped out.
         pub fn decrypt(&self) -> std::result::Result<Vec<u8>, AttachmentDecryptError> { 
             //After some testing THESE ARE DEFINITELY CORRECT!
             const BLOCK_SIZE: usize = 16;
@@ -283,6 +290,7 @@ pub mod download {
     }
 
 
+    /// Error produced by problems downloading an attachment from Signal's CDN.
     #[derive(Debug, Clone)]
     pub enum AttachmentDownloadError { 
         Meta(AttachmentMetaError),
@@ -311,6 +319,13 @@ pub mod download {
 	// internally calls "self.clone()" inside of 
 	// its "Client::request()"
 
+    /// Downloads an encrypted attachment downloaded from Signal's CDN. 
+	///
+	/// # Arguments
+	/// 
+	/// * `attachment` - The attachment pointer, containing the ID and other information used to find the address of the attachment on the CDN.
+	/// * `http_client` - The HTTP client which will send our HTTP request. 
+	/// * `cdn_address` - The base address of the CDN from which we'll retrieve this file. "/attachments/{attachment_id}" will be appended to this to get our URI. 
     pub async fn retrieve_attachment<H: AuxinHttpsConnection>(attachment: AttachmentPointer, http_client: H, cdn_address: &str) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
 		let meta = AttachmentMetadata::try_from(&attachment).map_err(|e| AttachmentDownloadError::Meta(e))?;
 		let download_path = match &meta.attachment_identifier {
@@ -352,6 +367,7 @@ pub mod upload {
     use super::AttachmentCipher;
 
 
+    /// A problem encountered while trying to encrypt an attachment.
     #[derive(Debug, Clone)]
     pub enum AttachmentEncryptError { 
         CantConstructCipher(String, String),
@@ -365,8 +381,7 @@ pub mod upload {
     }
     impl std::error::Error for AttachmentEncryptError {}
 
-
-
+    /// An error encountered while attempting to upload an attachment to Signal's CDN
     #[derive(Debug, Clone)]
     pub enum AttachmentUploadError { 
         CantConstructRequest(String,String),
@@ -389,6 +404,11 @@ pub mod upload {
 
     //fn guess_ciphertext_length(plaintext_length: usize) -> usize { (((plaintext_length / 16) +1) * 16) + 32 }
 
+    /// Figure out how large our attachent's buffer will need to be after padding is added to it.
+	///
+	/// # Arguments
+	/// 
+	/// * `initial_size` - Size before padding.
     pub fn get_padded_size(initial_size: usize) -> usize {
         std::cmp::max(541, (
             //Important, raise 1.05 to the power of ( (initial_size as f64).ln() / 1.05_f64.ln() ).ceil()
@@ -399,16 +419,30 @@ pub mod upload {
         ).floor() as usize)
     }
 
+    /// An attachment which has been encrypted, along with all of the information Signal's CDN will need for it.
     #[derive(Clone, Debug)]
     pub struct PreparedAttachment {
+        /// The key which was used to encrypt the attachment.
         pub attachment_key: [u8;32],
+        /// The key which was used to sign the attachment
         pub mac_key: [u8;32],
+        /// Our signature on this attachment
         pub mac: ring::hmac::Tag,
+        /// The name of the file we've just encrypted. Note that this doesn't have to come from an actual filesystem. 
         pub filename: String,
+        /// The ciphertext of our attachment. 
         pub(crate) data: Vec<u8>,
+        /// Size before padding - used to tell the server and our peers how large the plaintext will be when they decode it. 
         pub unpadded_size: usize,
     }
 
+    /// Encrypt an attachment (any byte buffer) and make it ready to be sent to Signal's CDN.
+	///
+	/// # Arguments
+	/// 
+	/// * `filename` - The name of the file we're encrypting, for metadata. Note that this doesn't have to come from an actual filesystem. 
+	/// * `attachment` - The plaintext bytes of our attachment - this is what we will encrypt and update. 
+    /// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
     pub fn encrypt_attachment<R: CryptoRng + Rng + RngCore>(filename: &str, attachment: &[u8], rng: &mut R) -> std::result::Result<PreparedAttachment, AttachmentEncryptError> {
         
         let unpadded_size = attachment.len();
@@ -469,7 +503,7 @@ pub mod upload {
 
 
     /// A ticket received in response to a GET request to https://textsecure-service.whispersystems.org/v2/attachments/form/upload
-    /// This will include everyting you need to send the cdn an attachment it won't reject. 
+    /// This will include everyting you need to send the cdn an attachment which it won't reject. 
     #[derive(Serialize, Deserialize, Debug, Clone, Default)]
     #[serde(rename_all = "camelCase")]
     pub struct PreUploadToken {
@@ -491,6 +525,11 @@ pub mod upload {
 
     // "Reserve an ID for me, I am going to start an upload" with a reply of "Okay, here's your ID," basically.
     /// Ask the server for a set of pre-attachment-upload information that will be used to upload an attachment
+    /// 
+	/// # Arguments
+	/// 
+	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
+	/// * `http_client` - The HTTPS client we'll use to send this HTTP request. 
     pub async fn request_attachment_token<H: AuxinHttpsConnection>(auth: (&str, &str), http_client: H) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
         let req_addr = super::ATTACHMENT_UPLOAD_START_PATH.to_string();
 
@@ -507,21 +546,25 @@ pub mod upload {
 		let (_parts, body) = response.into_parts();
 
         let body = String::from_utf8_lossy(&body);
-
-        //debug!("Received response with headers {:?} and body {}", &parts, &body);
+        
         let result: PreUploadToken = serde_json::from_str(&body)
             .map_err(|e| AttachmentUploadError::CantDeserializePreUploadToken(format!("{:?}", e)))?;
         Ok(result)
     }
 
+    /// Upload an attachment we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+    /// 
+	/// # Arguments
+	/// 
+	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers, giving us an ID we can use for this attachment.
+	/// * `attachment` - The encrypted attachment we are sending.
+    /// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
+	/// * `http_client` - The HTTPS client we'll use to send this HTTP request. 
+    /// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI. 
     pub async fn upload_attachment<H: AuxinHttpsConnection>(upload_attributes: &PreUploadToken, attachment: &PreparedAttachment, auth: (&str, &str), http_client: H, cdn_address: &str) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
         let upload_address = format!("{}/attachments/", cdn_address);
         
         let mut multipart_form = Vec::default();
-
-        //let mime_type_guess = mime_guess::from_path(&attachment.filename);
-        //let mime = mime_type_guess.first_or_octet_stream();
-        //let mime_name = mime.essence_str();
 
         multipart_form.push(MultipartEntry::Text{field_name: "acl".to_string(), value: upload_attributes.acl.clone()});
         multipart_form.push(MultipartEntry::Text{field_name: "key".to_string(), value: upload_attributes.key.clone()});

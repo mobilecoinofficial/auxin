@@ -27,6 +27,9 @@ pub struct DirectoryAuthResponse {
 	pub password: String,
 }
 
+/// A request used to initiate the Discovery process, used to retrieve an attestation. 
+/// An attestation is part of the handshake process for interacting with a remote
+/// Intel SGX Enclave, in this case Signal's contact-discovery SGX Enclave.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AttestationRequest {
@@ -34,6 +37,7 @@ pub struct AttestationRequest {
 	pub client_public: String,
 }
 
+/// The signature sent as a response to our attestation request, signing the attestation.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AttestationSignatureBody {
@@ -46,7 +50,7 @@ pub struct AttestationSignatureBody {
 
 pub type AttestationRequestId = Vec<u8>;
 
-/// (inner) response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}
+/// A response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}
 /// Will always arrive inside an AttestationResponseList.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -70,10 +74,12 @@ pub struct AttestationResponse {
 }
 
 impl AttestationResponse {
+	/// Verify that this attestation is valid.
 	pub fn verify(&self) -> Result<()> {
 		self.verify_signature() //.and(self.verify_quote())
 	}
 
+	/// Verify that this attestation's signature is valid.
 	pub fn verify_signature(&self) -> Result<()> {
 		// ----- Decode/construct our trust anchor.
 		//SHOULD only contain one entity, DER- encoded.
@@ -139,6 +145,11 @@ impl AttestationResponse {
 		Ok(())
 	}
 
+	/// Decodes an AttestationRequestID from this AttestationResponse
+	/// 
+	/// # Arguments
+	/// 
+	/// * `our_ephemeral_keys` - The ephemeral key-pair generated specifically for this attestation / discovery process.
 	pub fn decode_request_id(
 		&self,
 		our_ephemeral_keys: &libsignal_protocol::KeyPair,
@@ -146,6 +157,12 @@ impl AttestationResponse {
 		self.decode_request_id_with_keys(&self.make_remote_attestation_keys(our_ephemeral_keys)?)
 	}
 
+
+	/// Decodes an AttestationRequestID from this AttestationResponse
+	/// 
+	/// # Arguments
+	/// 
+	/// * `keys` - Attestation keys, generated from our user account's identity keys as well as the server's ephemeral public key and the server's static public key,
 	pub fn decode_request_id_with_keys(
 		&self,
 		keys: &AttestationKeys,
@@ -170,6 +187,11 @@ impl AttestationResponse {
 		Ok(cipher.decrypt(nonce, payload)?)
 	}
 
+	/// Decodes and generates a set of attestation keys from this response and from our local set of ephemeral keys.
+	/// 
+	/// # Arguments
+	/// 
+	/// * `our_ephemeral_keys` - Temporary keys we generated for this attestation / discovery process.
 	pub fn make_remote_attestation_keys(
 		&self,
 		our_ephemeral_keys: &libsignal_protocol::KeyPair,
@@ -190,12 +212,14 @@ impl AttestationResponse {
 }
 
 /// Response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}
+/// Contains a list of attestations, mapping an attestation ID to an attestation response. 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct AttestationResponseList {
 	pub attestations: HashMap<String, AttestationResponse>,
 }
 
 impl AttestationResponseList {
+	/// Verify all attestations in this list, ensuring all of them are valid. 
 	pub fn verify_attestations(&self) -> Result<()> {
 		for (_, a) in self.attestations.iter() {
 			a.verify()?;
@@ -206,6 +230,10 @@ impl AttestationResponseList {
 	/// Decodes request IDs and also generates attestation keys for each attestation we have received.
 	/// Also returns the serial number of each attestation, for convenience.
 	/// Requires the temporary keys we made our attestation request with to decode this.
+	/// 
+	/// # Arguments
+	/// 
+	/// * `local_keys` - Our local node's ephemeral keys - must match the ones used to request this attestation list earlier.
 	pub fn decode_attestations(
 		&self,
 		local_keys: &libsignal_protocol::KeyPair,
@@ -227,7 +255,15 @@ pub struct AttestationKeys {
 	pub server_key: [u8; 32],
 }
 
-/// Returns client_key and server_key
+/// Gnerates a set of attestation keys from the server's ephemeral key and static key from an AttestationResponse,
+/// and from our local set of ephemeral keys.
+/// Returns client_key and server_key, wrapped up in a AttestationKeys.
+/// 
+/// # Arguments
+/// 
+/// * `local_keys` - Our local ephemeral keypair, temporary keys we generated for this attestation / discovery process.
+/// * `server_ephemeral_pk_bytes` - The ephemeral key the server sent us as part of an AttestationResponse.
+/// * `server_static_pk_bytes` - The static key the server sent us as part of an AttestationResponse.
 pub fn gen_remote_attestation_keys(
 	local_keys: &libsignal_protocol::KeyPair,
 	server_ephemeral_pk_bytes: &[u8; 32],
@@ -267,6 +303,7 @@ pub fn gen_remote_attestation_keys(
 }
 
 //Every "String" field here is a base64-encoded byte vector.
+/// An individual entry in a discovery query.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryEnvelope {
@@ -278,9 +315,11 @@ pub struct QueryEnvelope {
 }
 
 //Every "String" field here is a base64-encoded byte vector (except the key for the envelopes map)
+/// A request for a discovery query, sent in to Signal's contact-discovery SGX enclave.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryRequest {
+	/// The number of phone numbers we're sending in hopes of getting corresponding UUIDs for them.
 	pub address_count: i64,
 	pub commitment: String,
 	// Initialization Vector
@@ -295,7 +334,12 @@ pub struct DiscoveryRequest {
 	pub query_key: [u8; 32],
 }
 
-/// Serialize the "plaintext" which will end up in a QueryEnvelope
+/// Build a query we will use to request UUIDs corresponding to phone numbers
+/// 
+/// # Arguments
+/// 
+/// * `phone_numbers` - A list of phone numbers we are seeking corresponding UUIDs for.
+/// * `rand` - The cryptographically-strong source of entropy for this process.
 pub fn build_query_data<R>(phone_numbers: &Vec<E164>, rand: &mut R) -> Result<Vec<u8>>
 where
 	R: RngCore + CryptoRng,
@@ -327,7 +371,7 @@ impl DiscoveryRequest {
 	///
 	/// * `phone_numbers` - Addresses to request UUIDs for from the server. Must be E164 format i.e. +12345678910
 	/// * `attestations` - A list of decoded attestation responses. Probably generated with AttestationResponseList::decode_attestations().
-	/// * `rand` - Randomness provider..
+	/// * `rand` - Randomness provider.
 	pub fn new<R>(
 		phone_numbers: &Vec<E164>,
 		attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>,
@@ -406,6 +450,7 @@ impl DiscoveryRequest {
 	}
 }
 
+/// The response to a Signal Discovery Service request, sent out of their Intel SGX enclave.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryResponse {
@@ -416,6 +461,7 @@ pub struct DiscoveryResponse {
 }
 
 impl DiscoveryResponse {
+	/// Decrypt the discovery response.
 	pub fn decrypt(
 		&self,
 		attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>,
