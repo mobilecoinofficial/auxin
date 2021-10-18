@@ -73,7 +73,7 @@ pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 	Ok(())
 }
 #[cfg(not(feature = "repl"))]
-pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
+pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
 }
 
