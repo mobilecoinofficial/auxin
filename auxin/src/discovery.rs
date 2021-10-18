@@ -7,7 +7,7 @@ use aes_gcm::{
 	aead::{Aead, NewAead},
 	Aes256Gcm, Nonce,
 };
-use libsignal_protocol::{PublicKey, HKDF};
+use libsignal_protocol::PublicKey;
 use log::{debug, warn};
 use rand::{CryptoRng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -284,10 +284,11 @@ pub fn gen_remote_attestation_keys(
 	public_keys_salt[32..64].copy_from_slice(server_ephemeral_pk_bytes);
 	public_keys_salt[64..96].copy_from_slice(server_static_pk_bytes);
 
-	// TODO: Double-check if we need to propagate message_version from the server somewhere to here.
-	let generator = HKDF::new(3)?;
-	let keys =
-		generator.derive_salted_secrets(&master_secret, &public_keys_salt, &([] as [u8; 0]), 64)?;
+	let mut keys = [0; 64]; 
+	let generator = hkdf::Hkdf::<sha2::Sha256>::new(Some(&public_keys_salt), &master_secret); 
+	generator.expand(b"", &mut keys).unwrap();
+	
+	//	generator.derive_salted_secrets(&master_secret, &public_keys_salt, &([] as [u8; 0]), 64)?;
 
 	// Split "keys" into an agreed client key and  an agreed server key.
 	// "keys" should always have length 64, or else it'll panic here.
