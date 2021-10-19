@@ -11,4 +11,4 @@ entropy=$(jq -cr '[.randomness, .round|tostring]|join(" ")' < latest_entropy.jso
 time $auxin --config $auxin_state -u $number send -m "/ping $entropy" $echobot
 time $auxin --config $auxin_state -u $number receive | tee output
 # if this exits 0, entropy is in the output file
-grep -s "$(echo $entropy | head -n 1)" output
+grep -s "$entropy" output
