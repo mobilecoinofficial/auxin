@@ -1,10 +1,9 @@
 #!/bin/bash
 set -exu
 # default to echobot
-echobot=${1:-+12406171615}
+echobot=${2:-+12406171615}
 number=$(ls state/data | head -1)
-auxin=target/debug/auxin-cli
-#auxin=signal-cli
+auxin=${1:-target/debug/auxin-cli}
 auxin_state="$PWD/state"
 curl -s https://drand.cloudflare.com/public/latest -o latest_entropy.json
 entropy=$(jq -cr '[.randomness, .round|tostring]|join(" ")' < latest_entropy.json)
