@@ -145,7 +145,7 @@ impl ForeignPeerProfile {
 	}
 }
 
-/// All of the information we 
+/// All of the information we
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerRecord {
@@ -155,7 +155,7 @@ pub struct PeerRecord {
 	pub number: Option<String>,
 	/// Account UUID. This is the real "primary key" for the account.
 	pub uuid: Option<uuid::Uuid>,
-	/// The profile key for this account, used for sealed sender messages. 
+	/// The profile key for this account, used for sealed sender messages.
 	pub profile_key: Option<String>,
 	pub profile_key_credential: Option<String>,
 	pub contact: Option<Value>, //TODO
@@ -168,7 +168,7 @@ pub struct PeerRecord {
 }
 
 impl PeerRecord {
-	/// Returns true if we can send sealed sender messages to this peer. 
+	/// Returns true if we can send sealed sender messages to this peer.
 	pub fn supports_sealed_sender(&self) -> bool {
 		match &self.profile {
 			Some(profile) => {
@@ -195,16 +195,11 @@ impl PartialOrd for PeerRecord {
 impl PartialEq for PeerRecord {
 	fn eq(&self, other: &Self) -> bool {
 		if self.number.is_some() && other.number.is_some() {
-			self.id == other.id
-			   && self.number.eq(&other.number)
-			   && self.uuid == other.uuid
-		}
-		else if self.number.is_none() && other.number.is_none() { 
+			self.id == other.id && self.number.eq(&other.number) && self.uuid == other.uuid
+		} else if self.number.is_none() && other.number.is_none() {
 			//Don't bother checking phone number.
-			self.id == other.id
-			   && self.uuid == other.uuid
-		}
-		else { 
+			self.id == other.id && self.uuid == other.uuid
+		} else {
 			false
 		}
 	}
@@ -215,19 +210,15 @@ impl Eq for PeerRecord {}
 impl From<&PeerRecord> for AuxinAddress {
 	fn from(val: &PeerRecord) -> Self {
 		if let Some(uuid) = &val.uuid {
-			if let Some(number) = &val.number { 
-				AuxinAddress::Both(number.clone(), uuid.clone())
+			if let Some(number) = &val.number {
+				AuxinAddress::Both(number.clone(), *uuid)
+			} else {
+				AuxinAddress::Uuid(*uuid)
 			}
-			else {
-				AuxinAddress::Uuid(uuid.clone())
-			}
+		} else if let Some(number) = &val.number {
+			AuxinAddress::Phone(number.clone())
 		} else {
-			if let Some(number) = &val.number { 
-				AuxinAddress::Phone(number.clone())
-			}
-			else {
-				panic!("Attempted to construct an AuxinAddress from a peer record with no phone number and no UUID. It should not be possible to have a peer record with no phone number and no UUID.")
-			}
+			panic!("Attempted to construct an AuxinAddress from a peer record with no phone number and no UUID. It should not be possible to have a peer record with no phone number and no UUID.")
 		}
 	}
 }
@@ -237,42 +228,40 @@ impl From<&PeerRecord> for AuxinAddress {
 pub struct PeerRecordStructure {
 	#[serde(rename = "recipients")]
 	pub peers: Vec<PeerRecord>,
-	/// This is the last used ID by this structure - when a new peer is encountered and added to our cache, increment this number. 
+	/// This is the last used ID by this structure - when a new peer is encountered and added to our cache, increment this number.
 	#[serde(rename = "lastId")]
 	pub last_id: u64,
 }
 
 // Many helper functions.
 pub trait PeerStore {
-	/// Retrieve a Peer Record by their phone number. 
+	/// Retrieve a Peer Record by their phone number.
 	fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord>;
-	/// Retrieve a Peer Record by their UUID. 
+	/// Retrieve a Peer Record by their UUID.
 	fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord>;
-	/// Retrieve a mutable Peer Record by their phone number. 
+	/// Retrieve a mutable Peer Record by their phone number.
 	fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord>;
-	/// Retrieve a mutable Peer Record by their UUID. 
+	/// Retrieve a mutable Peer Record by their UUID.
 	fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord>;
-	/// Add a new peer record. 
+	/// Add a new peer record.
 	fn push(&mut self, peer: PeerRecord);
-	/// Gets a peer record using an AuxinAddress, trying UUID if it one or phone number if it does not. 
+	/// Gets a peer record using an AuxinAddress, trying UUID if it one or phone number if it does not.
 	fn get(&self, address: &AuxinAddress) -> Option<&PeerRecord>;
 	/// Gets a mutable peer record using an AuxinAddress, trying UUID if it one or phone number if it does not.
 	fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord>;
 
 	/// Finds the UUID that corresponds to this phone number.
 	fn complete_phone_address(&self, phone_number: &String) -> Option<AuxinAddress> {
-		self.get_by_number(phone_number)
-			.map(|peer| AuxinAddress::from(peer))
+		self.get_by_number(phone_number).map(AuxinAddress::from)
 	}
 	/// Finds phone number that corresponds to this UUIO.
 	fn complete_uuid_address(&self, peer_uuid: &Uuid) -> Option<AuxinAddress> {
-		self.get_by_uuid(peer_uuid)
-			.map(|peer| AuxinAddress::from(peer))
+		self.get_by_uuid(peer_uuid).map(AuxinAddress::from)
 	}
 	/// If we only have a phone number or a UUID, fill in the other one. Returns None if no peer by this address is found.
 	fn complete_address(&self, address: &AuxinAddress) -> Option<AuxinAddress> {
 		if let AuxinAddress::Both(_, _) = address {
-			return Some(address.clone());
+			Some(address.clone())
 		} else {
 			return (address
 				.get_phone_number()
@@ -307,15 +296,13 @@ pub trait PeerStore {
 
 impl PeerStore for PeerRecordStructure {
 	fn get_by_number(&self, phone_number: &E164) -> Option<&PeerRecord> {
-		self.peers
-			.iter()
-			.find(|i| {
-				if let Some(number) = &i.number { 
-					number.eq_ignore_ascii_case(&phone_number)
-				} else {
-					false
-				}
-			})
+		self.peers.iter().find(|i| {
+			if let Some(number) = &i.number {
+				number.eq_ignore_ascii_case(phone_number)
+			} else {
+				false
+			}
+		})
 	}
 	fn get_by_uuid(&self, peer_uuid: &Uuid) -> Option<&PeerRecord> {
 		self.peers.iter().find(|i| {
@@ -327,15 +314,13 @@ impl PeerStore for PeerRecordStructure {
 		})
 	}
 	fn get_by_number_mut(&mut self, phone_number: &E164) -> Option<&mut PeerRecord> {
-		self.peers
-			.iter_mut()
-			.find(|i| {
-				if let Some(number) = &i.number { 
-					number.eq_ignore_ascii_case(&phone_number)
-				} else {
-					false
-				}
-			})
+		self.peers.iter_mut().find(|i| {
+			if let Some(number) = &i.number {
+				number.eq_ignore_ascii_case(phone_number)
+			} else {
+				false
+			}
+		})
 	}
 	fn get_by_uuid_mut(&mut self, peer_uuid: &Uuid) -> Option<&mut PeerRecord> {
 		self.peers.iter_mut().find(|i| {
@@ -433,9 +418,9 @@ pub struct PeerDeviceInfo {
 
 impl PeerDeviceInfo {
 	/// Generate a pre-key bundle from this PeerDeviceInfo, using the provided IdentityKey.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `identity_key` - The identity key for this user which we also received as part of a PeerInfoReply. Note that this isn't the identity key for the local node, but it is instead the identity key for the peer whose info we are retrieving.
 	pub fn convert_to_pre_key_bundle(
 		&self,
@@ -461,7 +446,7 @@ impl PeerDeviceInfo {
 			self.signed_pre_key.key_id,
 			signed_pre_key_public,
 			signed_pre_key_signature,
-			identity_key.clone(),
+			*identity_key,
 		)?)
 	}
 }
@@ -472,12 +457,12 @@ impl PeerDeviceInfo {
 pub struct PeerInfoReply {
 	/// Identity key encoded as Base64
 	pub identity_key: String,
-	/// A list of device IDs and device-accounts associated with this user account. 
+	/// A list of device IDs and device-accounts associated with this user account.
 	pub devices: Vec<PeerDeviceInfo>,
 }
 
 impl PeerInfoReply {
-	/// Iterates through each of the PeerDeviceInfo we have received, calling convert_to_pre_key_bundle() on each of them. 
+	/// Iterates through each of the PeerDeviceInfo we have received, calling convert_to_pre_key_bundle() on each of them.
 	pub fn convert_to_pre_key_bundles(self) -> crate::Result<Vec<(u32, PreKeyBundle)>> {
 		let id_key_bytes = base64::decode(&self.identity_key)?;
 		let id_key = IdentityKey::decode(&id_key_bytes)?;
@@ -485,11 +470,11 @@ impl PeerInfoReply {
 		for device in self.devices.iter() {
 			out_vec.push((device.device_id, device.convert_to_pre_key_bundle(&id_key)?));
 		}
-		return Ok(out_vec);
+		Ok(out_vec)
 	}
 }
 
-/// Information on which capabilities this peer has, as sent to us from Signal's web API. 
+/// Information on which capabilities this peer has, as sent to us from Signal's web API.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProfileCapabilitiesResponse {
 	pub gv2: bool,
@@ -529,7 +514,7 @@ pub struct ProfileResponse {
 }
 
 pub trait AuxinStateManager {
-	/// Load the local identity for this node, for the user account Auxin will operate as. 
+	/// Load the local identity for this node, for the user account Auxin will operate as.
 	/// In signal_cli's protocol store structure, this would come from the file with a name which is your phone number inside the "data" directory.
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
 	fn load_context(
@@ -541,7 +526,7 @@ pub trait AuxinStateManager {
 	fn save_all_sessions(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		for peer in context.peer_cache.peers.iter() {
 			let address = AuxinAddress::from(peer);
-			self.save_peer_sessions(&address, &context)?;
+			self.save_peer_sessions(&address, context)?;
 		}
 		Ok(())
 	}
@@ -567,11 +552,11 @@ pub trait AuxinStateManager {
 	fn flush(&mut self, context: &AuxinContext) -> crate::Result<()>;
 	/// Saves absolutely every relevant scrap of data we have loaded
 	fn save_entire_context(&mut self, context: &AuxinContext) -> crate::Result<()> {
-		self.save_our_identity(&context)?;
-		self.save_all_peer_records(&context)?;
-		self.save_pre_keys(&context)?;
-		self.save_all_sessions(&context)?;
-		self.flush(&context)?;
+		self.save_our_identity(context)?;
+		self.save_all_peer_records(context)?;
+		self.save_pre_keys(context)?;
+		self.save_all_sessions(context)?;
+		self.flush(context)?;
 		Ok(())
 	}
 }

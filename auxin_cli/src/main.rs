@@ -1,22 +1,22 @@
 #![feature(async_closure)]
 #![deny(bare_trait_objects)]
 
+use log::{debug, warn};
 use std::cell::RefCell;
 use std::convert::TryFrom;
-use log::{debug, warn};
-use tokio::time::{Duration};
+use tokio::time::Duration;
 
 use auxin::address::AuxinAddress;
 use auxin::message::{MessageContent, MessageOut};
 use auxin::state::AuxinStateManager;
-use auxin::{Result, generate_timestamp};
+use auxin::{generate_timestamp, Result};
 use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
 use auxin_protos::AttachmentPointer;
 use rand::rngs::OsRng;
 
 use tracing::info;
-use tracing_subscriber::FmtSubscriber;
 use tracing_futures::Instrument;
+use tracing_subscriber::FmtSubscriber;
 
 use clap::{Arg, SubCommand};
 
@@ -35,7 +35,6 @@ pub type Context = auxin::AuxinContext;
 use crate::repl_wrapper::AppWrapper;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
-
 
 #[cfg(feature = "repl")]
 pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
@@ -79,19 +78,18 @@ pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<()> {
-    let subscriber = FmtSubscriber::builder()
-    // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-    // will be written to stdout.
-    //.with_max_level(Level::TRACE)
-	.with_writer(std::io::stderr)
-	//Ensure Tracing respects the same logging verbosity configuration environment variable as env_logger does,
-	//so that one setting controls all logging in Auxin.
-	.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-    // completes the builder.
-    .finish();
+	let subscriber = FmtSubscriber::builder()
+		// all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+		// will be written to stdout.
+		//.with_max_level(Level::TRACE)
+		.with_writer(std::io::stderr)
+		//Ensure Tracing respects the same logging verbosity configuration environment variable as env_logger does,
+		//so that one setting controls all logging in Auxin.
+		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+		// completes the builder.
+		.finish();
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
+	tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 	const AUTHOR_STR: &str = "Forest Contact team";
 	const VERSION_STR: &str = "0.1.1";
 
@@ -182,7 +180,10 @@ pub async fn main() -> Result<()> {
 	env_logger::init();
 
 	let base_dir = format!("{}/data", args.value_of("CONFIG").unwrap());
-	debug!("Using {} as the directory which holds our Signal protocol state.", base_dir );
+	debug!(
+		"Using {} as the directory which holds our Signal protocol state.",
+		base_dir
+	);
 
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
@@ -195,12 +196,12 @@ pub async fn main() -> Result<()> {
 		state,
 		OsRng::default(),
 	)
-    .instrument(tracing::info_span!("AuxinApp"))
+	.instrument(tracing::info_span!("AuxinApp"))
 	.await
 	.unwrap();
 
 	//Prepare to download attachments, asynchronously.
-	//let mut 
+	//let mut
 
 	if let Some(send_command) = args.subcommand_matches("send") {
 		let dest = send_command.value_of("DESTINATION").unwrap();
@@ -212,41 +213,42 @@ pub async fn main() -> Result<()> {
 		message_content.text_message = message_text.map(|s| s.to_string());
 
 		//Did the user pass in a "Content" protocol buffer serialized as json?
-		let mut premade_content: Option<auxin_protos::Content> = send_command.value_of("CONTENT")
+		let mut premade_content: Option<auxin_protos::Content> = send_command
+			.value_of("CONTENT")
 			.map(|s| serde_json::from_str(s).unwrap());
-		//Do we have one or more attachments? 
-		//Note the use of values_of rather than value_of because there may be more than one of these. 
+		//Do we have one or more attachments?
+		//Note the use of values_of rather than value_of because there may be more than one of these.
 		let maybe_attach = send_command.values_of("ATTACHMENT");
-		if let Some(to_attach) = maybe_attach { 
+		if let Some(to_attach) = maybe_attach {
 			//Iterate over each attachment.
-			for att in to_attach.into_iter() { 
+			for att in to_attach.into_iter() {
 				let upload_attributes = app.request_upload_id().await?;
 				let file_path_str = att;
 				let file_path = std::path::Path::new(&file_path_str);
 				let file_name = file_path.file_name().unwrap().to_str().unwrap();
-		
+
 				let data = std::fs::read(&file_path)?;
-		
+
 				//Encrypt our attachment.
 				let mut rng = OsRng::default();
-				let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
-				
+				let encrypted_attahcment =
+					auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
+
 				//Upload the attachment, generating an attachment pointer in the process.
-				let attachment_pointer = app.upload_attachment(&upload_attributes, &encrypted_attahcment).await?;
-				
+				let attachment_pointer = app
+					.upload_attachment(&upload_attributes, &encrypted_attahcment)
+					.await?;
 
 				//If we have a premade content, put the attachments there instead.
 				if let Some(c) = &mut premade_content {
-
-					if !c.has_dataMessage() { 
+					if !c.has_dataMessage() {
 						c.set_dataMessage(auxin_protos::DataMessage::default());
 					}
 					c.mut_dataMessage().attachments.push(attachment_pointer);
-				}
-				else { 
+				} else {
 					//Otherwise, we are constructing content regularly.
 
-					//Add it to our list! 
+					//Add it to our list!
 					message_content.attachments.push(attachment_pointer);
 				}
 			}
@@ -257,21 +259,23 @@ pub async fn main() -> Result<()> {
 			content: message_content,
 		};
 
-		if premade_content.is_some() { 
+		if premade_content.is_some() {
 			debug!("Using premade content {:?}", premade_content);
 		}
 		//If there was no premade content there is no other reason for a MessageOut to have a "source" other than None.
 		message.content.source = premade_content;
 
-		if send_command.is_present("SIMULATE") { 
-			//Are we just testing this thing? If so, print our content as json. 
-			let built_content = message.content.build_signal_content(&base64::encode(&app.context.identity.profile_key).to_string(), generate_timestamp())?;
+		if send_command.is_present("SIMULATE") {
+			//Are we just testing this thing? If so, print our content as json.
+			let built_content = message.content.build_signal_content(
+				&base64::encode(&app.context.identity.profile_key),
+				generate_timestamp(),
+			)?;
 			println!("[CONTENT_PRODUCED]");
 			let content_str = serde_json::to_string(&built_content)?;
 			println!("{}", content_str);
-		}
-		else { 
-			//Not just testing, no -s argument, actually send our message. 
+		} else {
+			//Not just testing, no -s argument, actually send our message.
 			app.send_message(&recipient_addr, message).await.unwrap();
 		}
 	}
@@ -287,9 +291,9 @@ pub async fn main() -> Result<()> {
 		println!("{}", payaddr_json);
 	}
 
-	let mut attachments_to_download : Vec<AttachmentPointer> = Vec::default(); 
+	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
 
-	if let Some(_) = args.subcommand_matches("receive") {
+	if args.subcommand_matches("receive").is_some() {
 		let mut receiver = AuxinReceiver::new(&mut app).await.unwrap();
 		while let Some(msg) = receiver.next().await {
 			let msg = msg.unwrap();
@@ -305,8 +309,12 @@ pub async fn main() -> Result<()> {
 		}
 	}
 
-	if !attachments_to_download.is_empty() { 
-		let pending_downloads = initiate_attachment_downloads(attachments_to_download, app.get_http_client(), Some(ATTACHMENT_TIMEOUT_DURATION) );
+	if !attachments_to_download.is_empty() {
+		let pending_downloads = initiate_attachment_downloads(
+			attachments_to_download,
+			app.get_http_client(),
+			Some(ATTACHMENT_TIMEOUT_DURATION),
+		);
 
 		//Force all downloads to complete.
 		futures::future::try_join_all(pending_downloads.into_iter()).await?;
@@ -322,14 +330,17 @@ pub async fn main() -> Result<()> {
 
 		let mut rng = OsRng::default();
 
-		let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
-		
-		let attachment_pointer = app.upload_attachment(&upload_attributes, &encrypted_attahcment).await?;
+		let encrypted_attahcment =
+			auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
+
+		let attachment_pointer = app
+			.upload_attachment(&upload_attributes, &encrypted_attahcment)
+			.await?;
 		println!("[ATTACHMENT_POINTER]");
 		println!("{:?}", attachment_pointer);
 	}
 
-	if let Some(_) = args.subcommand_matches("echoserver") {
+	if args.subcommand_matches("echoserver").is_some() {
 		let mut exit = false;
 		// Ugly hack to get around the multiple ways the borrow checker doesn't recognize what we're trying to do.
 		let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app).await.unwrap()));
@@ -376,7 +387,7 @@ pub async fn main() -> Result<()> {
 		}
 	}
 
-	if let Some(_) = args.subcommand_matches("repl") {
+	if args.subcommand_matches("repl").is_some() {
 		app.retrieve_sender_cert().await?;
 		launch_repl(&mut app)?;
 	}

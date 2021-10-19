@@ -27,15 +27,15 @@ use crate::Context;
 pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
 	let mut identity_dir = String::from_str(base_dir)?;
 
-	if !base_dir.ends_with("/") {
-		identity_dir.push_str("/");
+	if !base_dir.ends_with('/') {
+		identity_dir.push('/');
 	}
 
 	let mut identity_file_path = identity_dir.clone();
 	identity_file_path.push_str(our_phone_number.as_str());
 
 	let file = File::open(identity_file_path)?;
-	return Ok(serde_json::from_reader(file)?);
+	Ok(serde_json::from_reader(file)?)
 }
 
 custom_error! { pub ErrBuildIdent
@@ -178,7 +178,7 @@ pub async fn load_known_peers(
 	ctx: libsignal_protocol::Context,
 ) -> Result<()> {
 	let mut our_path = base_dir.clone().to_string();
-	our_path.push_str("/");
+	our_path.push('/');
 	our_path.push_str(our_id);
 	our_path.push_str(".d/");
 	let mut known_peers_path = our_path.clone();
@@ -201,7 +201,7 @@ pub async fn load_known_peers(
 			let decoded_key: Vec<u8> = base64::decode(&peer_identity.identity_key)?;
 			let id_key = IdentityKey::decode(decoded_key.as_slice())?;
 			for i in recip.device_ids_used.iter() {
-				if let Some(uuid) =  &recip.uuid {
+				if let Some(uuid) = &recip.uuid {
 					let addr = ProtocolAddress::new(uuid.to_string(), *i);
 					identity_store.save_identity(&addr, &id_key, ctx);
 				}
@@ -223,7 +223,7 @@ pub async fn load_sessions(
 	ctx: libsignal_protocol::Context,
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
 	let mut our_path = base_dir.clone().to_string();
-	our_path.push_str("/");
+	our_path.push('/');
 	our_path.push_str(our_id);
 	our_path.push_str(".d/");
 	let mut recipients_path = our_path.clone();
@@ -299,7 +299,7 @@ pub async fn load_sessions(
 				let recip = recipient_structure
 					.peers
 					.iter_mut()
-					.find(|r| r.id == recipient_id_num.clone() as u64)
+					.find(|r| r.id == recipient_id_num as u64)
 					.unwrap();
 				let device_id_num: u32 = recipient_device_id.parse::<u32>()?;
 
@@ -310,7 +310,7 @@ pub async fn load_sessions(
 
 					//Let's also build some extra cached information we keep around for convenience!
 					recip.device_ids_used.push(device_id_num);
-					
+
 					//Open session file.
 					let mut buffer = Vec::new();
 					let mut f = File::open(file_path.as_str())?;
@@ -354,7 +354,7 @@ pub async fn load_prekeys(
 
 	//Figure out some directories.
 	let mut our_path = base_dir.to_string();
-	our_path.push_str("/");
+	our_path.push('/');
 	our_path.push_str(our_id);
 	our_path.push_str(".d/");
 	let mut pre_keys_path = our_path.clone();
@@ -457,7 +457,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 	let our_id: String = context.identity.address.get_phone_number()?.clone();
 	//Figure out some directories.
 	let mut our_path = base_dir.to_string();
-	our_path.push_str("/");
+	our_path.push('/');
 	our_path.push_str(our_id.as_str());
 	our_path.push_str(".d/");
 
@@ -539,20 +539,20 @@ pub async fn make_context(
 	let our_phone_number = local_identity.address.address.get_phone_number().unwrap();
 
 	let mut identity_store =
-		InMemIdentityKeyStore::new(local_identity.identity_keys.clone(), local_identity.reg_id);
+		InMemIdentityKeyStore::new(local_identity.identity_keys, local_identity.reg_id);
 
 	//Load cached peers and sessions.
-	let (sessions, mut peers) = load_sessions(&our_phone_number, base_dir, None).await?;
+	let (sessions, mut peers) = load_sessions(our_phone_number, base_dir, None).await?;
 	//Load identity keys we saved for peers previously. Writes to the identity store.
 	load_known_peers(
-		&our_phone_number,
+		our_phone_number,
 		base_dir,
 		&mut peers,
 		&mut identity_store,
 		None,
 	)
 	.await?;
-	let (pre_keys, signed_pre_keys) = load_prekeys(&our_phone_number, base_dir, None).await?;
+	let (pre_keys, signed_pre_keys) = load_prekeys(our_phone_number, base_dir, None).await?;
 
 	Ok(Context {
 		identity: local_identity,
@@ -561,9 +561,9 @@ pub async fn make_context(
 		session_store: sessions,
 		pre_key_store: pre_keys,
 		signed_pre_key_store: signed_pre_keys,
-		identity_store: identity_store,
+		identity_store,
 		sender_key_store: InMemSenderKeyStore::new(),
-		config: config,
+		config,
 		report_as_online: false,
 		ctx: SignalCtx::default(),
 	})
@@ -583,7 +583,7 @@ impl StateManager {
 		let our_id: String = context.identity.address.get_phone_number().unwrap().clone();
 		//Figure out some directories.
 		let mut our_path = self.base_dir.clone();
-		our_path.push_str("/");
+		our_path.push('/');
 		our_path.push_str(our_id.as_str());
 		our_path.push_str(".d/");
 		our_path
@@ -592,9 +592,9 @@ impl StateManager {
 
 impl AuxinStateManager for StateManager {
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
-		let user_json = load_signal_cli_user(self.base_dir.as_str(), &phone_number)?;
+		let user_json = load_signal_cli_user(self.base_dir.as_str(), phone_number)?;
 		let local_identity = local_identity_from_json(&user_json)?;
-		return Ok(local_identity);
+		Ok(local_identity)
 	}
 	fn load_context(
 		&mut self,
@@ -632,7 +632,7 @@ impl AuxinStateManager for StateManager {
 		let mut session_path = our_path.clone();
 		session_path.push_str("sessions/");
 
-		let mut known_peers_path = our_path.clone();
+		let mut known_peers_path = our_path;
 		known_peers_path.push_str("identities/");
 
 		if !Path::new(&session_path).exists() {
@@ -704,7 +704,7 @@ impl AuxinStateManager for StateManager {
 		//Ensure file is closed ASAP.
 		drop(file);
 
-		let mut identities_path = our_path.clone();
+		let mut identities_path = our_path;
 		identities_path.push_str("identities/");
 		for recip in context.peer_cache.peers.iter() {
 			if let Some(ident) = &recip.identity {
