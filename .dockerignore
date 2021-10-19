@@ -1,0 +1,7 @@
+fly.toml
+Dockerfile
+.github
+*.tar
+target
+state
+secrets

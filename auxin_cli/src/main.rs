@@ -110,9 +110,9 @@ pub async fn main() -> Result<()> {
 							.long("config")
 							.short("c")
 							.takes_value(true)
-							.default_value("state/data")
+							.default_value("state")
 							.value_name("DIRECTORY")
-							.help("Specifies which directory auxin_cli will store and retrieve stateful configuration data in, using <DIRECTORY> to select a directory. Defaults to \"./state/data\""))
+							.help("Specifies which directory auxin_cli will store and retrieve stateful configuration data in, using <DIRECTORY> to select a directory. Defaults to \"./state\""))
 						.subcommand(SubCommand::with_name("send")
 							.about("Sends a message to the specified address.")
 							.version(VERSION_STR)
@@ -181,12 +181,12 @@ pub async fn main() -> Result<()> {
 
 	env_logger::init();
 
-	let base_dir = args.value_of("CONFIG").unwrap();
-	debug!("Using {} as the directory which holds our Signal protocol state.", base_dir);
+	let base_dir = format!("{}/data", args.value_of("CONFIG").unwrap());
+	debug!("Using {} as the directory which holds our Signal protocol state.", base_dir );
 
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
-	let state = crate::state::StateManager::new(base_dir);
+	let state = crate::state::StateManager::new(&base_dir);
 	// Get it to all come together.
 	let mut app = AuxinApp::new(
 		our_phone_number,
