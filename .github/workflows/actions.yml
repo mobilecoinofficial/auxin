@@ -1,7 +1,6 @@
 on: [push]
 
 name: build
-
 jobs:
   check:
     name: auxin-check
@@ -15,10 +14,6 @@ jobs:
             override: true
             components: rustfmt, clippy
 
-      - name: Install curl, jq.
-        run: sudo apt-get install -y curl jq
-      # `cargo check` command here will use installed `nightly`
-      # as it is set as an "override" for current directory
       - name: Run cargo check
         uses: actions-rs/cargo@v1
         with:
@@ -27,5 +22,11 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --release
+#      - uses: actions/checkout@v2
+      - uses: actions/upload-artifact@v2
+        with:
+          name: auxin-cli
+          path: target/release/auxin-cli
 #      - name: Run test of build against echoserver
 #        run: /bin/sh -c './test_echobot.sh'
