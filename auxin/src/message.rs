@@ -1,4 +1,5 @@
 use std::{convert::{Infallible, TryFrom}, ops::{BitAnd, BitOr}, str::FromStr};
+
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress},
 	generate_timestamp, sealed_sender_trust_root,
@@ -12,6 +13,10 @@ use log::debug;
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
+use std::{
+	convert::{Infallible, TryFrom},
+	str::FromStr,
+};
 use uuid::Uuid;
 
 pub type Timestamp = u64;
@@ -46,7 +51,7 @@ pub mod envelope_types {
 	//
 	pub const HIGHEST_VALUE: u8 = UNIDENTIFIED_SENDER;
 
-	/// Used to keep track of a Signal Service envelope. 
+	/// Used to keep track of a Signal Service envelope.
 	#[derive(Debug, Eq, PartialEq, IntoPrimitive, Copy, Clone)]
 	#[repr(u8)]
 	pub enum EnvelopeType {
@@ -244,9 +249,9 @@ custom_error! { pub PaddingError
 /// Used to pad the body of a message to 160 characters total (159 before encryption).
 /// For example, this needs to be used on the serialized form of an auxin_protos::Content
 /// before passing it as the message body to something like sealed_sender_encrypt().
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `message` - Plaintext message content to be padded.
 pub fn pad_message_body(message: &[u8]) -> Vec<u8> {
 	//Messages must be broken up into 160-byte chunks...
@@ -258,7 +263,7 @@ pub fn pad_message_body(message: &[u8]) -> Vec<u8> {
 			message_chunk_count += 1;
 		}
 
-		return message_chunk_count * 160;
+		message_chunk_count * 160
 	}
 	// ...However, the cipher will add its own byte, so the output of this method must leave one byte worth of room.
 	let output_len = get_padded_message_length(message.len() + 1) - 1;
@@ -269,14 +274,14 @@ pub fn pad_message_body(message: &[u8]) -> Vec<u8> {
 	//Add a special terminator character, signifying the end of this message and the start of padding.
 	output[message.len()] = PADDING_START_CHAR;
 
-	return output;
+	output
 }
 
 /// Remove padding from an inbound message.
 /// For example - you will need to use this on the "message" field of the sealed_sender_decrypt() function.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `message` - Message content to have the padding removed from (snipping everything after PADDING_START_CHAR), producing usable message-text.
 pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>, PaddingError> {
 	for (i, elem) in message.iter().enumerate() {
@@ -292,16 +297,16 @@ pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>,
 			}
 		}
 	}
-	return Err(PaddingError::PaddingStartNotFound);
+	Err(PaddingError::PaddingStartNotFound)
 }
 
 /// Makes the protocol buffers sent by Signal's web API compatible with the Rust "protobuf" library.
 /// The messages Signal sends us just start with raw data right away (binary blob). However, the rust implementation of
 /// "Protobuf" expects each "Message" type to start with a Varin64 specifying the length of the message.
 /// So, this function uses buf.len() to add a proper length varint so protobuf can deserialize this message.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `buf` - A buffer containing a protocol buffer message sent to us from Signal's Web API.
 pub fn fix_protobuf_buf(buf: &Vec<u8>) -> Result<Vec<u8>> {
 	let mut new_buf: Vec<u8> = Vec::new();
@@ -354,19 +359,19 @@ pub struct OutgoingPushMessageList {
 	/// This value corresponds to the number of miliseconds since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
 	pub timestamp: Timestamp, //Timestamp is apparently a "long" which is an i32 in C, but a u64 should serialize to json the same.
 
-	/// The list of messages we are going to send. 
+	/// The list of messages we are going to send.
 	pub messages: Vec<OutgoingPushMessage>,
 	/// Should our user account appear as online to other Signal users?
 	pub online: bool,
 }
 
 impl OutgoingPushMessageList {
-	/// This is how we send am essage. 
-	/// Construct an HTTP request which can be sent to Signal's Web API, 
-	/// which forwards these messages to the intended recipient. 
-	/// 
+	/// This is how we send am essage.
+	/// Construct an HTTP request which can be sent to Signal's Web API,
+	/// which forwards these messages to the intended recipient.
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `peer_address` - The address of the peer to whom we're sending these messages.
 	/// * `mode` - Are we sending this as regular ciphertext, or as a sealed-sender message?
 	/// * `context` - The Auxin Context providing all cryptographic state needed to send this message.
@@ -395,8 +400,7 @@ impl OutgoingPushMessageList {
 		)?;
 
 		if mode == MessageSendMode::SealedSender {
-			let unidentified_access_key =
-				context.get_unidentified_access_for(&peer_address, rng)?;
+			let unidentified_access_key = context.get_unidentified_access_for(peer_address, rng)?;
 			let unidentified_access_key = base64::encode(unidentified_access_key);
 			debug!(
 				"Attempting to send with unidentified access key {}",
@@ -435,8 +439,8 @@ impl Default for MessageDirection {
 }
 
 /// Indicates if this message is being sent as a regular, visible-address Signal Ciphertext message,
-/// or is it being sent as a sealed-sender message (wtih no address indicating who's sending it 
-/// before it has been decrypted) 
+/// or is it being sent as a sealed-sender message (wtih no address indicating who's sending it
+/// before it has been decrypted)
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub enum MessageSendMode {
 	/// Sent as regular Signal ciphertext
@@ -455,14 +459,14 @@ impl Default for MessageSendMode {
 /// Corresponds to signalservice.proto::Content
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct MessageContent {
-	/// A simple text message sent or received. 
+	/// A simple text message sent or received.
 	pub text_message: Option<String>,
 	/// Takes a mode ("Delivered" to mean the inbox got it, "Read" to mean somebody saw it)
 	/// and one or more timestamps of the *messages we are acknowledging we received.*
 	pub receipt_message: Option<(ReceiptMode, Vec<Timestamp>)>,
 	/// Is this quoting another message?
 	pub quote: Option<DataMessage_Quote>,
-	/// The Signal "content" this was deserialized from. 
+	/// The Signal "content" this was deserialized from.
 	/// If this is a Some(content) on a MessageOut, all other fields will be ignored and the provided pre-built Signal content protobuf structure will be used instead.
 	pub source: Option<auxin_protos::Content>,
 	/// A list of attachment pointers to attach to this message, providing a CDN address.
@@ -473,10 +477,10 @@ pub struct MessageContent {
 
 impl MessageContent {
 	/// Convenience method to construct a message wth a text message component to it.
-	/// 
+	///
 	/// # Arguments
-	/// 
-	/// * `value` - The message we are texting to a peer. 
+	///
+	/// * `value` - The message we are texting to a peer.
 	pub fn with_text(self, value: String) -> MessageContent {
 		MessageContent {
 			text_message: Some(value),
@@ -489,9 +493,9 @@ impl MessageContent {
 	}
 
 	/// Construct an auxin_protos::Content out of this MessageContent.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `our_profile_key` - Our local Signal user's profile key, passed as a Base64-encoded string representing our 32-byte Profile Key.
 	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.  
 	pub fn build_signal_content(
@@ -502,18 +506,17 @@ impl MessageContent {
 		// Did we create this message using a content message directly?
 		if let Some(content) = &self.source {
 			let mut new_content = content.clone();
-			if new_content.has_dataMessage() { 
+			if new_content.has_dataMessage() {
 				new_content.mut_dataMessage().set_timestamp(timestamp);
 			}
 
 			let _ = protobuf::Message::compute_size(&new_content);
 			//  RETURN EARLY
-			return Ok(new_content);
-		}
-		else { 
+			Ok(new_content)
+		} else {
 			// Otherwise, build from typical Auxin data.
 			let mut result = auxin_protos::Content::default();
-	
+
 			let mut use_data_message: bool = false;
 			let mut data_message = auxin_protos::DataMessage::default();
 			data_message.set_timestamp(timestamp);
@@ -531,33 +534,33 @@ impl MessageContent {
 				use_data_message = true;
 				debug!("Setting the END_SESSION flag on a message with ID (timestamp) {}", timestamp);
 			}
-	
+      
 			if let Some(msg) = &self.text_message {
 				use_data_message = true;
-	
+
 				data_message.set_body(msg.clone());
 				let _ = protobuf::Message::compute_size(&data_message);
 			}
 			//Add any attachments on this MessageOut to the DataMessage.
-			for attachment in self.attachments.iter() { 
+			for attachment in self.attachments.iter() {
 				use_data_message = true;
 				data_message.attachments.push(attachment.clone());
 			}
-	
+
 			if let Some((mode, acknowledging_timestamp)) = &self.receipt_message {
 				let mut receipt_message = auxin_protos::ReceiptMessage::default();
 				receipt_message.set_field_type(*mode);
 				receipt_message.set_timestamp(acknowledging_timestamp.clone());
-	
+
 				let _ = protobuf::Message::compute_size(&receipt_message);
 				result.set_receiptMessage(receipt_message);
 			}
-	
+
 			if use_data_message {
 				result.set_dataMessage(data_message);
 				let _ = protobuf::Message::compute_size(&result);
 			}
-	
+
 			Ok(result)
 		}
 	}
@@ -575,9 +578,9 @@ custom_error! { pub MessageOutError
 
 impl MessageOut {
 	/// Encrypts our MessageOut and builds all of the data the Signal Web API will need to process it.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `address_to` - The address and device ID of the peer to whom we're sending this message.
 	/// * `mode` - A MessageSendMode, controlling if we're sending this as a Sealed Sender message or a regular Signal ciphertext message.
 	/// * `context` - All keys and session state data required to encrypt this message.
@@ -591,7 +594,7 @@ impl MessageOut {
 		rng: &mut Rng,
 		timestamp: u64,
 	) -> Result<OutgoingPushMessage> {
-		let signal_ctx = context.get_signal_ctx().ctx.clone();
+		let signal_ctx = context.get_signal_ctx().ctx;
 		//Make sure it has both UUID and phone number.
 		let mut address_to = address_to.clone();
 		address_to.address = context
@@ -689,7 +692,7 @@ impl MessageOut {
 					envelope_type,
 					destination_device_id: their_address.device_id(),
 					destination_registration_id: reg_id,
-					content: content,
+					content,
 				}
 			}
 			MessageSendMode::SealedSender => {
@@ -764,26 +767,21 @@ impl From<Infallible> for MessageInError {
 }
 
 /// Decrypts a sealed-sender envelope. Note that this also calls MessageIn::update_profile_key_from() if necessary.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `envelope` - The Signal Service Envelope we're decrypting and decoding here.
 /// * `context` - All keys and session state data required to decrypt this message.
 pub async fn decrypt_unidentified_sender(
 	envelope: &Envelope,
 	context: &mut AuxinContext,
 ) -> std::result::Result<(MessageContent, AuxinDeviceAddress), MessageInError> {
-	let signal_ctx = context.get_signal_ctx().ctx.clone();
+	let signal_ctx = context.get_signal_ctx().ctx;
 	let decrypted = sealed_sender_decrypt(
 		envelope.get_content(),
 		&sealed_sender_trust_root(),
 		generate_timestamp() as u64,
-		context
-			.identity
-			.address
-			.get_phone_number()
-			.ok()
-			.map(|s| s.clone()),
+		context.identity.address.get_phone_number().ok().cloned(),
 		context.identity.address.get_uuid().unwrap().to_string(),
 		context.identity.address.device_id,
 		&mut context.identity_store,
@@ -793,12 +791,12 @@ pub async fn decrypt_unidentified_sender(
 		signal_ctx,
 	)
 	.await
-	.map_err(|e| MessageInError::ProtocolError(e))?;
+	.map_err(MessageInError::ProtocolError)?;
 
 	debug!("Length of decrypted message: {:?}", decrypted.message.len());
 
 	let unpadded_message =
-		remove_message_padding(&decrypted.message).map_err(|e| MessageInError::PaddingIssue(e))?;
+		remove_message_padding(&decrypted.message).map_err(MessageInError::PaddingIssue)?;
 	let fixed_buf = fix_protobuf_buf(&unpadded_message)
 		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 
@@ -828,14 +826,14 @@ pub async fn decrypt_unidentified_sender(
 	MessageIn::update_profile_key_from(&message, &sender_address, context)?;
 
 	debug!("Decrypted sealed sender message into: {:?}", &message);
-	return Ok((
+	Ok((
 		MessageContent::try_from(message)
 			.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?,
 		remote_address,
-	));
+	))
 }
 
-/// Represents any message we have received over Signal 
+/// Represents any message we have received over Signal
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MessageIn {
 	pub content: MessageContent,
@@ -851,7 +849,7 @@ impl MessageIn {
 	/// Generate a receipt indicating that we received, or read, this message.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `mode` - Are we generating a receipt indicating the app got this message (empty checkmark), or one indicating the message has been read / processed (filled checkmark)?
 	pub fn generate_receipt(&self, mode: ReceiptMode) -> MessageOut {
 		MessageOut {
@@ -867,10 +865,10 @@ impl MessageIn {
 	}
 
 	/// Checks to see if this Content contains a notification that this peer's ProfileKey has been updated,
-	/// and, if it does, record the new ProfileKey so that we can use it going forward. 
-	/// 
+	/// and, if it does, record the new ProfileKey so that we can use it going forward.
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `content` - The Signal message content that may contain a new profile key.
 	/// * `remote_address` - The address of the peer we received this message from.
 	/// * `context` - The session state, including the peer record structure we might be updating with this new profile key.
@@ -884,25 +882,23 @@ impl MessageIn {
 			.complete_address(remote_address)
 			.unwrap_or(remote_address.clone());
 
-		if content.has_dataMessage() {
-			if content.get_dataMessage().has_profileKey() {
-				let mut pk: ProfileKey = ProfileKey::default();
-				let pk_slice = content.get_dataMessage().get_profileKey();
-				pk.copy_from_slice(pk_slice);
+		if content.has_dataMessage() && content.get_dataMessage().has_profileKey() {
+			let mut pk: ProfileKey = ProfileKey::default();
+			let pk_slice = content.get_dataMessage().get_profileKey();
+			pk.copy_from_slice(pk_slice);
 
-				let peer = context.peer_cache.get_mut(&remote_address);
-				if let Some(peer) = peer {
-					peer.profile_key = Some(base64::encode(pk));
-				}
+			let peer = context.peer_cache.get_mut(&remote_address);
+			if let Some(peer) = peer {
+				peer.profile_key = Some(base64::encode(pk));
 			}
 		}
 		Ok(())
 	}
 
 	/// Attempt to decode a regular Signal Ciphertext envelope (not sealed-sender) into a MessageIn.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `envelope` - The Signal message we are decrypting.
 	/// * `context` - The session state and cryptographic keys needed to decrypt this message.
 	/// * `rng` - Cryptographically-secure random number generator from which we get entropy for these operations.
@@ -945,18 +941,20 @@ impl MessageIn {
 		})
 	}
 
-
 	/// Attempt to decode a Sealed Sender message (which encrypts all informaton about who sent it) into a MessageIn.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `envelope` - The Signal message we are decrypting.
 	/// * `context` - The session state and cryptographic keys needed to decrypt this message.
 	pub async fn from_sealed_sender(
 		envelope: Envelope,
-		context: &mut AuxinContext
+		context: &mut AuxinContext,
 	) -> std::result::Result<MessageIn, MessageInError> {
-		assert_eq!(envelope.get_field_type(), Envelope_Type::UNIDENTIFIED_SENDER);
+		assert_eq!(
+			envelope.get_field_type(),
+			Envelope_Type::UNIDENTIFIED_SENDER
+		);
 
 		// Decrypt the sealed sender message and also unpad its data
 		let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;
@@ -971,14 +969,14 @@ impl MessageIn {
 	}
 
 	/// Attempt to decode a Signal receipt message into a MessageIn.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `envelope` - The Signal message we are decrypting.
 	/// * `context` - The session state and cryptographic keys needed to decrypt this message.
 	pub async fn from_receipt(
 		envelope: Envelope,
-		context: &mut AuxinContext
+		context: &mut AuxinContext,
 	) -> std::result::Result<MessageIn, MessageInError> {
 		assert_eq!(envelope.get_field_type(), Envelope_Type::RECEIPT);
 		debug!(
@@ -1000,24 +998,21 @@ impl MessageIn {
 		let remote_address = remote_address.unwrap();
 		Ok(MessageIn {
 			content: MessageContent {
-				receipt_message: Some((
-					ReceiptMode::DELIVERY,
-					vec![envelope.get_timestamp()],
-				)),
+				receipt_message: Some((ReceiptMode::DELIVERY, vec![envelope.get_timestamp()])),
 				text_message: None,
 				source: None,
 				quote: None,
 				attachments: Vec::default(),
 				end_session: false,
 			},
-			remote_address: remote_address,
+			remote_address,
 			timestamp: envelope.get_timestamp(),
 			timestamp_received: generate_timestamp(), //Keep track of when we got it.
 			server_guid: envelope.get_serverGuid().to_string(),
 		})
 	}
 
-	/// Do we need to generate a receipt in response to this Message, and then send that to Signal's servers to indicate it has been received? 
+	/// Do we need to generate a receipt in response to this Message, and then send that to Signal's servers to indicate it has been received?
 	/// Returns false for receipt messages (no infinite receipt loops) and true for all others.
 	pub fn needs_receipt(&self) -> bool {
 		// TODO: Evaluate if Receipt Messages are ever delivered alongside anything else in the same envelope.
@@ -1036,9 +1031,9 @@ impl MessageIn {
 
 /// Attempt to retrieve the address of the user who sent us this envelope from the envelope.
 /// When used on a sealed sender message, it will *always* return None.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `envelope` - The Signal message we are attempting to get a UUID and/or phone number from.
 pub(crate) fn address_from_envelope(envelope: &Envelope) -> Option<AuxinDeviceAddress> {
 	match envelope.has_sourceDevice() {
@@ -1063,9 +1058,9 @@ pub(crate) fn address_from_envelope(envelope: &Envelope) -> Option<AuxinDeviceAd
 }
 
 /// Attempts to decrypt a Content from a Signal prototocol CiphertextMessage.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `ciphertext` - The ciphertext being decrypted.
 /// * `context` - All keys and session state data required to decrypt this message.
 /// * `rng` - The cryptographically-strong source of entropy for this process.
@@ -1088,7 +1083,7 @@ async fn decrypt_ciphertext<R: RngCore + CryptoRng>(
 		signal_ctx,
 	)
 	.await
-	.map_err(|e| MessageInError::ProtocolError(e))?;
+	.map_err(MessageInError::ProtocolError)?;
 
 	let unpadded_message = remove_message_padding(&decrypted)
 		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
@@ -1101,7 +1096,7 @@ async fn decrypt_ciphertext<R: RngCore + CryptoRng>(
 		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?)
 }
 
-/// A list of messages to send. This is processed into an OutgoingPushMessageList 
+/// A list of messages to send. This is processed into an OutgoingPushMessageList
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct AuxinMessageList {
 	/// Our list of outgoing messages
@@ -1112,9 +1107,9 @@ pub struct AuxinMessageList {
 
 impl AuxinMessageList {
 	/// Encrypts our_message string and builds an OutgoingPushMessage from it - One for each of remote_address's devices on file.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `context` - The Auxin Context providing all cryptographic state needed to send this message.
 	/// * `mode` - Are we sending this as regular ciphertext, or as a sealed-sender message?
 	/// * `rng` - The cryptographically-strong source of entropy for this process.
@@ -1186,8 +1181,7 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 				result.text_message = Some(data_message.get_body().to_string());
 			}
 			if data_message.attachments.len() > 0 {
-				result.attachments =
-					data_message.attachments.iter().map(|a| a.clone()).collect();
+				result.attachments = data_message.attachments.iter().cloned().collect();
 			}
 			// 1 is the END_SESSION flag.
 			if data_message.has_flags() { 
@@ -1206,6 +1200,6 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 
 		result.source = Some(value);
 		// TODO: More fine-grained results.
-		return Ok(result);
+		Ok(result)
 	}
 }

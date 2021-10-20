@@ -27,7 +27,7 @@ pub struct DirectoryAuthResponse {
 	pub password: String,
 }
 
-/// A request used to initiate the Discovery process, used to retrieve an attestation. 
+/// A request used to initiate the Discovery process, used to retrieve an attestation.
 /// An attestation is part of the handshake process for interacting with a remote
 /// Intel SGX Enclave, in this case Signal's contact-discovery SGX Enclave.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -146,9 +146,9 @@ impl AttestationResponse {
 	}
 
 	/// Decodes an AttestationRequestID from this AttestationResponse
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `our_ephemeral_keys` - The ephemeral key-pair generated specifically for this attestation / discovery process.
 	pub fn decode_request_id(
 		&self,
@@ -157,11 +157,10 @@ impl AttestationResponse {
 		self.decode_request_id_with_keys(&self.make_remote_attestation_keys(our_ephemeral_keys)?)
 	}
 
-
 	/// Decodes an AttestationRequestID from this AttestationResponse
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `keys` - Attestation keys, generated from our user account's identity keys as well as the server's ephemeral public key and the server's static public key,
 	pub fn decode_request_id_with_keys(
 		&self,
@@ -188,9 +187,9 @@ impl AttestationResponse {
 	}
 
 	/// Decodes and generates a set of attestation keys from this response and from our local set of ephemeral keys.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `our_ephemeral_keys` - Temporary keys we generated for this attestation / discovery process.
 	pub fn make_remote_attestation_keys(
 		&self,
@@ -212,27 +211,27 @@ impl AttestationResponse {
 }
 
 /// Response to a PUT request to https://api.directory.signal.org/v1/attestation/{ENCLAVE_ID}
-/// Contains a list of attestations, mapping an attestation ID to an attestation response. 
+/// Contains a list of attestations, mapping an attestation ID to an attestation response.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct AttestationResponseList {
 	pub attestations: HashMap<String, AttestationResponse>,
 }
 
 impl AttestationResponseList {
-	/// Verify all attestations in this list, ensuring all of them are valid. 
+	/// Verify all attestations in this list, ensuring all of them are valid.
 	pub fn verify_attestations(&self) -> Result<()> {
 		for (_, a) in self.attestations.iter() {
 			a.verify()?;
 		}
-		return Ok(());
+		Ok(())
 	}
 
 	/// Decodes request IDs and also generates attestation keys for each attestation we have received.
 	/// Also returns the serial number of each attestation, for convenience.
 	/// Requires the temporary keys we made our attestation request with to decode this.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `local_keys` - Our local node's ephemeral keys - must match the ones used to request this attestation list earlier.
 	pub fn decode_attestations(
 		&self,
@@ -244,7 +243,7 @@ impl AttestationResponseList {
 			let req = attest.decode_request_id_with_keys(&keys)?;
 			result.push((aid.clone(), keys, req));
 		}
-		return Ok(result);
+		Ok(result)
 	}
 }
 
@@ -258,9 +257,9 @@ pub struct AttestationKeys {
 /// Gnerates a set of attestation keys from the server's ephemeral key and static key from an AttestationResponse,
 /// and from our local set of ephemeral keys.
 /// Returns client_key and server_key, wrapped up in a AttestationKeys.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `local_keys` - Our local ephemeral keypair, temporary keys we generated for this attestation / discovery process.
 /// * `server_ephemeral_pk_bytes` - The ephemeral key the server sent us as part of an AttestationResponse.
 /// * `server_static_pk_bytes` - The static key the server sent us as part of an AttestationResponse.
@@ -280,14 +279,14 @@ pub fn gen_remote_attestation_keys(
 	master_secret[32..64].copy_from_slice(&ephemeral_to_static);
 
 	let mut public_keys_salt: [u8; 96] = [0; 96];
-	public_keys_salt[0..32].copy_from_slice(&local_keys.public_key.public_key_bytes()?);
+	public_keys_salt[0..32].copy_from_slice(local_keys.public_key.public_key_bytes()?);
 	public_keys_salt[32..64].copy_from_slice(server_ephemeral_pk_bytes);
 	public_keys_salt[64..96].copy_from_slice(server_static_pk_bytes);
 
-	let mut keys = [0; 64]; 
-	let generator = hkdf::Hkdf::<sha2::Sha256>::new(Some(&public_keys_salt), &master_secret); 
+	let mut keys = [0; 64];
+	let generator = hkdf::Hkdf::<sha2::Sha256>::new(Some(&public_keys_salt), &master_secret);
 	generator.expand(b"", &mut keys).unwrap();
-	
+
 	//	generator.derive_salted_secrets(&master_secret, &public_keys_salt, &([] as [u8; 0]), 64)?;
 
 	// Split "keys" into an agreed client key and  an agreed server key.
@@ -336,9 +335,9 @@ pub struct DiscoveryRequest {
 }
 
 /// Build a query we will use to request UUIDs corresponding to phone numbers
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `phone_numbers` - A list of phone numbers we are seeking corresponding UUIDs for.
 /// * `rand` - The cryptographically-strong source of entropy for this process.
 pub fn build_query_data<R>(phone_numbers: &Vec<E164>, rand: &mut R) -> Result<Vec<u8>>
@@ -362,7 +361,7 @@ where
 			res.push(b);
 		}
 	}
-	return Ok(res);
+	Ok(res)
 }
 
 impl DiscoveryRequest {
@@ -416,7 +415,7 @@ impl DiscoveryRequest {
 		}
 
 		// There must be between 1 and 3 envelopes.
-		assert!((4 > envelopes.len()) && (envelopes.len() > 0)); //TODO: Better error handling here.
+		assert!((4 > envelopes.len()) && !envelopes.is_empty()); //TODO: Better error handling here.
 
 		//Generate the unencrypted binary request for contact discovery.
 		let query_data = build_query_data(phone_numbers, rand)?;

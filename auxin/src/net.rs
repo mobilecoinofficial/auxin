@@ -1,7 +1,7 @@
 use std::{fmt::Debug, pin::Pin};
 
 use crate::{LocalIdentity, Result};
-use futures::{Sink, Stream, Future};
+use futures::{Future, Sink, Stream};
 
 #[allow(unused_must_use)]
 pub mod api_paths {
@@ -22,20 +22,26 @@ pub type Request = http::request::Request<Body>;
 pub type Response = http::Response<Body>;
 
 #[derive(Debug, Clone)]
-///An element in a multipart form HMTL request. 
+///An element in a multipart form HMTL request.
 pub enum MultipartEntry {
-	Text{ field_name: String, value: String },
-	File{ field_name: String, file_name: String, file: Vec<u8>},
+	Text {
+		field_name: String,
+		value: String,
+	},
+	File {
+		field_name: String,
+		file_name: String,
+		file: Vec<u8>,
+	},
 }
 
 //pub type MultipartRequest = http::request::Request<>;
 pub type MultipartForm = Vec<MultipartEntry>;
 
-
 /// Convenience function to fill in some of the common HTTP headers used by Signal, such as USER_AGENT, X_SIGNAL_AGENT, and Authorization
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `verb` - The verb of the HTTP request, such as GET, POST, etc.
 /// * `uri` - The web address to which your request will be made.
 /// * `auth` - The authorization string. Should match the format produced by make_auth_header(). Fits the format of Base64::encode("username:pasword")
@@ -55,20 +61,19 @@ pub fn common_http_headers(
 }
 
 /// Represents the response pending from an HTTP request.
-pub type ResponseFuture<E> = Pin<Box<
-	dyn Future<
-		Output=std::result::Result<http::response::Response<Vec<u8>>, E>
-	> + Send + Unpin
->>;
+pub type ResponseFuture<E> = Pin<
+	Box<
+		dyn Future<Output = std::result::Result<http::response::Response<Vec<u8>>, E>>
+			+ Send
+			+ Unpin,
+	>,
+>;
 
 /// A trait used to wrap an HTTP connection which you can make requests of.
 pub trait AuxinHttpsConnection {
 	type Error: 'static + std::error::Error + Send;
-	/// Make an HTTPS request. 
-	fn request(
-		&self,
-		req: Request,
-	) -> ResponseFuture<Self::Error>;
+	/// Make an HTTPS request.
+	fn request(&self, req: Request) -> ResponseFuture<Self::Error>;
 	///Make a form / multipart request
 	fn multipart_request(
 		&self,
@@ -94,12 +99,9 @@ pub trait AuxinWebsocketConnection {
 		Pin<Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>>,
 	);
 }
-/// Wraps a future pending on initating as new connection to HTTPS or Websocket. 
-pub type ConnectFuture<O, E> = Pin<Box<
-	dyn Future<
-		Output=std::result::Result<O, E>
-	> + Send + Unpin
->>;
+/// Wraps a future pending on initating as new connection to HTTPS or Websocket.
+pub type ConnectFuture<O, E> =
+	Pin<Box<dyn Future<Output = std::result::Result<O, E>> + Send + Unpin>>;
 
 /// The trait used to give an AuxinApp (abstracted from any particular i/o code) the ability to initiate HTTPS and WebSocket connections.
 pub trait AuxinNetManager {
@@ -108,14 +110,13 @@ pub trait AuxinNetManager {
 
 	type Error: 'static + std::error::Error + Send;
 
-
 	/// Initialize an https connection to Signal which recognizes Signal's self-signed TLS certificate.
 	fn connect_to_signal_https(&mut self) -> ConnectFuture<Self::C, Self::Error>;
 
 	/// Initialize a websocket connection to Signal's "https://textsecure-service.whispersystems.org" address, taking our credentials as an argument.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `credentials` - The identity of the Signal user from whose perspective Auxin is being used.
 	fn connect_to_signal_websocket(
 		&mut self,

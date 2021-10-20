@@ -6,12 +6,12 @@ use async_global_executor::block_on;
 use auxin::message::fix_protobuf_buf;
 use auxin::{net::*, LocalIdentity, SIGNAL_TLS_CERT};
 
-use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt, TryFutureExt, future};
-use std::io::Cursor;
+use futures::{future, FutureExt, Sink, SinkExt, Stream, StreamExt, TryFutureExt};
 use hyper::client::HttpConnector;
+use hyper_multipart_rfc7578::client::multipart;
 use hyper_tls::HttpsConnector;
 use hyper_tls::TlsStream;
-use hyper_multipart_rfc7578::client::multipart;
+use std::io::Cursor;
 
 use log::{debug, trace};
 use protobuf::{CodedOutputStream, Message};
@@ -80,7 +80,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
 			.to_string()
 			.as_str(),
 	);
-	filled_uri.push_str(format!(".{}", local_identity.address.device_id).as_str()); // Device ID 
+	filled_uri.push_str(format!(".{}", local_identity.address.device_id).as_str()); // Device ID
 	filled_uri.push_str("&password=");
 	filled_uri.push_str(&local_identity.password);
 
@@ -136,8 +136,14 @@ impl fmt::Display for SendAttemptError {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match &self {
 			Self::CannotRequest(e) => write!(f, "Unable to send an HTTP request: {}", e),
-			Self::CannotCompleteResponseBody(e) => write!(f, "Unable to complete a streaming http response body: {}", e),
-			Self::CannotBuildMultipartRequest(e)  => write!(f, "Could not construct a multipart request: {}", e),
+			Self::CannotCompleteResponseBody(e) => write!(
+				f,
+				"Unable to complete a streaming http response body: {}",
+				e
+			),
+			Self::CannotBuildMultipartRequest(e) => {
+				write!(f, "Could not construct a multipart request: {}", e)
+			}
 		}
 	}
 }
@@ -153,17 +159,17 @@ pub enum WebsocketError {
 }
 impl fmt::Display for WebsocketError {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		match &self { 
-            Self::FailedtoDeserialize(e) => write!(f, "Could not deserialize to a \"Websocket Message\" protobuf: {}", e),
+		match &self {
+			Self::FailedtoDeserialize(e) => write!(f, "Could not deserialize to a \"Websocket Message\" protobuf: {}", e),
 			Self::UnderlyingMessageReceive(e) => write!(f, "The library Auxin uses for WebSocket connections, Tungstenite, caught an error on polling for new messages: {}", e),
 			Self::TungsteniteError(e) => write!(f, "{:?}", e),
-			Self::StreamClosed(e) => { 
+			Self::StreamClosed(e) => {
 				match e {
 					Some(frame) => write!(f, "Stream was closed - reason: {:?}", frame),
 					None => write!(f, "Stream was closed with no close frame."),
 				}
 			},
-        }
+		}
 	}
 }
 
@@ -171,72 +177,87 @@ impl std::error::Error for WebsocketError {}
 
 impl AuxinHttpsConnection for AuxinHyperConnection {
 	type Error = SendAttemptError;
-	
-	fn request(
-		&self,
-		req: http::request::Request<Vec<u8>>,
-	) -> ResponseFuture<Self::Error> {
+
+	fn request(&self, req: http::request::Request<Vec<u8>>) -> ResponseFuture<Self::Error> {
 		let (parts, b) = req.into_parts();
 		let body = hyper::Body::from(b);
 
-		let fut = self.client
+		let fut = self
+			.client
 			.request(http::request::Request::from_parts(parts, body))
 			.map_err(|e| SendAttemptError::CannotRequest(e.to_string()))
-			.map_ok( move |res | { 
+			.map_ok(move |res| {
 				let (parts, body) = res.into_parts();
-				Box::pin(hyper::body::to_bytes(body)).map_ok( move |bytes| {
-					http::response::Response::from_parts(parts, bytes.to_vec())
-				})
-				.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))
+				Box::pin(hyper::body::to_bytes(body))
+					.map_ok(move |bytes| {
+						http::response::Response::from_parts(parts, bytes.to_vec())
+					})
+					.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))
 			})
 			.try_flatten();
 		Box::pin(fut)
 	}
 
-	fn multipart_request(&self,
-				form: MultipartForm,
-				req: http::request::Builder,
-			) -> ResponseFuture<Self::Error> {
-		let form = form.clone();
+	fn multipart_request(
+		&self,
+		form: MultipartForm,
+		req: http::request::Builder,
+	) -> ResponseFuture<Self::Error> {
+		let form = form;
 		let mut hyper_form = multipart::Form::default();
-		for entry in form.iter() { 
+		for entry in form.iter() {
 			match entry {
 				MultipartEntry::Text { field_name, value } => {
 					hyper_form.add_text(field_name.clone(), value.clone());
-				},
-				MultipartEntry::File { field_name, file_name, file } => {
+				}
+				MultipartEntry::File {
+					field_name,
+					file_name,
+					file,
+				} => {
 					let cursor = Cursor::new(file.clone());
 					hyper_form.add_reader_file(field_name.clone(), cursor, file_name.clone());
-				},
+				}
 			}
 		}
 
 		//let request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
-		let request = hyper_form.set_body_convert::<hyper::Body, multipart::Body>(req).unwrap();
+		let request = hyper_form
+			.set_body_convert::<hyper::Body, multipart::Body>(req)
+			.unwrap();
 		let (mut parts, body) = request.into_parts();
 
-		let bytes: Vec<u8> = block_on(hyper::body::to_bytes(body)).unwrap().into_iter().collect();
+		let bytes: Vec<u8> = block_on(hyper::body::to_bytes(body))
+			.unwrap()
+			.into_iter()
+			.collect();
 
 		let size = bytes.len();
 
 		//let mut fixed_request: http::Request<Vec<u8>> = http::Request::from_parts(parts, bytes);
 
-		parts.headers.insert("Content-Length", http::HeaderValue::from(size));
+		parts
+			.headers
+			.insert("Content-Length", http::HeaderValue::from(size));
 
-		let request: hyper::Request<hyper::Body> = hyper::Request::from_parts(parts, hyper::Body::try_from(bytes).unwrap());
-		
-		let fut = self.client.request(request)
+		let request: hyper::Request<hyper::Body> =
+			hyper::Request::from_parts(parts, hyper::Body::try_from(bytes).unwrap());
+
+		let fut = self
+			.client
+			.request(request)
 			.map_err(|e| SendAttemptError::CannotBuildMultipartRequest(format!("{:?}", e)))
-			.map_ok( move |res | { 
+			.map_ok(move |res| {
 				let (parts, body) = res.into_parts();
-				Box::pin(hyper::body::to_bytes(body)).map_ok( move |bytes| {
-					http::response::Response::from_parts(parts, bytes.to_vec())
-				})
-				.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))
+				Box::pin(hyper::body::to_bytes(body))
+					.map_ok(move |bytes| {
+						http::response::Response::from_parts(parts, bytes.to_vec())
+					})
+					.map_err(|e| SendAttemptError::CannotCompleteResponseBody(e.to_string()))
 			})
 			.try_flatten();
 		Box::pin(fut)
-    }
+	}
 }
 
 pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;
@@ -259,7 +280,7 @@ impl AuxinWebsocketConnection for AuxinTungsteniteConnection {
 		let (sink, stream) = self.client.split();
 
 		// Convert an auxin_protos::WebSocketMessage into a tungstenite::Message here.
-		let sink = sink.with( async move |m: Self::Message| 
+		let sink = sink.with( async move |m: Self::Message|
 				-> std::result::Result<tungstenite::Message, tungstenite::Error> {
 
 			let mut buf: Vec<u8> = Vec::default();
@@ -358,8 +379,9 @@ impl AuxinNetManager for NetManager {
 				//and the connector will errror out when we attempt to connect using https://
 				//(Because technically it isn't http)
 				http_connector.enforce_http(false);
-				let https_connector = hyper_tls::HttpsConnector::from((http_connector, tls_connector));
-		
+				let https_connector =
+					hyper_tls::HttpsConnector::from((http_connector, tls_connector));
+
 				let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
 				AuxinHyperConnection { client }
 			});
@@ -371,17 +393,15 @@ impl AuxinNetManager for NetManager {
 		&mut self,
 		credentials: LocalIdentity,
 	) -> ConnectFuture<Self::W, Self::Error> {
-		match load_root_tls_cert() { 
-			Ok(cert) => { 
+		match load_root_tls_cert() {
+			Ok(cert) => {
 				let fut = Box::pin(connect_tls_for_websocket(cert))
-					.map_ok(move |tls_stream| { 
-						Box::pin(connect_websocket(credentials, tls_stream))
-					})
+					.map_ok(move |tls_stream| Box::pin(connect_websocket(credentials, tls_stream)))
 					.try_flatten()
 					.map(|r| {
-						match r { 
-							Ok( (websocket_client, connect_response) ) => {
-								//It's successful... or is it? 
+						match r {
+							Ok((websocket_client, connect_response)) => {
+								//It's successful... or is it?
 								// Check to make sure our status code is success.
 								if !((connect_response.status().as_u16() == 200)
 									|| (connect_response.status().as_u16() == 101))
@@ -390,30 +410,27 @@ impl AuxinNetManager for NetManager {
 									let s = connect_response.status().to_string();
 									let err = format!("Status {}: {}", r, s);
 									Err(EstablishConnectionError::BadUpgradeResponse(err))
-								}
-								else { 
+								} else {
 									//If it's successful, pass along our value.
 									debug!(
 										"Constructed websocket client streans, got response: {:?}",
 										connect_response
 									);
-									
+
 									Ok(AuxinTungsteniteConnection {
 										client: websocket_client,
 									})
 								}
-							},
-							Err(e) => { 
-								Err(e)
 							}
+							Err(e) => Err(e),
 						}
 					});
 				Box::pin(fut)
-			}, 
-			Err(e) => { 
+			}
+			Err(e) => {
 				//Construct a future which is immediately ready with the error.
 				Box::pin(future::ready(Err(e)))
-			},
+			}
 		}
 	}
 }

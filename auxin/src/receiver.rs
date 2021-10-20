@@ -1,17 +1,20 @@
-use auxin_protos::{WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage};
+use auxin_protos::{
+	WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage,
+};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
 use rand::{CryptoRng, RngCore};
-use std::{fmt::Debug};
-use std::{
-	pin::Pin,
-};
+use std::fmt::Debug;
+use std::pin::Pin;
 
-use crate::message::fix_protobuf_buf;
-use crate::{message::{MessageIn, MessageInError, MessageOut}, state::AuxinStateManager};
-use crate::net::{AuxinNetManager, AuxinWebsocketConnection};
-use crate::{AuxinApp, HandleEnvelopeError}; 
 use crate::address::AuxinAddress;
+use crate::message::fix_protobuf_buf;
+use crate::net::{AuxinNetManager, AuxinWebsocketConnection};
+use crate::{
+	message::{MessageIn, MessageInError, MessageOut},
+	state::AuxinStateManager,
+};
+use crate::{AuxinApp, HandleEnvelopeError};
 
 /// (Try to) read a raw byte buffer as a Signal Envelope (defined by a protocol buffer).
 pub fn read_envelope_from_bin(buf: &[u8]) -> crate::Result<auxin_protos::Envelope> {
@@ -57,7 +60,11 @@ impl std::fmt::Display for ReceiveError {
 			}
 			Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
 			Self::DeserializeErr(e) => write!(f, "Failed to deserialize incoming message: {:?}", e),
-			Self::HandlerError(e) => write!(f, "Failed to handle incoming envelope inside receive loop: {:?}", e), 
+			Self::HandlerError(e) => write!(
+				f,
+				"Failed to handle incoming envelope inside receive loop: {:?}",
+				e
+			),
 		}
 	}
 }
@@ -72,10 +79,9 @@ impl From<MessageInError> for ReceiveError {
 impl From<HandleEnvelopeError> for ReceiveError {
 	fn from(val: HandleEnvelopeError) -> Self {
 		if let HandleEnvelopeError::MessageDecodingErr(e) = val {
-			return Self::InError(e);
-		}
-		else {
-			return Self::HandlerError(val);
+			Self::InError(e)
+		} else {
+			Self::HandlerError(val)
 		}
 	}
 }
@@ -106,7 +112,7 @@ where
 	N: AuxinNetManager,
 	S: AuxinStateManager,
 {
-	/// A mutable reference to our AuxinApp. 
+	/// A mutable reference to our AuxinApp.
 	pub(crate) app: &'a mut AuxinApp<R, N, S>,
 	/// Outgoing message stream (a Rust Futures sink)
 	pub(crate) outstream: OutstreamT<N>,
@@ -120,10 +126,10 @@ where
 	N: AuxinNetManager,
 	S: AuxinStateManager,
 {
-	/// Construct an AuxinReceiver, connecting to Signal's Websocket server. 
-	/// 
+	/// Construct an AuxinReceiver, connecting to Signal's Websocket server.
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `app` - The Auxin App instance tracking state and used to poll for incoming messages.
 	pub async fn new(app: &'a mut AuxinApp<R, N, S>) -> crate::Result<AuxinReceiver<'a, R, N, S>> {
 		let ws = app
@@ -141,7 +147,7 @@ where
 	/// Notify the server that we have received a message. If it is a non-receipt Signal message, we will send our receipt indicating we got this message.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `msg` - The message we are acknowledging, if there is any valid messagehere.
 	/// * `req` - The original WebSocketRequestMessage - passed so that we can acknowledge that we've received this message even if no valid message can be parsed from it.
 	async fn acknowledge_message(
@@ -185,14 +191,14 @@ where
 
 	/// Parse the next message. This is separated from next() to make error handling neater.
 	/// If this returns None, that means a certain kind of error has occurred in decryption.
-	/// Often there are messages with signatures which have expired, or bad keystate. 
-	/// The server will continue to re-send these messages to us perpetually unless we acknowledge 
-	/// them with a receipt. 
+	/// Often there are messages with signatures which have expired, or bad keystate.
+	/// The server will continue to re-send these messages to us perpetually unless we acknowledge
+	/// them with a receipt.
 	/// They will never be possible to decode and that is how the Signal protocol works.
 	/// So, it's necessary to treat this as a recoverable error, acknowledge the message, and move on.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `wsmessage` - The WebsocketMessage we have just received.
 	async fn next_inner(
 		&mut self,
@@ -210,7 +216,9 @@ where
 
 				// Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
 				let msg = match maybe_a_message {
-					Err(HandleEnvelopeError::MessageDecodingErr(MessageInError::ProtocolError(e))) => {
+					Err(HandleEnvelopeError::MessageDecodingErr(
+						MessageInError::ProtocolError(e),
+					)) => {
 						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
 						None
 					}
@@ -218,7 +226,9 @@ where
 						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
 						None
 					}
-					Err(HandleEnvelopeError::MessageDecodingErr(MessageInError::DecodingProblem(e))) => {
+					Err(HandleEnvelopeError::MessageDecodingErr(
+						MessageInError::DecodingProblem(e),
+					)) => {
 						warn!("Message failed to decode (bad envelope?) - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
 						None
 					}
@@ -231,7 +241,7 @@ where
 				};
 
 				//This will at least acknowledge to WebSocket that we have received this message.
-				self.acknowledge_message(&msg, &req).await?;
+				self.acknowledge_message(&msg, req).await?;
 
 				if let Some(msg) = &msg {
 					//Save session.
@@ -275,7 +285,7 @@ where
 								debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
 								//Acknowledge we received the end-of-queue and do many clunky error-handling things:
 								let res = self
-									.acknowledge_message(&None, &req)
+									.acknowledge_message(&None, req)
 									.await
 									.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
 								let res = match res {
@@ -305,9 +315,9 @@ where
 
 	/// Convenience method so we don't have to work around the borrow checker to call send_message on our app when the Receiver has an &mut app.
 	///	Simply calls self.app.send_message()
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `recipient_addr` - The address of the peer to whom we're sending a Signal message.
 	/// * `message` - The message that we are sending.
 	pub async fn send_message(
