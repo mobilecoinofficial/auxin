@@ -1,5 +1,3 @@
-use std::{convert::{Infallible, TryFrom}, ops::{BitAnd, BitOr}, str::FromStr};
-
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress},
 	generate_timestamp, sealed_sender_trust_root,
@@ -15,6 +13,7 @@ use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::{
 	convert::{Infallible, TryFrom},
+	ops::{BitAnd, BitOr},
 	str::FromStr,
 };
 use uuid::Uuid;

@@ -1393,6 +1393,11 @@ where
 				}
 
 				let result = MessageIn { 
+					content: MessageContent::try_from(content)?,
+					remote_address,
+					timestamp: envelope.get_timestamp(),
+					timestamp_received: generate_timestamp(),
+					server_guid: envelope.get_serverGuid().to_string(),
 				};
 
 				self.record_ids_from_message(&result).await.unwrap();
