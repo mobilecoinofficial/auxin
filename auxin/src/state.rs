@@ -163,6 +163,9 @@ pub struct PeerRecord {
 	/// A cache of all device IDs known to be used by this peer.
 	#[serde(skip)]
 	pub device_ids_used: Vec<u32>,
+	/// A (similar) cache of Device IDs mapped to registration IDs. 
+	#[serde(skip)]
+	pub registration_ids: HashMap<u32, u32>,
 	#[serde(skip)]
 	pub identity: Option<PeerIdentity>,
 }
@@ -547,6 +550,13 @@ pub trait AuxinStateManager {
 	}
 	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer
 	fn save_peer_sessions(
+		&mut self,
+		peer: &AuxinAddress,
+		context: &AuxinContext,
+	) -> crate::Result<()>;
+	/// Delete or otherwise mark-dead a stored session for a peer. 
+	/// Called when receiving a message with the END_SESSION flag enabled.
+	fn end_session(
 		&mut self,
 		peer: &AuxinAddress,
 		context: &AuxinContext,

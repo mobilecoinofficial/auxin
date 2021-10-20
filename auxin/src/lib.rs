@@ -1,3 +1,4 @@
+#![feature(string_remove_matches)]
 #![feature(associated_type_bounds)]
 #![deny(bare_trait_objects)]
 
@@ -7,13 +8,13 @@ use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentU
 use auxin_protos::{AttachmentPointer, Envelope};
 use custom_error::custom_error;
 use futures::{TryFutureExt};
-use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate, SignalProtocolError, message_decrypt_prekey, process_prekey_bundle};
+use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate, SessionRecord, SessionStore, SignalProtocolError, message_decrypt_prekey, process_prekey_bundle};
 use log::{debug, error};
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
 use protobuf::CodedInputStream;
 use serde_json::json;
-use std::{convert::TryFrom, fmt::Debug};
+use std::{collections::HashMap, convert::TryFrom, fmt::Debug};
 use std::{
 	error::Error,
 	time::{SystemTime, UNIX_EPOCH},
@@ -416,6 +417,7 @@ where
 	/// 
 	/// * `recipient_addr` - The address of the peer whose contact information we are checking (and retrieving if it's missing).
 	pub async fn ensure_peer_loaded(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
+
 		debug!("Attempting to ensure all necessary information is present for peer {}", recipient_addr);
 		let recipient_addr = self
 			.context
@@ -433,7 +435,7 @@ where
 
 			let new_id = self.context.peer_cache.last_id + 1;
 			self.context.peer_cache.last_id = new_id;
-			// TODO: Retrieve device IDs and such.
+			
 			let peer_record = PeerRecord {
 				id: new_id,
 				number: None,
@@ -443,12 +445,10 @@ where
 				contact: None,
 				profile: None,
 				device_ids_used: Vec::default(),
+				registration_ids: HashMap::default(),
 				identity: None,
 			};
 			self.context.peer_cache.push(peer_record);
-
-			//Fill out additional information.
-			self.fill_peer_info(&recipient_addr).await?;
 		}
 		//If we have no peer entry we have their phone number but not their UUID, or we have a peer entry with no UUID,
 		//retrieve their UUID and store an entry.
@@ -456,6 +456,7 @@ where
 			self.retrieve_and_store_peer(recipient_addr.get_phone_number().unwrap())
 				.await?;
 		}
+
 		let recipient_addr = self
 			.context
 			.peer_cache
@@ -464,14 +465,30 @@ where
 		let recipient = self
 			.context
 			.peer_cache
-			.get(&recipient_addr)
-			.unwrap()
-			.clone();
-		let device_count = recipient.device_ids_used.len();
+			.get_mut(&recipient_addr)
+			.unwrap();
+
+		// Ensure our cache is consistent. 
+		// We should ABSOLUTELY have a UUID by now if this hasn't errored out.
+		for device_id in recipient.device_ids_used.iter() {
+			let device_addr = AuxinDeviceAddress{address: recipient_addr.clone(), device_id: *device_id};
+			let ctx = self.context.ctx.get();
+			let protocol_addr = device_addr.uuid_protocol_address().unwrap();
+			if let Ok(Some(session)) = self.context.session_store.load_session(&protocol_addr, ctx).await { 
+				//Store the registration ID if we've got it. 
+				if let Ok(reg_id) = session.remote_registration_id() {
+					recipient.registration_ids.insert(*device_id, reg_id);
+				}
+			}
+		}
+					
 		// Corrupt data / missing device list!
-		if (device_count == 0) || recipient.profile.is_none() {
+		if recipient.device_ids_used.is_empty() || recipient.profile.is_none() 
+			|| (recipient.device_ids_used.len() != recipient.registration_ids.len()) {
 			self.fill_peer_info(&recipient_addr).await?;
 		}
+		self.state_manager.save_peer_record(&recipient_addr, &self.context)?;
+		self.state_manager.save_peer_sessions(&recipient_addr, &self.context)?;
 		Ok(())
 	}
 
@@ -492,6 +509,10 @@ where
 			.complete_address(&recipient_addr)
 			.or(Some(recipient_addr.clone()))
 			.unwrap();
+
+		
+		// Will this be the last mssage in a session that we send? 
+		let end_session =  message.content.end_session;
 
 		//Make sure we know everything about this user that we need to.
 		self.ensure_peer_loaded(&recipient_addr).await?;
@@ -554,7 +575,6 @@ where
 		);
 
 		//Only necessary if fill_peer_info is called, and we do it in there.
-		//self.state_manager.save_peer_record(&recipient_addr, &self.context).map_err(|e| Box::new(StateSaveError::CannotSaveForPeer{msg: format!("{:?}", e)}))?;
 		self.state_manager
 			.save_peer_sessions(&recipient_addr, &self.context)
 			.map_err(|e| {
@@ -562,6 +582,11 @@ where
 					msg: format!("{:?}", e),
 				})
 			})?;
+
+		// If this was intended as a session termination message, clear out session state.
+		if end_session { 
+			self.clear_session(&recipient_addr).await?;
+		}
 
 		Ok(())
 	}
@@ -640,17 +665,19 @@ where
 			let req = req.body(Vec::default())?;
 
 			let res = self.http_client.request(req).await?;
-			debug!("Profile response: {:?}", res);
-			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
-
             let res_str = String::from_utf8(res.body().to_vec())?;
+			debug!("Profile response: {:?}", res_str);
+			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
 
 			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
 
 			recipient.profile = Some(prof.to_local());
+
+			// Make sure we're not doubling up on any of these.
+			recipient.device_ids_used.dedup();
 		}
 
-		let peer_info = self.request_peer_info(&uuid).await?.clone();
+		let peer_info = self.request_peer_info(&uuid).await?;
 		let decoded_key = base64::decode(&peer_info.identity_key)?;
 		let identity_key = IdentityKey::decode(decoded_key.as_slice())?;
 
@@ -658,8 +685,11 @@ where
 			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
 			//Track device IDs used.
 			recipient.device_ids_used.push(device.device_id);
+			//Track registration IDs. 
+			recipient.registration_ids.insert(device.device_id, device.registration_id);
 			//Note that we are aware of this peer.
 			let addr = ProtocolAddress::new(uuid.to_string(), device.device_id);
+			//Save this peer's public key. 
 			self.context
 				.identity_store
 				.save_identity(&addr, &identity_key, signal_ctx)
@@ -696,6 +726,7 @@ where
 
 		self.state_manager
 			.save_peer_record(recipient_addr, &self.context)?;
+		self.state_manager.save_peer_sessions(recipient_addr, &self.context)?;
 		Ok(())
 	}
 
@@ -719,6 +750,7 @@ where
 			contact: None,
 			profile: None,
 			device_ids_used: Vec::default(),
+			registration_ids: HashMap::default(),
 			identity: None,
 		};
 
@@ -732,23 +764,25 @@ where
 	}
 
 	/// Retrieve public keys and device IDs of a peer.
+	/// NOTE: You can get rate-limited on this method VERY easily. Try not to invoke it too often.
 	///
 	/// # Arguments
 	/// 
 	/// * `uuid` - The address of the peer whose information we are retrieving. A UUID is required for this.
 	pub async fn request_peer_info(&self, uuid: &Uuid) -> Result<PeerInfoReply> {
-		let mut path: String = "https://textsecure-service.whispersystems.org/v2/keys/".to_string();
-		path.push_str(uuid.to_string().as_str());
-		path.push_str("/*");
+		let uuid_str = uuid.to_string();
+		let path: String = format!("https://textsecure-service.whispersystems.org/v2/keys/{}/*", &uuid_str);
 
 		let auth = self.context.identity.make_auth_header();
 
 		let req = common_http_headers(http::Method::GET, path.as_str(), auth.as_str())?;
 		let req = req.body(Vec::default())?;
 
+		debug!("Making a request to {}, with structure: {:?}", &path, req);
+
 		let res = self.http_client.request(req).await?;
         let res_str = String::from_utf8(res.body().to_vec())?;
-		debug!("Peer keys response: {:?}", res);
+		debug!("Peer keys response: {:?}", res_str);
 		let info: PeerInfoReply = serde_json::from_str(&res_str)?;
 		Ok(info)
 	}
@@ -905,11 +939,11 @@ where
 	/// * `recipient` - The address of the peer we're attempting to get a payment address for.
 	pub async fn retrieve_payment_address(
 		&mut self,
-		recipient: &AuxinAddress,
+		recipient_addr: &AuxinAddress,
 	) -> std::result::Result<auxin_protos::PaymentAddress, PaymentAddressRetrievalError> {
-		self.ensure_peer_loaded(recipient).await.map_err(|e| {
+		self.ensure_peer_loaded(recipient_addr).await.map_err(|e| {
 			PaymentAddressRetrievalError::ErrPeer {
-				peer: recipient.clone(),
+				peer: recipient_addr.clone(),
 				err: format!("{:?}", e),
 			}
 		})?;
@@ -917,8 +951,8 @@ where
 		let recipient = self
 			.context
 			.peer_cache
-			.complete_address(recipient)
-			.unwrap_or(recipient.clone());
+			.complete_address(recipient_addr)
+			.unwrap_or(recipient_addr.clone());
 
 		if let Some(peer) = self.context.peer_cache.get(&recipient) {
 			if let Some(profile_key) = &peer.profile_key {
@@ -1132,6 +1166,28 @@ where
 		return &mut self.http_client;
 	}
 
+	async fn record_ids_from_message(&mut self, message: &MessageIn) -> Result<()> {
+		let completed_addr = self.context.peer_cache.complete_address(&message.remote_address.address)
+		.unwrap_or(message.remote_address.address.clone());
+		// Make sure we know about their device ID. 
+		let peer_maybe = self.context.peer_cache.get_mut(&message.remote_address.address);
+		if let Some(peer) = peer_maybe { 
+			peer.device_ids_used.push(message.remote_address.device_id);
+			peer.device_ids_used.dedup();
+			// Did the session just get a registration ID?
+			let ctx = self.context.ctx.get();
+			let completed_device_addr = AuxinDeviceAddress{ address: completed_addr, device_id: message.remote_address.device_id};
+			let protocol_addr = completed_device_addr.uuid_protocol_address().unwrap();
+			if let Ok(Some(session)) = self.context.session_store.load_session(&protocol_addr, ctx).await { 
+				//Store the registration ID if we've got it. 
+				if let Ok(reg_id) = session.remote_registration_id() {
+					peer.registration_ids.insert(completed_device_addr.device_id, reg_id);
+				}
+			}
+		}
+		Ok(())
+	} 
+
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
 	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
 	/// If it's something intended to be read by the end-user / externally to Signal, it returns a Some(MessageIn)
@@ -1142,7 +1198,19 @@ where
 	pub async fn handle_inbound_envelope(&mut self, envelope: Envelope) -> std::result::Result<Option<MessageIn>, HandleEnvelopeError> { 
 		match envelope.get_field_type() {
 			auxin_protos::Envelope_Type::UNKNOWN =>  Err(HandleEnvelopeError::UnknownEnvelopeType(envelope)), 
-			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some(MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng).await?)),
+			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some({ 
+				let result = MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng).await?;
+
+				self.record_ids_from_message(&result).await.unwrap();
+
+				if result.content.end_session { 
+					debug!("Got an END_SESSION flag from a peer, clearing out their session state. Message was: {:?}", result);
+					self.clear_session(&result.remote_address.address).await.unwrap(); // TODO: Proper error handling on clear_session();
+				}
+
+				//Return 
+				result
+			})),
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
 			auxin_protos::Envelope_Type::PREKEY_BUNDLE => { 
 
@@ -1171,15 +1239,27 @@ where
 				}
 				let remote_address = remote_address.unwrap();
 
-				//If we have never encountered this peer before, go get information on them remotely. 
-				self.ensure_peer_loaded(&remote_address.address).await
-					.map_err(|e| HandleEnvelopeError::ProfileError(format!("{:?}", e)))?;
 
 				let protocol_address = remote_address.uuid_protocol_address().unwrap();
-
 				let pre_key_message = PreKeySignalMessage::try_from(envelope.get_content())?;
 
 				let ctx = self.context.get_signal_ctx().ctx;
+
+				// Update registration ID
+				let reg_id = pre_key_message.registration_id();
+
+				// Make sure we know about their device ID. 
+				let peer_maybe = self.context.peer_cache.get_mut(&remote_address.address);
+				if let Some(peer) = peer_maybe { 
+					debug!("Updating existing peer with IDs from pre-key message.");
+					peer.device_ids_used.push(remote_address.device_id);
+					peer.device_ids_used.dedup();
+					//Record registration ID, which a prey key message will always have. 
+					peer.registration_ids.insert(remote_address.device_id, reg_id);
+				}
+				//If we have never encountered this peer before, go get information on them remotely. 
+				self.ensure_peer_loaded(&remote_address.address).await
+					.map_err(|e| HandleEnvelopeError::ProfileError(format!("{:?}", e)))?;
 			
 				let decrypted=  message_decrypt_prekey(&pre_key_message,
 					&protocol_address, 
@@ -1212,21 +1292,102 @@ where
 						if data_message.get_flags() & 4 > 0 { 
 							return Ok(None);
 						}
+
+						// If this is an end session message, clear out the session for this peer. 
+						if data_message.get_flags() & 1 > 0 { 
+							self.clear_session(&remote_address.address).await.unwrap(); //TODO: proper error hanndling here. 
+						}
+
 					}
 				}
 
-				Ok(Some( MessageIn { 
+				let result = MessageIn { 
 					content: MessageContent::try_from(content)?,
 					remote_address,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(),
 					server_guid: envelope.get_serverGuid().to_string(),
-				}))
+				};
+
+				self.record_ids_from_message(&result).await.unwrap();
+				
+				if result.content.end_session { 
+					debug!("Got an END_SESSION flag from a peer as part of a PreKeyBundle message, clearing out their session state. Message was: {:?}", &result);
+					self.clear_session(&result.remote_address.address).await.unwrap(); // TODO: Proper error handling on clear_session();
+				}
+				
+
+				Ok(Some( result ))
 			},
-			auxin_protos::Envelope_Type::RECEIPT => Ok(Some(MessageIn::from_receipt(envelope, &mut self.context).await?)),
-			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some(MessageIn::from_sealed_sender(envelope, &mut self.context).await?)),
+			auxin_protos::Envelope_Type::RECEIPT => Ok(Some( { 
+				let result = MessageIn::from_receipt(envelope, &mut self.context).await?;
+
+				//Receipts cannot be end-session messages.
+				self.record_ids_from_message(&result).await.unwrap();
+
+				result
+			})),
+			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some({
+				let result = MessageIn::from_sealed_sender(envelope, &mut self.context).await?;
+
+				self.record_ids_from_message(&result).await.unwrap();
+
+				if result.content.end_session { 
+					debug!("Got an END_SESSION flag from a peer, clearing out their session state. Message was: {:?}", &result);
+					self.clear_session(&result.remote_address.address).await.unwrap(); // TODO: Proper error handling on clear_session();
+				}
+				
+				//Return 
+				result
+			})),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
 		}
+	}
+
+	/// Clear out all local session data with the specified peer.
+	/// Note that this doesn't send a message with the END_SESSION flag set,
+	/// it only gets rid of session data on our end.
+	/// 
+	/// To end a session, send a message with the end_session field set to true.
+	/// 
+	/// # Arguments
+	/// 
+	/// * `peer` - The Signal Service address to end our session with.
+	pub async fn clear_session(
+		&mut self,
+		peer_addr: &AuxinAddress) -> Result<()> {
+			
+		self.state_manager.end_session(peer_addr, &self.context)?; 
+
+		// Pull up the relevant peer
+		let peer_record = match self.context.peer_cache.get(peer_addr) {
+			Some(a) => a,
+			// We do not need to delete what is not there.
+			None => {
+				return Ok(());
+			}
+		};
+
+		// Archive or generate-fresh a new session store.
+		for device_id in peer_record.device_ids_used.iter() {
+			let device_addr = AuxinDeviceAddress { address: peer_addr.clone(), device_id: *device_id }; 
+			let protocol_addr = device_addr.uuid_protocol_address()?;
+
+			let session = self.context.session_store.load_session(&protocol_addr, self.context.get_signal_ctx().get()).await;
+
+			if let Ok(Some(mut s)) = session { 
+				s.archive_current_state()?;
+				self.context.session_store.store_session(&protocol_addr, &s, self.context.get_signal_ctx().get()).await?;
+			}
+			else { 
+				let new_record = SessionRecord::new_fresh();
+				self.context.session_store.store_session(&protocol_addr, &new_record, self.context.get_signal_ctx().get()).await?;
+			}
+		}
+
+		self.state_manager.save_peer_sessions(&peer_addr, &self.context)?;
+
+		Ok(())
 	}
 }
 
