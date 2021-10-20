@@ -2,12 +2,24 @@
 #![deny(bare_trait_objects)]
 
 use address::{AddressError, AuxinAddress, AuxinDeviceAddress, E164};
-use aes_gcm::{Aes256Gcm, Nonce, aead::Payload, aead::{Aead, NewAead}};
-use attachment::{download::{self, AttachmentDownloadError}, upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment}};
+use aes_gcm::{
+	aead::Payload,
+	aead::{Aead, NewAead},
+	Aes256Gcm, Nonce,
+};
+use attachment::{
+	download::{self, AttachmentDownloadError},
+	upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment},
+};
 use auxin_protos::{AttachmentPointer, Envelope};
 use custom_error::custom_error;
-use futures::{TryFutureExt};
-use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate, SignalProtocolError, message_decrypt_prekey, process_prekey_bundle};
+use futures::TryFutureExt;
+use libsignal_protocol::{
+	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyPair, IdentityKeyStore,
+	InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore,
+	InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate,
+	SignalProtocolError,
+};
 use log::{debug, error};
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
@@ -39,13 +51,19 @@ use state::{
 	UnidentifiedAccessMode,
 };
 
-use crate::{attachment::download::EncryptedAttachment, discovery::{
+use crate::{
+	attachment::download::EncryptedAttachment,
+	discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
-	}, message::{AuxinMessageList, MessageContent, MessageSendMode, address_from_envelope, fix_protobuf_buf, remove_message_padding}, net::common_http_headers, state::{
-		ForeignPeerProfile,
-		ProfileResponse
-	}};
+	},
+	message::{
+		address_from_envelope, fix_protobuf_buf, remove_message_padding, AuxinMessageList,
+		MessageContent, MessageSendMode,
+	},
+	net::common_http_headers,
+	state::{ForeignPeerProfile, ProfileResponse},
+};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -81,7 +99,7 @@ pub const DEFAULT_DEVICE_ID: u32 = 1;
 /// Basic signal protocol information and key secrets for the local signal node.
 /// This is not intended to be used to represent peers - instead, this is your user account,
 /// the identity with which interacting with the SIgnal Protocol.
-/// Primarily includes credentials and identifying information 
+/// Primarily includes credentials and identifying information
 pub struct LocalIdentity {
 	/// Our local phone number (or UUID, or both) as well as the device ID of this node.
 	pub address: AuxinDeviceAddress,
@@ -102,8 +120,12 @@ impl LocalIdentity {
 	/// B64PWD is our base64-encoded password. It used to require NUMBER=E164 phone number but this has been changed.
 	/// NOTE: Discovery requests will require a different user-ID and password, which is retrieved with a GET request to https://textsecure-service.whispersystems.org/v1/directory/auth
 	pub fn make_auth_header(&self) -> String {
-		
-		let our_auth_value = format!("{}.{}:{}",&self.address.address.get_uuid().unwrap().to_string(), self.address.device_id, &self.password);
+		let our_auth_value = format!(
+			"{}.{}:{}",
+			&self.address.address.get_uuid().unwrap().to_string(),
+			self.address.device_id,
+			&self.password
+		);
 
 		let b64_auth = base64::encode(our_auth_value);
 
@@ -132,21 +154,20 @@ pub struct SignalCtx {
 
 impl SignalCtx {
 	pub fn get(&self) -> libsignal_protocol::Context {
-		self.ctx.clone()
+		self.ctx
 	}
 }
 
 // Dark magic! may cause crashes! completely unavoidable! Yay!
 unsafe impl Send for SignalCtx {}
 
-
 /// An AuxinContext holds all critical Signal protocol data.
-/// It holds sessions, public keys of other users, and our public and private key, among other things. 
+/// It holds sessions, public keys of other users, and our public and private key, among other things.
 /// This contains all of the keys and session state required to send and receive SIgnal messages.
 #[allow(unused)] // TODO: Remove this after we can send/remove a message.
 				 // This is the structure that an AuxinStateHandler builds and saves.
 pub struct AuxinContext {
-	/// The LocalIdentity holds this node's public and private key, its profile key, pwssword, and its UUID and phone number. 
+	/// The LocalIdentity holds this node's public and private key, its profile key, pwssword, and its UUID and phone number.
 	pub identity: LocalIdentity,
 	/// A certificate used to send sealded-sender / unidentified-sender messages.
 	/// Retrieved through a request to https://textsecure-service.whispersystems.org/v1/certificate/delivery
@@ -164,20 +185,20 @@ pub struct AuxinContext {
 
 	/// Configuration for the Auxin library.
 	pub config: AuxinConfig,
-	/// Should we show up as "Online" to other Signal users? 
+	/// Should we show up as "Online" to other Signal users?
 	pub report_as_online: bool,
 
-	/// Signal context - pointer to a C data type. 
+	/// Signal context - pointer to a C data type.
 	/// It seems like this is future-proofing on Signal's behalf, because
-	/// the Signal's library never uses theis datatype directly even though 
+	/// the Signal's library never uses theis datatype directly even though
 	/// it is required as an argument to many of their methods.
 	pub ctx: SignalCtx,
 }
 
-/// Generate an unidentified access key from a profile key. 
+/// Generate an unidentified access key from a profile key.
 /// Basically, performs a cryptographic operation on this profile key to generate another key,
-/// which can be used to send and receive sealed-sender messages. 
-/// 
+/// which can be used to send and receive sealed-sender messages.
+///
 /// # Arguments
 ///
 /// * `profile_key` - A base-64 string encoding of a signal user's 32-byte (256-bit) Profile Key.
@@ -196,7 +217,7 @@ pub fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> 
 		aad: b"",
 	};
 
-	Ok(cipher.encrypt(&nonce, payload)?)
+	Ok(cipher.encrypt(nonce, payload)?)
 }
 
 custom_error! { pub UnidentifiedAccessError
@@ -208,7 +229,7 @@ custom_error! { pub UnidentifiedAccessError
 
 impl AuxinContext {
 	/// Generate an unidentified-access key for a user who accepts unrestricted unidentified access.
-	/// 
+	///
 	/// # Arguments
 	///
 	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
@@ -224,7 +245,7 @@ impl AuxinContext {
 	/// Generate an unidentified access key for a Signal peer, querying self.peer_cache to see what their unidentified access mode is.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `peer_address` - The peer for whom to generate an unidentified access key.
 	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
 	pub fn get_unidentified_access_for<R>(
@@ -258,9 +279,7 @@ impl AuxinContext {
 					debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", uuid.to_string());
 					match &peer.profile_key {
 						Some(pk) => Ok(get_unidentified_access_for_key(pk)?),
-						None => {
-							return Err(Box::new(UnidentifiedAccessError::NoProfileKey { uuid }));
-						}
+						None => Err(Box::new(UnidentifiedAccessError::NoProfileKey { uuid })),
 					}
 				}
 				UnidentifiedAccessMode::DISABLED => Err(Box::new(
@@ -277,10 +296,10 @@ impl AuxinContext {
 	}
 }
 
-/// An Auxin application which can send and receive Signal messages and interact with the Signal protocol. 
+/// An Auxin application which can send and receive Signal messages and interact with the Signal protocol.
 /// Requires a network manager and a state manager implementation - these are separated out from Auxin proper,
 /// so that Auxin can be used on many different platforms and in many different environments.
-/// 
+///
 /// TODO: Consider renaming this - auxin is a toolkit, not a framework, and does not need to own your event loop (and as such this isn't an "app").
 pub struct AuxinApp<R, N, S>
 where
@@ -293,7 +312,7 @@ where
 	/// An AuxinStateManager, a trait for structures which can hold and manage Signal protocol state.
 	/// This could be a filesystem, call out to a database - so long as it can load and store state for the application.
 	pub state_manager: S,
-	/// The AuxinContext, holds sessions, public keys of other users, and our public and private key, among other things. 
+	/// The AuxinContext, holds sessions, public keys of other users, and our public and private key, among other things.
 	/// This contains all of the keys and session state required to send and receive SIgnal messages.
 	pub context: AuxinContext,
 	/// A random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
@@ -308,7 +327,7 @@ custom_error! { pub AuxinInitError
 	CannotRequestSenderCert{msg: String} = "Unable to send a \"Sender Certificate\" request: {msg}.",
 }
 
-// Errors received when attempting to send a Signal message to another user. 
+// Errors received when attempting to send a Signal message to another user.
 custom_error! { pub SendMessageError
 	CannotMakeMessageRequest{msg: String} = "Unable to send a message-send request: {msg}.",
 	CannotSendAuthUpgrade{msg: String} = "Unable request auth upgrade: {msg}.",
@@ -316,11 +335,11 @@ custom_error! { pub SendMessageError
 	CannotSendDiscoveryReq{msg: String} = "Unable to send discovery request to remote secure enclave: {msg}.",
 }
 
-// Errors encountered while trying to write out stateful data to our AuxinStateManager. 
+// Errors encountered while trying to write out stateful data to our AuxinStateManager.
 custom_error! { pub StateSaveError
 	CannotSaveForPeer{msg: String} = "Couldn't save files for a peer's sessions and profile: {msg}.",
 }
-// An error encountered while trying to retrieve another Signal user's payment address (MobileCoin public address) 
+// An error encountered while trying to retrieve another Signal user's payment address (MobileCoin public address)
 custom_error! { pub PaymentAddressRetrievalError
 	NoProfileKey{peer: AuxinAddress} = "Couldn't retrieve payment address for peer {peer} because we do not have a profile key on file for this user.",
 	NoPeer{peer: AuxinAddress} = "Cannot retrieve payment address for peer {peer} because we have no record on this user!",
@@ -378,9 +397,9 @@ where
 	/// Construct an AuxinApp
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `local_phone_number` - This node's Signal user acocunt's phone number. TODO: Refactor this to allow accounts with no phone numbers when Signal fully implements usernames.
-	/// * `config` - Configuation for various properties of this Signal app. 
+	/// * `config` - Configuation for various properties of this Signal app.
 	/// * `net` - An AuxinNetManager, used to make HTTPS and Websocket connections to Signal's servers.
 	/// * `state_manager` - An AuxinStateManager, a trait for structures which can hold and manage Signal protocol state. This could be a filesystem, call out to a database - so long as it can load and store state for the application.
 	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
@@ -393,11 +412,14 @@ where
 	) -> Result<Self> {
 		let local_identity = state_manager.load_local_identity(&local_phone_number)?;
 		//TODO: Better error handling here.
-		let http_client = net.connect_to_signal_https().map_err(|e| {
-			Box::new(AuxinInitError::CannotConnect {
-				msg: format!("{:?}", e),
+		let http_client = net
+			.connect_to_signal_https()
+			.map_err(|e| {
+				Box::new(AuxinInitError::CannotConnect {
+					msg: format!("{:?}", e),
+				})
 			})
-		}).await?;
+			.await?;
 
 		let context = state_manager.load_context(&local_identity, config)?;
 
@@ -413,14 +435,17 @@ where
 	/// Checks to see if a recipient's information is loaded and takes all actions necessary to fill out a PeerRecord if not.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `recipient_addr` - The address of the peer whose contact information we are checking (and retrieving if it's missing).
 	pub async fn ensure_peer_loaded(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
-		debug!("Attempting to ensure all necessary information is present for peer {}", recipient_addr);
+		debug!(
+			"Attempting to ensure all necessary information is present for peer {}",
+			recipient_addr
+		);
 		let recipient_addr = self
 			.context
 			.peer_cache
-			.complete_address(&recipient_addr)
+			.complete_address(recipient_addr)
 			.or(Some(recipient_addr.clone()))
 			.unwrap();
 
@@ -429,15 +454,14 @@ where
 		let recipient = self.context.peer_cache.get(&recipient_addr);
 
 		//If we have their UUID and no peer entry, just write a new entry.
-		if recipient.is_none() && recipient_addr.has_uuid() { 
-
+		if recipient.is_none() && recipient_addr.has_uuid() {
 			let new_id = self.context.peer_cache.last_id + 1;
 			self.context.peer_cache.last_id = new_id;
 			// TODO: Retrieve device IDs and such.
 			let peer_record = PeerRecord {
 				id: new_id,
 				number: None,
-				uuid: Some(recipient_addr.get_uuid().unwrap().clone()),
+				uuid: Some(*recipient_addr.get_uuid().unwrap()),
 				profile_key: None,
 				profile_key_credential: None,
 				contact: None,
@@ -478,7 +502,7 @@ where
 	/// Send a message (any type of message) to a fellow Signal user.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `recipient_addr` - The address of the peer to whom we're sending this message.
 	/// * `message` - The message we are sending.
 	pub async fn send_message(
@@ -489,7 +513,7 @@ where
 		let recipient_addr = self
 			.context
 			.peer_cache
-			.complete_address(&recipient_addr)
+			.complete_address(recipient_addr)
 			.or(Some(recipient_addr.clone()))
 			.unwrap();
 
@@ -528,12 +552,7 @@ where
 		let timestamp = generate_timestamp();
 		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
 		let outgoing_push_list = message_list
-			.generate_messages_to_all_devices(
-				&mut self.context,
-				mode,
-				&mut self.rng,
-				timestamp,
-			)
+			.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, timestamp)
 			.await?;
 
 		let request: http::Request<Vec<u8>> = outgoing_push_list.build_http_request(
@@ -542,11 +561,15 @@ where
 			&mut self.context,
 			&mut self.rng,
 		)?;
-		let message_response = self.http_client.request(request).map_err(|e| {
-			Box::new(SendMessageError::CannotMakeMessageRequest {
-				msg: format!("{:?}", e),
+		let message_response = self
+			.http_client
+			.request(request)
+			.map_err(|e| {
+				Box::new(SendMessageError::CannotMakeMessageRequest {
+					msg: format!("{:?}", e),
+				})
 			})
-		}).await?;
+			.await?;
 
 		debug!(
 			"Got response to attempt to send message: {:?}",
@@ -566,7 +589,6 @@ where
 		Ok(())
 	}
 
-
 	/// Get a sender certificate for ourselves from Signal's web API, so that we can send sealed_sender messages properly.
 	/// Retrieved through a request to https://textsecure-service.whispersystems.org/v1/certificate/delivery
 	pub async fn retrieve_sender_cert(&mut self) -> Result<()> {
@@ -583,7 +605,8 @@ where
 				Box::new(AuxinInitError::CannotRequestSenderCert {
 					msg: format!("{:?}", e),
 				})
-			}).await?;
+			})
+			.await?;
 		if !sender_cert_response.status().is_success() {
 			error!(
 				"Response to sender certificate request was: {:?}",
@@ -593,7 +616,7 @@ where
 		}
 		assert!(sender_cert_response.status().is_success());
 
-        let sender_cert_response_str = String::from_utf8(sender_cert_response.body().to_vec())?;
+		let sender_cert_response_str = String::from_utf8(sender_cert_response.body().to_vec())?;
 
 		let cert_structure: serde_json::Value = serde_json::from_str(&sender_cert_response_str)?;
 		let encoded_cert_str = cert_structure.get("certificate").unwrap();
@@ -613,10 +636,10 @@ where
 	/// Retrieves and fills in core information about a peer that is necessary to send a mmessage to them.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `recipient_addr` - The address of the peer whose information we are retrieving.
 	pub async fn fill_peer_info(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
-		let signal_ctx = self.context.get_signal_ctx().get().clone();
+		let signal_ctx = self.context.get_signal_ctx().get();
 
 		// Once you get here, retrieve_and_store_peer() shuld have already been called, so we should definitely have a UUID.
 		let uuid = self
@@ -625,14 +648,13 @@ where
 			.get(recipient_addr)
 			.unwrap()
 			.uuid
-			.unwrap()
-			.clone();
+			.unwrap();
 
 		{
 			let mut profile_path: String =
 				"https://textsecure-service.whispersystems.org/v1/profile/".to_string();
 			profile_path.push_str(uuid.to_string().as_str());
-			profile_path.push_str("/");
+			profile_path.push('/');
 
 			let auth = self.context.identity.make_auth_header();
 
@@ -641,9 +663,9 @@ where
 
 			let res = self.http_client.request(req).await?;
 			debug!("Profile response: {:?}", res);
-			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
+			let recipient = self.context.peer_cache.get_mut(recipient_addr).unwrap();
 
-            let res_str = String::from_utf8(res.body().to_vec())?;
+			let res_str = String::from_utf8(res.body().to_vec())?;
 
 			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
 
@@ -655,7 +677,7 @@ where
 		let identity_key = IdentityKey::decode(decoded_key.as_slice())?;
 
 		for device in peer_info.devices.iter() {
-			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
+			let recipient = self.context.peer_cache.get_mut(recipient_addr).unwrap();
 			//Track device IDs used.
 			recipient.device_ids_used.push(device.device_id);
 			//Note that we are aware of this peer.
@@ -668,7 +690,7 @@ where
 
 		{
 			//And now for our own, signal-cli-compatible "Identity Store"
-			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
+			let recipient = self.context.peer_cache.get_mut(recipient_addr).unwrap();
 			if recipient.identity.is_none() {
 				recipient.identity = Some(PeerIdentity {
 					identity_key: peer_info.identity_key.clone(),
@@ -702,7 +724,7 @@ where
 	/// Retrieve information for a peer for whom we have a phone number, but no UUID.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `recipient_addr` - The address of the peer whose contact information we are retrieving.
 	pub async fn retrieve_and_store_peer(&mut self, recipient_phone: &E164) -> Result<()> {
 		let uuid = self.make_discovery_request(recipient_phone).await?;
@@ -734,7 +756,7 @@ where
 	/// Retrieve public keys and device IDs of a peer.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `uuid` - The address of the peer whose information we are retrieving. A UUID is required for this.
 	pub async fn request_peer_info(&self, uuid: &Uuid) -> Result<PeerInfoReply> {
 		let mut path: String = "https://textsecure-service.whispersystems.org/v2/keys/".to_string();
@@ -747,18 +769,18 @@ where
 		let req = req.body(Vec::default())?;
 
 		let res = self.http_client.request(req).await?;
-        let res_str = String::from_utf8(res.body().to_vec())?;
+		let res_str = String::from_utf8(res.body().to_vec())?;
 		debug!("Peer keys response: {:?}", res);
 		let info: PeerInfoReply = serde_json::from_str(&res_str)?;
 		Ok(info)
 	}
 
 	/// Used to retrieve the UUID for a peer when we have their phone number and not their UUID.
-	/// This gets an attestation and uses that to make a request to Signal's discovery service, 
-	/// which uses Intel SGX to ensure privacy for your contact list. 
+	/// This gets an attestation and uses that to make a request to Signal's discovery service,
+	/// which uses Intel SGX to ensure privacy for your contact list.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `recipient_phone` - The phone number we are attempting to retrieve a corresponding UUID for.
 	pub async fn make_discovery_request(&mut self, recipient_phone: &E164) -> Result<Uuid> {
 		//Get upgraded auth for discovery / directory.
@@ -777,11 +799,12 @@ where
 		})?;
 		assert!(auth_upgrade_response.status().is_success());
 
-        let auth_upgrade_response_str = String::from_utf8(auth_upgrade_response.body().to_vec())?;
+		let auth_upgrade_response_str = String::from_utf8(auth_upgrade_response.body().to_vec())?;
 
-		let upgraded_auth: DirectoryAuthResponse = serde_json::from_str(&auth_upgrade_response_str)?;
+		let upgraded_auth: DirectoryAuthResponse =
+			serde_json::from_str(&auth_upgrade_response_str)?;
 		let mut upgraded_auth_token = upgraded_auth.username.clone();
-		upgraded_auth_token.push_str(":");
+		upgraded_auth_token.push(':');
 		upgraded_auth_token.push_str(&upgraded_auth.password);
 		upgraded_auth_token = base64::encode(upgraded_auth_token);
 		debug!("Upgraded authorization token: {}", upgraded_auth_token);
@@ -816,8 +839,9 @@ where
 			})
 		})?;
 
-        let attestation_response_str = String::from_utf8(attestation_response.body().to_vec())?;
-		let attestation_response_body: AttestationResponseList = serde_json::from_str(&attestation_response_str)?;
+		let attestation_response_str = String::from_utf8(attestation_response.body().to_vec())?;
+		let attestation_response_body: AttestationResponseList =
+			serde_json::from_str(&attestation_response_str)?;
 
 		attestation_response_body.verify_attestations()?;
 		let att_list = attestation_response_body.decode_attestations(&attestation_keys)?;
@@ -843,7 +867,7 @@ where
 
 		let mut filtered_cookies: Vec<String> = Vec::default();
 		for cookie in cookies {
-			let spl = cookie.split(";");
+			let spl = cookie.split(';');
 			for elem in spl {
 				if elem.contains("ApplicationGatewayAffinityCORS")
 					|| elem.contains("ApplicationGatewayAffinity")
@@ -887,7 +911,7 @@ where
 		})?;
 		debug!("{:?}", response);
 
-        let response_str = String::from_utf8(response.body().to_vec())?;
+		let response_str = String::from_utf8(response.body().to_vec())?;
 		let discovery_response: DiscoveryResponse = serde_json::from_str(&response_str)?;
 		let decrypted = discovery_response.decrypt(&att_list)?;
 		let uuid = Uuid::from_slice(decrypted.as_slice())?;
@@ -901,7 +925,7 @@ where
 	/// Attempts to get a SignalPay aaddres / MobileCoin public address.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `recipient` - The address of the peer we're attempting to get a payment address for.
 	pub async fn retrieve_payment_address(
 		&mut self,
@@ -1000,11 +1024,12 @@ where
 					}
 				})?;
 
-                let response_str = String::from_utf8(response.body().to_vec())
-                    .map_err(|e| PaymentAddressRetrievalError::DecodingError {
-                        peer: recipient.clone(),
-                        msg: format!("{:?}", e),
-                    })?;
+				let response_str = String::from_utf8(response.body().to_vec()).map_err(|e| {
+					PaymentAddressRetrievalError::DecodingError {
+						peer: recipient.clone(),
+						msg: format!("{:?}", e),
+					}
+				})?;
 
 				let response_structure: ProfileResponse = serde_json::from_str(&response_str)
 					.map_err(|e| PaymentAddressRetrievalError::DecodingError {
@@ -1024,7 +1049,7 @@ where
 					})?;
 
 					//                              Nonce + content + ????
-					assert!(payment_address_bytes.len() >= 12 + 16 + 1);
+					assert!(payment_address_bytes.len() > 12 + 16);
 
 					let mut nonce_bytes: [u8; 12] = [0; 12];
 					nonce_bytes.copy_from_slice(&payment_address_bytes[0..12]);
@@ -1078,75 +1103,103 @@ where
 						})?;
 					return Ok(payment_address);
 				};
-				return Err(PaymentAddressRetrievalError::NoPaymentAddressForUser {
+				Err(PaymentAddressRetrievalError::NoPaymentAddressForUser {
 					peer: recipient.clone(),
-				});
+				})
 			} else {
-				return Err(PaymentAddressRetrievalError::NoProfileKey {
+				Err(PaymentAddressRetrievalError::NoProfileKey {
 					peer: recipient.clone(),
-				});
+				})
 			}
 		} else {
-			return Err(PaymentAddressRetrievalError::NoPeer {
+			Err(PaymentAddressRetrievalError::NoPeer {
 				peer: recipient.clone(),
-			});
+			})
 		}
 	}
 
 	/// Download an attachment from Signal's CDN.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `attachment` - A SignalService attachment pointer, containing all infromation required to retrieve and decrypt this attachment. .
-	pub async fn retrieve_attachment(&self, attachment: &AttachmentPointer) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
+	pub async fn retrieve_attachment(
+		&self,
+		attachment: &AttachmentPointer,
+	) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
 		//TODO: Test to see if there is any time when we need to use a different CDN address.
-		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), SIGNAL_CDN).await
+		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), SIGNAL_CDN)
+			.await
 	}
 
 	/// Retrieve a pre-upload token that you can use to upload an attachment to Signal's CDN.
 	/// Note that no information about what we're going to upload is required - this just generates
-	/// an ID that we can then turn around and use for an upload 
-	pub async fn request_upload_id(&self) -> std::result::Result<PreUploadToken, AttachmentUploadError> { 
+	/// an ID that we can then turn around and use for an upload
+	pub async fn request_upload_id(
+		&self,
+	) -> std::result::Result<PreUploadToken, AttachmentUploadError> {
 		let auth = self.context.identity.make_auth_header();
-		attachment::upload::request_attachment_token(("Authorization", auth.as_str()), self.http_client.clone()).await
+		attachment::upload::request_attachment_token(
+			("Authorization", auth.as_str()),
+			self.http_client.clone(),
+		)
+		.await
 	}
 
 	/// Upload an attahcment to Signal's CDN.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `upload_attributes` - The pre-upload token retrieved via request_upload_id().
 	/// * `attachment` - An attachment which has been encrypted by auxin::attachment::upload::encrypt_attachment()
-	pub async fn upload_attachment(&self, upload_attributes: &PreUploadToken, attachment: &PreparedAttachment) -> std::result::Result<AttachmentPointer, AttachmentUploadError> { 
+	pub async fn upload_attachment(
+		&self,
+		upload_attributes: &PreUploadToken,
+		attachment: &PreparedAttachment,
+	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
 		let auth = self.context.identity.make_auth_header();
-		let result = attachment::upload::upload_attachment(&upload_attributes, &attachment, ("Authorization", auth.as_str()), self.http_client.clone(), SIGNAL_CDN).await?;
+		let result = attachment::upload::upload_attachment(
+			upload_attributes,
+			attachment,
+			("Authorization", auth.as_str()),
+			self.http_client.clone(),
+			SIGNAL_CDN,
+		)
+		.await?;
 		Ok(result)
 	}
 
-	/// Returns a reference to our cached HTTP client. 
+	/// Returns a reference to our cached HTTP client.
 	pub fn get_http_client(&self) -> &N::C {
-		return &self.http_client;
+		&self.http_client
 	}
 	/// Returns a mutable reference to our cached HTTP client.
 	pub fn get_http_client_mut(&mut self) -> &mut N::C {
-		return &mut self.http_client;
+		&mut self.http_client
 	}
 
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
 	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
 	/// If it's something intended to be read by the end-user / externally to Signal, it returns a Some(MessageIn)
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `envelope` - The Signal Service envelope to process.
-	pub async fn handle_inbound_envelope(&mut self, envelope: Envelope) -> std::result::Result<Option<MessageIn>, HandleEnvelopeError> { 
+	pub async fn handle_inbound_envelope(
+		&mut self,
+		envelope: Envelope,
+	) -> std::result::Result<Option<MessageIn>, HandleEnvelopeError> {
 		match envelope.get_field_type() {
-			auxin_protos::Envelope_Type::UNKNOWN =>  Err(HandleEnvelopeError::UnknownEnvelopeType(envelope)), 
-			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some(MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng).await?)),
+			auxin_protos::Envelope_Type::UNKNOWN => {
+				Err(HandleEnvelopeError::UnknownEnvelopeType(envelope))
+			}
+			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some(
+				MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng)
+					.await?,
+			)),
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
-			auxin_protos::Envelope_Type::PREKEY_BUNDLE => { 
-
-				if ! (envelope.has_sourceUuid() || envelope.has_sourceE164()) { 
+			auxin_protos::Envelope_Type::PREKEY_BUNDLE => {
+				if !(envelope.has_sourceUuid() || envelope.has_sourceE164()) {
 					return Err(HandleEnvelopeError::PreKeyNoAddress);
 				}
 				debug!(
@@ -1159,20 +1212,22 @@ where
 				let remote_address = address_from_envelope(&envelope);
 				let remote_address = remote_address.map(|a| {
 					let mut new_addr = a.clone();
-					new_addr.address = self.context
+					new_addr.address = self
+						.context
 						.peer_cache
 						.complete_address(&a.address)
 						.unwrap_or(a.address.clone());
 					new_addr
 				});
 
-				if remote_address.is_none() { 
+				if remote_address.is_none() {
 					return Err(HandleEnvelopeError::PreKeyNoAddress);
 				}
 				let remote_address = remote_address.unwrap();
 
-				//If we have never encountered this peer before, go get information on them remotely. 
-				self.ensure_peer_loaded(&remote_address.address).await
+				//If we have never encountered this peer before, go get information on them remotely.
+				self.ensure_peer_loaded(&remote_address.address)
+					.await
 					.map_err(|e| HandleEnvelopeError::ProfileError(format!("{:?}", e)))?;
 
 				let protocol_address = remote_address.uuid_protocol_address().unwrap();
@@ -1180,51 +1235,64 @@ where
 				let pre_key_message = PreKeySignalMessage::try_from(envelope.get_content())?;
 
 				let ctx = self.context.get_signal_ctx().ctx;
-			
-				let decrypted=  message_decrypt_prekey(&pre_key_message,
-					&protocol_address, 
-					&mut self.context.session_store, 
-					&mut self.context.identity_store, 
-					&mut self.context.pre_key_store, 
-					&mut self.context.signed_pre_key_store, 
-					&mut self.rng, 
-					ctx).await?;
+
+				let decrypted = message_decrypt_prekey(
+					&pre_key_message,
+					&protocol_address,
+					&mut self.context.session_store,
+					&mut self.context.identity_store,
+					&mut self.context.pre_key_store,
+					&mut self.context.signed_pre_key_store,
+					&mut self.rng,
+					ctx,
+				)
+				.await?;
 
 				let unpadded_message = remove_message_padding(&decrypted)
 					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 				let fixed_buf = fix_protobuf_buf(&unpadded_message)
 					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 
-				let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
-				
-				let content: auxin_protos::Content = reader.read_message()
+				let mut reader: CodedInputStream =
+					CodedInputStream::from_bytes(fixed_buf.as_slice());
+
+				let content: auxin_protos::Content = reader
+					.read_message()
 					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 
 				debug!("Produced content from PreKeyBundle message: {:?}", &content);
 
-				//If they're providing us with their profile key, store / update that information. 
-				MessageIn::update_profile_key_from(&content, &remote_address.address, &mut self.context)?;
+				//If they're providing us with their profile key, store / update that information.
+				MessageIn::update_profile_key_from(
+					&content,
+					&remote_address.address,
+					&mut self.context,
+				)?;
 
-				if content.has_dataMessage() { 
+				if content.has_dataMessage() {
 					let data_message = content.get_dataMessage();
-					if data_message.has_flags() && data_message.has_profileKey() { 
+					if data_message.has_flags() && data_message.has_profileKey() {
 						// If this is a profile key distribution message and nothing else, return without trying to generate a MessageIn
-						if data_message.get_flags() & 4 > 0 { 
+						if data_message.get_flags() & 4 > 0 {
 							return Ok(None);
 						}
 					}
 				}
 
-				Ok(Some( MessageIn { 
+				Ok(Some(MessageIn {
 					content: MessageContent::try_from(content)?,
 					remote_address,
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(),
 					server_guid: envelope.get_serverGuid().to_string(),
 				}))
-			},
-			auxin_protos::Envelope_Type::RECEIPT => Ok(Some(MessageIn::from_receipt(envelope, &mut self.context).await?)),
-			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some(MessageIn::from_sealed_sender(envelope, &mut self.context).await?)),
+			}
+			auxin_protos::Envelope_Type::RECEIPT => Ok(Some(
+				MessageIn::from_receipt(envelope, &mut self.context).await?,
+			)),
+			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some(
+				MessageIn::from_sealed_sender(envelope, &mut self.context).await?,
+			)),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
 		}
 	}

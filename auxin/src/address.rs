@@ -38,7 +38,7 @@ impl std::fmt::Display for AuxinAddress {
 }
 
 impl AuxinAddress {
-	/// Get a phone number from this address if it contains one, error if it does not. 
+	/// Get a phone number from this address if it contains one, error if it does not.
 	pub fn get_phone_number(&self) -> std::result::Result<&E164, AddressError> {
 		match &self {
 			AuxinAddress::Phone(p) => Ok(p),
@@ -46,7 +46,7 @@ impl AuxinAddress {
 			AuxinAddress::Both(p, _) => Ok(p),
 		}
 	}
-	/// Get a uuid from this address if it contains one, error if it does not. 
+	/// Get a uuid from this address if it contains one, error if it does not.
 	pub fn get_uuid(&self) -> std::result::Result<&Uuid, AddressError> {
 		match &self {
 			AuxinAddress::Phone(_) => Err(AddressError::NoUuid { addr: self.clone() }),
@@ -54,8 +54,8 @@ impl AuxinAddress {
 			AuxinAddress::Both(_, u) => Ok(u),
 		}
 	}
-	/// Returns true if this address contains a phone number and false if it does not. 
-	pub fn has_phone_number(&self) -> bool{
+	/// Returns true if this address contains a phone number and false if it does not.
+	pub fn has_phone_number(&self) -> bool {
 		match &self {
 			AuxinAddress::Phone(_) => true,
 			AuxinAddress::Uuid(_) => false,
@@ -72,7 +72,7 @@ impl AuxinAddress {
 	}
 }
 
-/// Single-device Signal accounts are assumed to have a device ID of 1. Device ID 0 appears to be an error code or reserved. 
+/// Single-device Signal accounts are assumed to have a device ID of 1. Device ID 0 appears to be an error code or reserved.
 pub const DEFAULT_DEVICE_ID: u32 = 1;
 
 /// Represents an address that refers to a Signal account, fully-qualified with device ID.
@@ -84,11 +84,11 @@ pub struct AuxinDeviceAddress {
 }
 
 impl AuxinDeviceAddress {
-	/// Get a phone number from this address if it contains one, error if it does not. 
+	/// Get a phone number from this address if it contains one, error if it does not.
 	pub fn get_phone_number(&self) -> std::result::Result<&E164, AddressError> {
 		self.address.get_phone_number()
 	}
-	/// Get a uuid from this address if it contains one, error if it does not. 
+	/// Get a uuid from this address if it contains one, error if it does not.
 	pub fn get_uuid(&self) -> std::result::Result<&Uuid, AddressError> {
 		self.address.get_uuid()
 	}
@@ -103,7 +103,7 @@ impl AuxinDeviceAddress {
 		Ok(ProtocolAddress::new(addr_uuid.to_string(), self.device_id))
 	}
 
-	/// Constructs an AuxinDeviceaddress using the provided AuxinAddress and assuming the default device ID of 1. 
+	/// Constructs an AuxinDeviceaddress using the provided AuxinAddress and assuming the default device ID of 1.
 	pub fn new_default_device(address: AuxinAddress) -> Self {
 		AuxinDeviceAddress {
 			address,
@@ -127,7 +127,7 @@ impl From<AuxinDeviceAddress> for AuxinAddress {
 impl TryFrom<&str> for AuxinAddress {
 	type Error = Box<dyn Error>;
 	fn try_from(val: &str) -> std::result::Result<Self, Self::Error> {
-		if val.starts_with("+") {
+		if val.starts_with('+') {
 			//Is a phone number.
 			Ok(Self::Phone(val.to_string()))
 		} else {

@@ -2,7 +2,7 @@ use crate::app::App;
 use async_global_executor::block_on;
 use auxin::{
 	address::{AuxinAddress, E164},
-	message::{MessageOut},
+	message::MessageOut,
 	state::PeerInfoReply,
 	AuxinReceiver,
 };
@@ -46,7 +46,7 @@ impl<'a> AppWrapper<'a> {
 	}
 	pub fn query_messages(&mut self) -> Vec<String> {
 		let mut result = Vec::default();
-		let mut receiver = block_on(AuxinReceiver::new(&mut self.app_inner)).unwrap();
+		let mut receiver = block_on(AuxinReceiver::new(self.app_inner)).unwrap();
 		while let Some(msg) = block_on(receiver.next()) {
 			if msg.is_ok() {
 				let msg_json = serde_json::to_string_pretty(&msg.unwrap()).unwrap();
@@ -56,6 +56,6 @@ impl<'a> AppWrapper<'a> {
 				panic!("Error in message receiver: {:?}", &err);
 			}
 		}
-		return result;
+		result
 	}
 }
