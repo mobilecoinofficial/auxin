@@ -9,12 +9,12 @@ use auxin_protos::{AttachmentPointer, Envelope};
 use custom_error::custom_error;
 use futures::{TryFutureExt};
 use libsignal_protocol::{IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore, InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate, SessionRecord, SessionStore, SignalProtocolError, message_decrypt_prekey, process_prekey_bundle};
-use log::{debug, error};
+use log::{debug, error, warn};
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
 use protobuf::CodedInputStream;
 use serde_json::json;
-use std::{collections::HashMap, convert::TryFrom, fmt::Debug};
+use std::{collections::{HashMap, HashSet}, convert::TryFrom, fmt::Debug};
 use std::{
 	error::Error,
 	time::{SystemTime, UNIX_EPOCH},
@@ -43,10 +43,7 @@ use state::{
 use crate::{attachment::download::EncryptedAttachment, discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
-	}, message::{AuxinMessageList, MessageContent, MessageSendMode, address_from_envelope, fix_protobuf_buf, remove_message_padding}, net::common_http_headers, state::{
-		ForeignPeerProfile,
-		ProfileResponse
-	}};
+	}, message::{AuxinMessageList, MessageContent, MessageSendMode, address_from_envelope, fix_protobuf_buf, remove_message_padding}, net::common_http_headers, state::{ForeignPeerProfile, ProfileResponse, try_excavate_registration_id}};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 
@@ -444,7 +441,7 @@ where
 				profile_key_credential: None,
 				contact: None,
 				profile: None,
-				device_ids_used: Vec::default(),
+				device_ids_used: HashSet::default(),
 				registration_ids: HashMap::default(),
 				identity: None,
 			};
@@ -468,23 +465,56 @@ where
 			.get_mut(&recipient_addr)
 			.unwrap();
 
+		// Was there a session which hadn't started?
+		let mut missing_session = false; 
+
 		// Ensure our cache is consistent. 
 		// We should ABSOLUTELY have a UUID by now if this hasn't errored out.
 		for device_id in recipient.device_ids_used.iter() {
 			let device_addr = AuxinDeviceAddress{address: recipient_addr.clone(), device_id: *device_id};
 			let ctx = self.context.ctx.get();
 			let protocol_addr = device_addr.uuid_protocol_address().unwrap();
-			if let Ok(Some(session)) = self.context.session_store.load_session(&protocol_addr, ctx).await { 
+			if let Ok(Some(session)) = self.context.session_store.load_session(&protocol_addr, ctx).await {
+				if !session.has_current_session_state() { 
+					// We do not have a current session state, go re-grab pre-keys. 
+					missing_session = true;
+				} 
 				//Store the registration ID if we've got it. 
-				if let Ok(reg_id) = session.remote_registration_id() {
+				else if let Ok(reg_id) = session.remote_registration_id() {
+					debug!("Using registration ID {} for peer {} 's device #{}", reg_id, &recipient_addr, device_id);
 					recipient.registration_ids.insert(*device_id, reg_id);
+				}
+				else { 					
+					// See if we have a registration ID on file in an archived record.
+					let old_id_maybe = try_excavate_registration_id(&session);
+					match old_id_maybe { 
+						Ok(Some(old_id)) => { 
+							debug!("Found registration ID {} for peer {} 's device #{} in an old session. Using that.", old_id, &recipient_addr, device_id);
+							recipient.registration_ids.insert(*device_id, old_id);
+						},
+						Err(e) => { 
+							// Digging around in old sessions was a "We are less likely to get ratelimited"
+							// move anyway, so it is not critical that it succeeds.
+							warn!("Encountered an error while digging for an old registration ID in a session for {} \
+								   - silencing this error and assuming we don't have one (most likely we will need \
+									to retrieve a registration ID from Signal's web API). Error was: {:?}", &recipient_addr, e);
+						}
+						Ok(None) => {}, //Nothing found, no error, no action taken.
+					}
 				}
 			}
 		}
-					
+		
+		debug!("Peer has device IDs {:?}", &recipient.device_ids_used);
 		// Corrupt data / missing device list!
 		if recipient.device_ids_used.is_empty() || recipient.profile.is_none() 
-			|| (recipient.device_ids_used.len() != recipient.registration_ids.len()) {
+			|| (recipient.registration_ids.len() < recipient.device_ids_used.len()) {
+			debug!("Calling fill_peer_info() at the bottom of ensure_peer_loaded() because of missing device / registration ID.");
+			self.fill_peer_info(&recipient_addr).await?;
+		}
+		//Session was recently cleared / no session?
+		else if missing_session { 
+			debug!("Calling fill_peer_info() at the bottom of ensure_peer_loaded() because of missing session.");
 			self.fill_peer_info(&recipient_addr).await?;
 		}
 		self.state_manager.save_peer_record(&recipient_addr, &self.context)?;
@@ -585,7 +615,7 @@ where
 
 		// If this was intended as a session termination message, clear out session state.
 		if end_session { 
-			self.clear_session(&recipient_addr).await?;
+ 			self.clear_session(&recipient_addr).await?;
 		}
 
 		Ok(())
@@ -672,9 +702,6 @@ where
 			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
 
 			recipient.profile = Some(prof.to_local());
-
-			// Make sure we're not doubling up on any of these.
-			recipient.device_ids_used.dedup();
 		}
 
 		let peer_info = self.request_peer_info(&uuid).await?;
@@ -684,7 +711,7 @@ where
 		for device in peer_info.devices.iter() {
 			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
 			//Track device IDs used.
-			recipient.device_ids_used.push(device.device_id);
+			recipient.device_ids_used.insert(device.device_id);
 			//Track registration IDs. 
 			recipient.registration_ids.insert(device.device_id, device.registration_id);
 			//Note that we are aware of this peer.
@@ -695,6 +722,7 @@ where
 				.save_identity(&addr, &identity_key, signal_ctx)
 				.await?;
 		}
+
 
 		{
 			//And now for our own, signal-cli-compatible "Identity Store"
@@ -749,7 +777,7 @@ where
 			profile_key_credential: None,
 			contact: None,
 			profile: None,
-			device_ids_used: Vec::default(),
+			device_ids_used: HashSet::default(),
 			registration_ids: HashMap::default(),
 			identity: None,
 		};
@@ -758,6 +786,7 @@ where
 
 		let address = AuxinAddress::Uuid(uuid);
 
+		debug!("Calling fill_peer_info() from inside retrieve_and_store_peer() for uuid {} retrieved for phone number {}", &address, &recipient_phone);
 		self.fill_peer_info(&address).await?;
 
 		Ok(())
@@ -1172,8 +1201,7 @@ where
 		// Make sure we know about their device ID. 
 		let peer_maybe = self.context.peer_cache.get_mut(&message.remote_address.address);
 		if let Some(peer) = peer_maybe { 
-			peer.device_ids_used.push(message.remote_address.device_id);
-			peer.device_ids_used.dedup();
+			peer.device_ids_used.insert(message.remote_address.device_id);
 			// Did the session just get a registration ID?
 			let ctx = self.context.ctx.get();
 			let completed_device_addr = AuxinDeviceAddress{ address: completed_addr, device_id: message.remote_address.device_id};
@@ -1252,8 +1280,7 @@ where
 				let peer_maybe = self.context.peer_cache.get_mut(&remote_address.address);
 				if let Some(peer) = peer_maybe { 
 					debug!("Updating existing peer with IDs from pre-key message.");
-					peer.device_ids_used.push(remote_address.device_id);
-					peer.device_ids_used.dedup();
+					peer.device_ids_used.insert(remote_address.device_id);
 					//Record registration ID, which a prey key message will always have. 
 					peer.registration_ids.insert(remote_address.device_id, reg_id);
 				}
@@ -1294,9 +1321,10 @@ where
 						}
 
 						// If this is an end session message, clear out the session for this peer. 
-						if data_message.get_flags() & 1 > 0 { 
-							self.clear_session(&remote_address.address).await.unwrap(); //TODO: proper error hanndling here. 
-						}
+						//if data_message.get_flags() & 1 > 0 { 
+						//	self.clear_session(&remote_address.address).await.unwrap(); //TODO: proper error hanndling here. 
+						//}
+						//Prekey distribution messages should never be end-session.
 
 					}
 				}
@@ -1360,7 +1388,7 @@ where
 		self.state_manager.end_session(peer_addr, &self.context)?; 
 
 		// Pull up the relevant peer
-		let peer_record = match self.context.peer_cache.get(peer_addr) {
+		let peer_record = match self.context.peer_cache.get(&peer_addr) {
 			Some(a) => a,
 			// We do not need to delete what is not there.
 			None => {
@@ -1369,12 +1397,13 @@ where
 		};
 
 		// Archive or generate-fresh a new session store.
-		for device_id in peer_record.device_ids_used.iter() {
-			let device_addr = AuxinDeviceAddress { address: peer_addr.clone(), device_id: *device_id }; 
+		for device_id in peer_record.device_ids_used.iter() { 
+			let device_addr = AuxinDeviceAddress{ address: peer_addr.clone(), device_id: *device_id };
+
 			let protocol_addr = device_addr.uuid_protocol_address()?;
 
 			let session = self.context.session_store.load_session(&protocol_addr, self.context.get_signal_ctx().get()).await;
-
+	
 			if let Ok(Some(mut s)) = session { 
 				s.archive_current_state()?;
 				self.context.session_store.store_session(&protocol_addr, &s, self.context.get_signal_ctx().get()).await?;
@@ -1383,6 +1412,7 @@ where
 				let new_record = SessionRecord::new_fresh();
 				self.context.session_store.store_session(&protocol_addr, &new_record, self.context.get_signal_ctx().get()).await?;
 			}
+	
 		}
 
 		self.state_manager.save_peer_sessions(&peer_addr, &self.context)?;

@@ -309,7 +309,7 @@ pub async fn load_sessions(
 						ProtocolAddress::new(uuid.to_string().clone(), device_id_num);
 
 					//Let's also build some extra cached information we keep around for convenience!
-					recip.device_ids_used.push(device_id_num);
+					recip.device_ids_used.insert(device_id_num);
 					//Open session file.
 					let mut buffer = Vec::new();
 					let mut f = File::open(file_path.as_str())?;

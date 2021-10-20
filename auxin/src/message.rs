@@ -661,6 +661,9 @@ impl MessageOut {
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len());
 
+		// Do we have a valid session? 
+		
+
 		Ok(match mode {
 			MessageSendMode::Standard => {
 				//It is critically important that, at the very least, process_prekey_bundle (or something else that can start a session)
