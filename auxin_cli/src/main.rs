@@ -34,6 +34,10 @@ pub type Context = auxin::AuxinContext;
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
 
+pub trait Command: Clone + Send + Sync + 'static  {
+	fn aliases() -> &'static [&'static str];
+}
+
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
 #[cfg(feature = "repl")]
@@ -78,6 +82,11 @@ pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<()> {
+
+	/*-----------------------------------------------\\
+	||------------ LOGGER INITIALIZATION ------------||
+	\\-----------------------------------------------*/
+
 	let subscriber = FmtSubscriber::builder()
 		// all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
 		// will be written to stdout.

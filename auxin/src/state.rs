@@ -143,7 +143,8 @@ impl ForeignPeerProfile {
 	}
 }
 
-/// All of the information we
+/// A known peer's pre-existing identifying information, public keys, and prefrences.
+/// Note that session state and ratchet key state do not live here.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerRecord {
