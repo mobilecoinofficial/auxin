@@ -144,6 +144,13 @@ pub async fn main() -> Result<()> {
 								.required(false)
 								.takes_value(false)
 								.help("Generate a Signal Service \"Content\" structure without actually sending it. Useful for testing the -c / --content option."))
+							.arg(Arg::with_name("END_SESSION")
+								.short("e")
+								.long("end_session")
+								.required(false)
+								.takes_value(false)
+								.help("Sets the END_SESSION flag (defined on line 109 of signalservice.proto) on this message, which means this message will reset your session with this peer."))
+
 						).subcommand(SubCommand::with_name("upload")
 							.about("Uploads an attachment to Signal's CDN.")
 							.version(VERSION_STR)
@@ -172,11 +179,6 @@ pub async fn main() -> Result<()> {
 		.expect("Must select a user ID! Input either your UUID or your phone number (in E164 format, i.e. +[country code][phone number])");
 	let our_phone_number = our_phone_number.to_string();
 
-	//simple_logger::SimpleLogger::new()
-	//	.with_level(log::LevelFilter::Debug)
-	//	.init()
-	//	.unwrap();
-
 	env_logger::init();
 
 	let base_dir = format!("{}/data", args.value_of("CONFIG").unwrap());
@@ -201,13 +203,24 @@ pub async fn main() -> Result<()> {
 	.unwrap();
 
 	//Prepare to download attachments, asynchronously.
-	//let mut
-
 	if let Some(send_command) = args.subcommand_matches("send") {
 		let dest = send_command.value_of("DESTINATION").unwrap();
 		let recipient_addr = AuxinAddress::try_from(dest).unwrap();
 
+		//Are we actually going to send a message, or just see what it'd be like if we did? 
+		let simulate: bool = send_command.is_present("SIMULATE");
+
 		let mut message_content = MessageContent::default();
+
+		//Do we want to end our session here? 
+		if !simulate && send_command.is_present("END_SESSION") {
+			message_content.end_session = true; 
+		}
+		else { 
+			message_content.end_session = false;
+		}
+
+
 		//Do we have a regular text message?
 		let message_text: Option<&str> = send_command.value_of("MESSAGE");
 		message_content.text_message = message_text.map(|s| s.to_string());
@@ -265,12 +278,10 @@ pub async fn main() -> Result<()> {
 		//If there was no premade content there is no other reason for a MessageOut to have a "source" other than None.
 		message.content.source = premade_content;
 
-		if send_command.is_present("SIMULATE") {
-			//Are we just testing this thing? If so, print our content as json.
-			let built_content = message.content.build_signal_content(
-				&base64::encode(&app.context.identity.profile_key),
-				generate_timestamp(),
-			)?;
+		if simulate { 
+			//Are we just testing this thing? If so, print our content as json. 
+			let built_content = message.content.build_signal_content(&base64::encode(&app.context.identity.profile_key).to_string(), generate_timestamp())?;
+
 			println!("[CONTENT_PRODUCED]");
 			let content_str = serde_json::to_string(&built_content)?;
 			println!("{}", content_str);

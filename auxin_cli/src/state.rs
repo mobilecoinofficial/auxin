@@ -309,8 +309,8 @@ pub async fn load_sessions(
 						ProtocolAddress::new(uuid.to_string().clone(), device_id_num);
 
 					//Let's also build some extra cached information we keep around for convenience!
-					recip.device_ids_used.push(device_id_num);
-
+					recip.device_ids_used.insert(device_id_num);
+          
 					//Open session file.
 					let mut buffer = Vec::new();
 					let mut f = File::open(file_path.as_str())?;
@@ -320,6 +320,14 @@ pub async fn load_sessions(
 
 					debug!("Loaded {} bytes from {}", buffer.len(), &file_path);
 
+					//Store the registration ID if we've got it. 
+					if let Ok(reg_id) = record.remote_registration_id() {
+						recip.registration_ids.insert(device_id_num, reg_id);
+					}
+					else { 
+						debug!("Could not get registration ID from recipient_id {} device_id {}. Has current session: {}", recipient_id_num, device_id_num, record.has_current_session_state());
+					}
+					
 					//Store as UUID
 					session_store
 						.store_session(&recipient_address, &record, ctx)
@@ -503,16 +511,25 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 			.session_store
 			.load_session(&address.1, context.get_signal_ctx().get())
 			.await?;
-		let session = match session {
-			Some(s) => s,
+
+		match session {
+			Some(s) => {
+				// If there is no current session, do not bother saving it. 
+				//if !s.has_current_session_state() { 
+				//	continue;
+				//} else { 
+		
+					let bytes = s.serialize()?;
+					file.write_all(bytes.as_slice())?;
+					file.flush()?;
+					drop(file);
+				//}
+			},
 			None => {
 				//todo: Better error handling here.
 				continue;
 			}
-		};
-		let bytes = session.serialize()?;
-		file.write_all(bytes.as_slice())?;
-		file.flush()?;
+		}
 	}
 
 	// Save recipient store:
@@ -662,17 +679,25 @@ impl AuxinStateManager for StateManager {
 						.session_store
 						.load_session(&address, context.get_signal_ctx().get()),
 				)?;
-				let session = match session {
-					Some(s) => s,
+
+				match session {
+					Some(s) => {
+						// If there is no current session, do not bother saving it. 
+						//if !s.has_current_session_state() { 
+						//	continue;
+						//} else { 
+							
+							let bytes = s.serialize()?;
+							file.write_all(bytes.as_slice())?;
+							file.flush()?;
+							drop(file);
+						//}
+					},
 					None => {
 						//todo: Better error handling here.
 						continue;
 					}
-				};
-				let bytes = session.serialize()?;
-				file.write_all(bytes.as_slice())?;
-				file.flush()?;
-				drop(file);
+				}
 			} else {
 				warn!(
 					"No UUID for {:?}, cannot write sessions.",
@@ -752,6 +777,45 @@ impl AuxinStateManager for StateManager {
 	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss.
 	fn flush(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		// This implementation "Flush"s every time / writes changes immediately rather than queueing them, so this is unnecessary.
+		Ok(())
+	}
+
+	/// Delete or otherwise mark-dead a stored session for a peer. 
+	/// Called when receiving a message with the END_SESSION flag enabled.
+	#[allow(unused_variables)]
+	fn end_session(
+		&mut self,
+		peer: &AuxinAddress,
+		context: &AuxinContext,
+	) -> auxin::Result<()> {
+
+		/* 
+		// DELETING FILES MAY BE COUNTERPRODUCTIVE, pending further testing. 
+
+
+		let our_path = self.get_protocol_store_path(context);
+		let mut session_path = our_path.clone();
+		session_path.push_str("sessions/");
+
+		if !Path::new(&session_path).exists() {
+			std::fs::create_dir(&session_path)?;
+		}
+
+		// Pull up the relevant peer
+		let peer_record = match context.peer_cache.get(peer) {
+			Some(a) => a,
+			// We do not need to save what is not there.
+			None => {
+				return Ok(());
+			}
+		};
+
+		for device_id in peer_record.device_ids_used.iter() {
+			let device_session_path = format!("{}{}_{}", &session_path, &peer_record.id, &device_id);
+			if Path::new(&device_session_path).exists() { 
+				std::fs::remove_file(&device_session_path)?;
+			}
+		} */
 		Ok(())
 	}
 }
