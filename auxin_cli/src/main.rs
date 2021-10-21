@@ -282,7 +282,7 @@ pub async fn main() -> Result<()> {
 			//Are we just testing this thing? If so, print our content as json. 
 			let built_content = message.content.build_signal_content(&base64::encode(&app.context.identity.profile_key).to_string(), generate_timestamp())?;
 
-			println!("[CONTENT_PRODUCED]");
+			//println!("[CONTENT_PRODUCED]");
 			let content_str = serde_json::to_string(&built_content)?;
 			println!("{}", content_str);
 		} else {
@@ -298,7 +298,7 @@ pub async fn main() -> Result<()> {
 		let payment_address = app.retrieve_payment_address(&recipient_addr).await.unwrap();
 		let payaddr_json = serde_json::to_string(&payment_address).unwrap();
 
-		println!("[PAYMENT_ADDRESS]");
+		//println!("[PAYMENT_ADDRESS]");
 		println!("{}", payaddr_json);
 	}
 
@@ -315,7 +315,7 @@ pub async fn main() -> Result<()> {
 				info!("Message received with text {}", msg);
 			}
 			let msg_json = serde_json::to_string_pretty(&msg).unwrap();
-			println!("[MESSAGE]");
+			//println!("[MESSAGE]");
 			println!("{}", msg_json);
 		}
 	}
@@ -347,7 +347,7 @@ pub async fn main() -> Result<()> {
 		let attachment_pointer = app
 			.upload_attachment(&upload_attributes, &encrypted_attahcment)
 			.await?;
-		println!("[ATTACHMENT_POINTER]");
+		//println!("[ATTACHMENT_POINTER]");
 		println!("{:?}", attachment_pointer);
 	}
 
