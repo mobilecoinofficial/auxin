@@ -14,7 +14,7 @@ use crate::{
 	message::{MessageIn, MessageInError, MessageOut},
 	state::AuxinStateManager,
 };
-use crate::{AuxinApp, HandleEnvelopeError};
+use crate::{AuxinApp, HandleEnvelopeError, SendMessageError};
 
 /// (Try to) read a raw byte buffer as a Signal Envelope (defined by a protocol buffer).
 pub fn read_envelope_from_bin(buf: &[u8]) -> crate::Result<auxin_protos::Envelope> {
@@ -324,7 +324,7 @@ where
 		&mut self,
 		recipient_addr: &AuxinAddress,
 		message: MessageOut,
-	) -> crate::Result<()> {
+	) -> std::result::Result<crate::Timestamp, SendMessageError> {
 		self.app.send_message(recipient_addr, message).await
 	}
 

@@ -43,6 +43,8 @@ pub mod net;
 pub mod receiver;
 pub mod state;
 
+pub use message::Timestamp as Timestamp;
+
 /// Self-signing root cert for TLS connections to Signal's web API..
 pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
 /// Trust anchor for IAS - required to validate certificate chains for remote SGX attestation.
@@ -330,18 +332,37 @@ custom_error! { pub AuxinInitError
 	CannotRequestSenderCert{msg: String} = "Unable to send a \"Sender Certificate\" request: {msg}.",
 }
 
+#[derive(Debug, Clone)]
 // Errors received when attempting to send a Signal message to another user.
-custom_error! { pub SendMessageError
-	CannotMakeMessageRequest{msg: String} = "Unable to send a message-send request: {msg}.",
-	CannotSendAuthUpgrade{msg: String} = "Unable request auth upgrade: {msg}.",
-	CannotSendAttestReq{msg: String} = "Unable to request attestations: {msg}.",
-	CannotSendDiscoveryReq{msg: String} = "Unable to send discovery request to remote secure enclave: {msg}.",
+pub enum SendMessageError {
+	CannotMakeMessageRequest(String),
+	CannotSendAuthUpgrade(String),
+	SenderCertRetrieval(String),
+	CannotSendAttestReq(String),
+	CannotSendDiscoveryReq(String),
+	PeerStoreIssue(String),
+	PeerSaveIssue(String),
+	MessageBuildErr(String),
+	EndSessionErr(String),
 }
 
-// Errors encountered while trying to write out stateful data to our AuxinStateManager.
-custom_error! { pub StateSaveError
-	CannotSaveForPeer{msg: String} = "Couldn't save files for a peer's sessions and profile: {msg}.",
+impl std::fmt::Display for SendMessageError {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match &self {
+			SendMessageError::CannotMakeMessageRequest(e) => write!(f, "Unable to send a message-send request: {}.", e),
+			SendMessageError::CannotSendAuthUpgrade(e)  => write!(f, "Unable request auth upgrade: {}.", e),
+			SendMessageError::SenderCertRetrieval(e) => write!(f, "Failed to retrieve a sencer certificate: {}.", e),
+			SendMessageError::CannotSendAttestReq(e) => write!(f, "Unable to request attestations: {}.", e),
+			SendMessageError::CannotSendDiscoveryReq(e) => write!(f, "Unable to send discovery request to remote secure enclave: {}.", e),
+			SendMessageError::PeerStoreIssue(e) => write!(f, "An error was encountered while trying to make sure information for a peer is present, for the purposes of sending a message: {}.", e),
+			SendMessageError::MessageBuildErr(e) => write!(f, "Could not build or encrypt Signal message content for send_message(): {}.", e),
+			SendMessageError::PeerSaveIssue(e) => write!(f, "Couldn't save files for a peer's sessions and profile, as part of sending a message: {}.", e),
+			SendMessageError::EndSessionErr(e) => write!(f, "Encountered an error while attempting to close out a session after sending an END_SESSION message: {}.", e),
+		}
+	}
 }
+impl std::error::Error for SendMessageError {}
+
 // An error encountered while trying to retrieve another Signal user's payment address (MobileCoin public address)
 custom_error! { pub PaymentAddressRetrievalError
 	NoProfileKey{peer: AuxinAddress} = "Couldn't retrieve payment address for peer {peer} because we do not have a profile key on file for this user.",
@@ -552,7 +573,7 @@ where
 		Ok(())
 	}
 
-	/// Send a message (any type of message) to a fellow Signal user.
+	/// Send a message (any type of message) to a fellow Signal user. Returns the timestamp at which thsi message was generated.
 	///
 	/// # Arguments
 	///
@@ -562,7 +583,7 @@ where
 		&mut self,
 		recipient_addr: &AuxinAddress,
 		message: MessageOut,
-	) -> Result<()> {
+	) -> std::result::Result<Timestamp, SendMessageError> {
 		let recipient_addr = self
 			.context
 			.peer_cache
@@ -575,7 +596,12 @@ where
 		let end_session =  message.content.end_session;
 
 		//Make sure we know everything about this user that we need to.
-		self.ensure_peer_loaded(&recipient_addr).await?;
+		self.ensure_peer_loaded(&recipient_addr).await
+		.map_err(|e| {
+			SendMessageError::PeerStoreIssue (
+				format!("{:?}", e),
+			)
+		})?;
 
 		let recipient_addr = self
 			.context
@@ -600,7 +626,10 @@ where
 		let mode = match sealed_sender {
 			true => {
 				// Make sure we have a sender certificate to do this stuff with.
-				self.retrieve_sender_cert().await?;
+				self.retrieve_sender_cert().await
+				.map_err(|e| { 
+					SendMessageError::SenderCertRetrieval( format!("{:?}", e) )
+				})?;
 				MessageSendMode::SealedSender
 			}
 			false => MessageSendMode::Standard,
@@ -610,21 +639,30 @@ where
 		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
 		let outgoing_push_list = message_list
 			.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, timestamp)
-			.await?;
+			.await.map_err(|e| {
+				SendMessageError::MessageBuildErr (
+					format!("{:?}", e),
+				)
+			})?;
 
 		let request: http::Request<Vec<u8>> = outgoing_push_list.build_http_request(
 			&recipient_addr,
 			mode,
 			&mut self.context,
 			&mut self.rng,
-		)?;
+		)
+		.map_err(|e| {
+			SendMessageError::CannotMakeMessageRequest (
+				format!("{:?}", e),
+			)
+		})?;
 		let message_response = self
 			.http_client
 			.request(request)
 			.map_err(|e| {
-				Box::new(SendMessageError::CannotMakeMessageRequest {
-					msg: format!("{:?}", e),
-				})
+				SendMessageError::CannotMakeMessageRequest (
+					format!("{:?}", e),
+				)
 			})
 			.await?;
 
@@ -637,17 +675,21 @@ where
 		self.state_manager
 			.save_peer_sessions(&recipient_addr, &self.context)
 			.map_err(|e| {
-				Box::new(StateSaveError::CannotSaveForPeer {
-					msg: format!("{:?}", e),
-				})
+				SendMessageError::PeerSaveIssue (
+					format!("{:?}", e),
+				)
 			})?;
 
 		// If this was intended as a session termination message, clear out session state.
 		if end_session { 
- 			self.clear_session(&recipient_addr).await?;
+ 			self.clear_session(&recipient_addr).await.map_err(|e| {
+				SendMessageError::EndSessionErr (
+					format!("{:?}", e),
+				)
+			})?;
 		}
 
-		Ok(())
+		Ok(timestamp)
 	}
 
 	/// Get a sender certificate for ourselves from Signal's web API, so that we can send sealed_sender messages properly.
@@ -865,9 +907,9 @@ where
 		let req = req.body(Vec::default())?;
 
 		let auth_upgrade_response = self.http_client.request(req).await.map_err(|e| {
-			Box::new(SendMessageError::CannotSendAuthUpgrade {
-				msg: format!("{:?}", e),
-			})
+			Box::new(SendMessageError::CannotSendAuthUpgrade (
+				format!("{:?}", e),
+			))
 		})?;
 		assert!(auth_upgrade_response.status().is_success());
 
@@ -906,9 +948,9 @@ where
 		debug!("Sending attestation request: {:?}", req);
 
 		let attestation_response = self.http_client.request(req).await.map_err(|e| {
-			Box::new(SendMessageError::CannotSendAttestReq {
-				msg: format!("{:?}", e),
-			})
+			Box::new(SendMessageError::CannotSendAttestReq (
+				format!("{:?}", e),
+			))
 		})?;
 
 		let attestation_response_str = String::from_utf8(attestation_response.body().to_vec())?;
@@ -977,9 +1019,9 @@ where
 		let req = req.body(query_str.into_bytes())?;
 
 		let response = self.http_client.request(req).await.map_err(|e| {
-			Box::new(SendMessageError::CannotSendDiscoveryReq {
-				msg: format!("{:?}", e),
-			})
+			Box::new(SendMessageError::CannotSendDiscoveryReq (
+				format!("{:?}", e),
+			))
 		})?;
 		debug!("{:?}", response);
 
