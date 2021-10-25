@@ -14,4 +14,4 @@ if [ ! -f "$state_path" ]
    -H "Accept: application/octet-stream" | tar -C $auxin_state -x
 fi
 # normal codepath
-/app/auxin_cli --config $auxin_state --user +$echobot echoserver
+/app/auxin_cli --config $auxin_state --user +$echobot echoserver | jq -c
