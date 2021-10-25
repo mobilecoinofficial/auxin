@@ -22,7 +22,7 @@ use libsignal_protocol::{
 	InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate,
 	SessionRecord, SessionStore, SignalProtocolError,
 };
-use log::{debug, error, warn};
+use log::{debug, error, info, trace, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
@@ -584,6 +584,8 @@ where
 		recipient_addr: &AuxinAddress,
 		message: MessageOut,
 	) -> std::result::Result<Timestamp, SendMessageError> {
+		info!("Start of send_message() at {}", generate_timestamp()); 
+
 		let recipient_addr = self
 			.context
 			.peer_cache
@@ -689,6 +691,7 @@ where
 			})?;
 		}
 
+		info!("End of send_message() at {}", generate_timestamp()); 
 		Ok(timestamp)
 	}
 

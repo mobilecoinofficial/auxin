@@ -287,8 +287,6 @@ pub fn gen_remote_attestation_keys(
 	let generator = hkdf::Hkdf::<sha2::Sha256>::new(Some(&public_keys_salt), &master_secret);
 	generator.expand(b"", &mut keys).unwrap();
 
-	//	generator.derive_salted_secrets(&master_secret, &public_keys_salt, &([] as [u8; 0]), 64)?;
-
 	// Split "keys" into an agreed client key and  an agreed server key.
 	// "keys" should always have length 64, or else it'll panic here.
 	let mut client_key: [u8; 32] = [0; 32];
