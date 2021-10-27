@@ -25,7 +25,7 @@ use structopt::StructOpt;
 use serde::{Deserialize, Serialize};
 
 use tokio::time::{Duration, Instant};
-use tracing::info;
+use tracing::{info, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
 
@@ -82,6 +82,8 @@ pub enum AuxinCommand {
 	/// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json.
 	/// This can be used with Send --prepared-attachments later.
 	Upload(UploadCommand),
+	/// Continuously polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
+	ReceiveLoop,
 	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	Receive(ReceiveCommand),
 	/// A simple echo server for demonstration purposes. Loops until killed.
@@ -660,7 +662,7 @@ pub async fn main() -> Result<()> {
 	let subscriber = FmtSubscriber::builder()
 		// all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
 		// will be written to stdout.
-		//.with_max_level(Level::TRACE)
+		.with_max_level(Level::TRACE)
 		.with_writer(std::io::stderr)
 		//Ensure Tracing respects the same logging verbosity configuration environment variable as env_logger does,
 		//so that one setting controls all logging in Auxin.
@@ -739,11 +741,39 @@ pub async fn main() -> Result<()> {
 				start_time.elapsed().as_millis()
 			);
 		}
+
+		AuxinCommand::ReceiveLoop => {
+			let exit = false;
+			let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app).await.unwrap()));
+			while !exit {
+				let receiver = receiver_main.take();
+				let mut receiver = receiver.unwrap();
+				while let Some(msg) = receiver.next().await {
+					let msg = msg.unwrap();
+					let msg_json = serde_json::to_string(&msg).unwrap();
+					println!("{}", msg_json);
+				}
+				let sleep_time = Duration::from_millis(100);
+				tokio::time::sleep(sleep_time).await;
+
+				if let Err(e) = receiver.refresh().await {
+					log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+					receiver
+						.reconnect()
+						.await
+						.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+						.unwrap();
+				}
+
+				receiver_main.replace(Some(receiver));
+			}
+		}
+
 		// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 		AuxinCommand::Receive(receive_command) => {
 			let messages =
 				handle_receive_command(receive_command, &arguments.download_path, &mut app).await?;
-			let messages_json = serde_json::to_string_pretty(&messages)?;
+			let messages_json = serde_json::to_string(&messages)?;
 			println!("{}", messages_json);
 		}
 		// A simple echo server for demonstration purposes. Loops until killed.
@@ -757,20 +787,22 @@ pub async fn main() -> Result<()> {
 				while let Some(msg) = receiver.next().await {
 					let msg = msg.unwrap();
 
-					let msg_json = serde_json::to_string_pretty(&msg).unwrap();
+					let msg_json = serde_json::to_string(&msg).unwrap();
 					println!("{}", msg_json);
 
-					if let Some(st) = msg.content.text_message {
-						info!("Message received with text \"{}\", replying...", st);
-						receiver
-							.send_message(
-								&msg.remote_address.address,
-								MessageOut {
-									content: MessageContent::default().with_text(st.clone()),
-								},
-							)
-							.await
-							.unwrap();
+					if msg.content.receipt_message.is_none() {
+						if let Some(st) = msg.content.text_message {
+							info!("Message received with text \"{}\", replying...", st);
+							receiver
+								.send_message(
+									&msg.remote_address.address,
+									MessageOut {
+										content: MessageContent::default().with_text(st.clone()),
+									},
+								)
+								.await
+								.unwrap();
+						}
 					}
 				}
 
@@ -806,11 +838,11 @@ pub async fn main() -> Result<()> {
 					for entry in output_list {
 						match entry {
 							JsonRpcResponse::Ok(result) => {
-								let result_str = serde_json::to_string_pretty(&result)?;
+								let result_str = serde_json::to_string(&result)?;
 								println!("{}", result_str);
 							}
 							JsonRpcResponse::Err(result) => {
-								let result_str = serde_json::to_string_pretty(&result)?;
+								let result_str = serde_json::to_string(&result)?;
 								println!("{}", result_str);
 							}
 						}
