@@ -56,6 +56,7 @@ pub struct AppArgs {
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 #[structopt(rename_all = "camel_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AuxinCommand {
 	/// Sends a message to the given address.
 	Send(SendCommand),

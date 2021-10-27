@@ -162,7 +162,7 @@ pub async fn main() -> Result<()> {
 			let start_time = Instant::now();
 			let attachments = handle_upload_command(upload_command, &mut app).await?;
 
-			let json_attachment_pointer = serde_json::to_string_pretty(&attachments)?;
+			let json_attachment_pointer = serde_json::to_string(&attachments)?;
 			println!("{}", json_attachment_pointer);
 
 			info!(
@@ -174,7 +174,7 @@ pub async fn main() -> Result<()> {
 		AuxinCommand::Receive(receive_command) => {
 			let messages =
 				handle_receive_command(receive_command, &arguments.download_path, &mut app).await?;
-			let messages_json = serde_json::to_string_pretty(&messages)?;
+			let messages_json = serde_json::to_string(&messages)?;
 			println!("{}", messages_json);
 		},
 		// A simple echo server for demonstration purposes. Loops until killed.
@@ -188,7 +188,7 @@ pub async fn main() -> Result<()> {
 				while let Some(msg) = receiver.next().await {
 					let msg = msg.unwrap();
 
-					let msg_json = serde_json::to_string_pretty(&msg).unwrap();
+					let msg_json = serde_json::to_string(&msg).unwrap();
 					println!("{}", msg_json);
 
 					if let Some(st) = msg.content.text_message {
@@ -237,11 +237,11 @@ pub async fn main() -> Result<()> {
 					for entry in output_list {
 						match entry {
 							JsonRpcResponse::Ok(result) => {
-								let result_str = serde_json::to_string_pretty(&result)?;
+								let result_str = serde_json::to_string(&result)?;
 								println!("{}", result_str);
 							}
 							JsonRpcResponse::Err(result) => {
-								let result_str = serde_json::to_string_pretty(&result)?;
+								let result_str = serde_json::to_string(&result)?;
 								println!("{}", result_str);
 							}
 						}
