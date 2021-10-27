@@ -55,6 +55,7 @@ pub struct AppArgs {
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+#[structopt(rename_all = "camel_case")]
 pub enum AuxinCommand {
 	/// Sends a message to the given address.
 	Send(SendCommand),
@@ -416,7 +417,7 @@ pub async fn process_jsonrpc_input(
 					}),
 				}
 			},
-			"get-pay-address" => {
+			"get-pay-address" | "getpayaddress" => {
 				match serde_json::from_value::<GetPayAddrCommand>(req.params) {
 					// Is this a valid parameter? 
 					Ok(val) => {
