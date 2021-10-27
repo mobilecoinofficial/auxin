@@ -1,14 +1,15 @@
-use std::fs::read_dir;
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::Path;
-use std::str::FromStr;
+use std::{
+	fs::{read_dir, File, OpenOptions},
+	io::{Read, Write},
+	path::Path,
+	str::FromStr,
+};
 
-use auxin::address::{AuxinAddress, AuxinDeviceAddress, E164};
-use auxin::state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore};
-use auxin::LocalIdentity;
-use auxin::Result;
-use auxin::{AuxinConfig, AuxinContext, SignalCtx, PROFILE_KEY_LEN};
+use auxin::{
+	address::{AuxinAddress, AuxinDeviceAddress, E164},
+	state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore},
+	AuxinConfig, AuxinContext, LocalIdentity, Result, SignalCtx, PROFILE_KEY_LEN,
+};
 
 use custom_error::custom_error;
 use futures::executor::block_on;
