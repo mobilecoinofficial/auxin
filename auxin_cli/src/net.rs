@@ -1,22 +1,21 @@
 use core::fmt;
-use std::convert::TryFrom;
-use std::pin::Pin;
+use std::{convert::TryFrom, pin::Pin};
 
 use async_global_executor::block_on;
-use auxin::message::fix_protobuf_buf;
-use auxin::{net::*, LocalIdentity, SIGNAL_TLS_CERT};
+use auxin::{message::fix_protobuf_buf, net::*, LocalIdentity, SIGNAL_TLS_CERT};
 
 use futures::{future, FutureExt, Sink, SinkExt, Stream, StreamExt, TryFutureExt};
 use hyper::client::HttpConnector;
 use hyper_multipart_rfc7578::client::multipart;
-use hyper_tls::HttpsConnector;
-use hyper_tls::TlsStream;
+use hyper_tls::{HttpsConnector, TlsStream};
 use std::io::Cursor;
 
 use log::{debug, trace};
 use protobuf::{CodedOutputStream, Message};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
+use tokio::{
+	io::{AsyncRead, AsyncWrite},
+	net::TcpStream,
+};
 use tokio_native_tls::native_tls::{Certificate, TlsConnector};
 use tokio_tungstenite::WebSocketStream;
 

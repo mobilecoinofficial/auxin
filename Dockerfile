@@ -24,7 +24,7 @@ RUN touch -a -m /app/auxin_cli/src/main.rs
 
 RUN cargo +nightly build --release
 FROM ubuntu:hirsute
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y jq curl && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/auxin-cli /app/auxin_cli
 COPY ./echobot/init.sh /app
 CMD ["/app/init.sh"]

@@ -4,17 +4,15 @@ use auxin_protos::{
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
 use rand::{CryptoRng, RngCore};
-use std::fmt::Debug;
-use std::pin::Pin;
+use std::{fmt::Debug, pin::Pin};
 
-use crate::address::AuxinAddress;
-use crate::message::fix_protobuf_buf;
-use crate::net::{AuxinNetManager, AuxinWebsocketConnection};
 use crate::{
-	message::{MessageIn, MessageInError, MessageOut},
+	address::AuxinAddress,
+	message::{fix_protobuf_buf, MessageIn, MessageInError, MessageOut},
+	net::{AuxinNetManager, AuxinWebsocketConnection},
 	state::AuxinStateManager,
+	AuxinApp, HandleEnvelopeError, SendMessageError,
 };
-use crate::{AuxinApp, HandleEnvelopeError, SendMessageError};
 
 /// (Try to) read a raw byte buffer as a Signal Envelope (defined by a protocol buffer).
 pub fn read_envelope_from_bin(buf: &[u8]) -> crate::Result<auxin_protos::Envelope> {

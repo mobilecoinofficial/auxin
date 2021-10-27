@@ -9,13 +9,11 @@ This instance is running on https://fly.io/ in the IAD region.
 
 `echobot/init.sh` serves to bootstrap the SignalApp keystate onto a fly persistent volume attached to `auxin-echobot`.
 
-See fly.toml for details, ie)
+It then launches `auxin` like
 
-```
-[[mounts]]
-  source = "auxin_echobot_state"
-  destination = "/auxin_state"
-```
+ > /app/auxin_cli --config $auxin_state --user +$echobot echoserver | jq -c
+
+See `init.sh` and `fly.toml` for more details.`
 
 ## Running Auxin-cli
 

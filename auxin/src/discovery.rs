@@ -3,8 +3,7 @@ use crate::{
 	Result, IAS_TRUST_ANCHOR,
 };
 use aes_gcm::{
-	aead::Payload,
-	aead::{Aead, NewAead},
+	aead::{Aead, NewAead, Payload},
 	Aes256Gcm, Nonce,
 };
 use libsignal_protocol::PublicKey;

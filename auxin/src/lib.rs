@@ -4,8 +4,7 @@
 
 use address::{AddressError, AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{
-	aead::Payload,
-	aead::{Aead, NewAead},
+	aead::{Aead, NewAead, Payload},
 	Aes256Gcm, Nonce,
 };
 use attachment::{
@@ -22,7 +21,7 @@ use libsignal_protocol::{
 	InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate,
 	SessionRecord, SessionStore, SignalProtocolError,
 };
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
@@ -31,10 +30,8 @@ use serde_json::json;
 use std::{
 	collections::{HashMap, HashSet},
 	convert::TryFrom,
-	fmt::Debug,
-};
-use std::{
 	error::Error,
+	fmt::Debug,
 	time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
