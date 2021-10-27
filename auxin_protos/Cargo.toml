@@ -8,6 +8,7 @@ protobuf = { version = "2.23.0", features = ["with-serde"] }
 
 serde = { version = "1.0.126", features = ["derive"], optional = true }
 serde-protobuf = { version = "0.8.2", optional = true }
+base64-serde  = { version = "0.6.1" }
 
 [features]
 default = ["with-serde"]

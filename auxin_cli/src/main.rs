@@ -21,7 +21,7 @@ use std::{cell::RefCell, convert::TryFrom};
 use structopt::StructOpt;
 
 use tokio::time::{Duration, Instant};
-use tracing::info;
+use tracing::{info, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
 
@@ -91,7 +91,7 @@ pub async fn main() -> Result<()> {
 	let subscriber = FmtSubscriber::builder()
 		// all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
 		// will be written to stdout.
-		//.with_max_level(Level::TRACE)
+		.with_max_level(Level::TRACE)
 		.with_writer(std::io::stderr)
 		//Ensure Tracing respects the same logging verbosity configuration environment variable as env_logger does,
 		//so that one setting controls all logging in Auxin.
@@ -170,6 +170,32 @@ pub async fn main() -> Result<()> {
 				start_time.elapsed().as_millis()
 			);
 		},
+		AuxinCommand::ReceiveLoop => {
+			let exit = false;
+			let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app).await.unwrap()));
+			while !exit {
+				let receiver = receiver_main.take();
+				let mut receiver = receiver.unwrap();
+				while let Some(msg) = receiver.next().await {
+					let msg = msg.unwrap();
+					let msg_json = serde_json::to_string(&msg).unwrap();
+					println!("{}", msg_json);
+				}
+				let sleep_time = Duration::from_millis(100);
+				tokio::time::sleep(sleep_time).await;
+
+				if let Err(e) = receiver.refresh().await {
+					log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+					receiver
+						.reconnect()
+						.await
+						.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+						.unwrap();
+				}
+
+				receiver_main.replace(Some(receiver));
+			}
+		},
 		// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 		AuxinCommand::Receive(receive_command) => {
 			let messages =
@@ -191,17 +217,19 @@ pub async fn main() -> Result<()> {
 					let msg_json = serde_json::to_string(&msg).unwrap();
 					println!("{}", msg_json);
 
-					if let Some(st) = msg.content.text_message {
-						info!("Message received with text \"{}\", replying...", st);
-						receiver
-							.send_message(
-								&msg.remote_address.address,
-								MessageOut {
-									content: MessageContent::default().with_text(st.clone()),
-								},
-							)
-							.await
-							.unwrap();
+					if msg.content.receipt_message.is_none() {
+						if let Some(st) = msg.content.text_message {
+							info!("Message received with text \"{}\", replying...", st);
+							receiver
+								.send_message(
+									&msg.remote_address.address,
+									MessageOut {
+										content: MessageContent::default().with_text(st.clone()),
+									},
+								)
+								.await
+								.unwrap();
+						}
 					}
 				}
 
