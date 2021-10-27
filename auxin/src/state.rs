@@ -1,5 +1,8 @@
 use core::fmt;
-use std::{cmp::Ordering, collections::{HashMap, HashSet}};
+use std::{
+	cmp::Ordering,
+	collections::{HashMap, HashSet},
+};
 
 use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey};
 use log::warn;
@@ -11,7 +14,12 @@ use serde::{
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{AuxinConfig, AuxinContext, LocalIdentity, address::{AuxinAddress, AuxinDeviceAddress, E164}, generate_timestamp, message::fix_protobuf_buf};
+use crate::{
+	address::{AuxinAddress, AuxinDeviceAddress, E164},
+	generate_timestamp,
+	message::fix_protobuf_buf,
+	AuxinConfig, AuxinContext, LocalIdentity,
+};
 
 /// Represents one of the three configurations a user can set for how to handle sealed-sender messages.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -143,7 +151,8 @@ impl ForeignPeerProfile {
 	}
 }
 
-/// All of the information we
+/// A known peer's pre-existing identifying information, public keys, and prefrences.
+/// Note that session state and ratchet key state do not live here.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PeerRecord {
@@ -161,7 +170,7 @@ pub struct PeerRecord {
 	/// A cache of all device IDs known to be used by this peer.
 	#[serde(skip)]
 	pub device_ids_used: HashSet<u32>,
-	/// A (similar) cache of Device IDs mapped to registration IDs. 
+	/// A (similar) cache of Device IDs mapped to registration IDs.
 	#[serde(skip)]
 	pub registration_ids: HashMap<u32, u32>,
 	#[serde(skip)]
@@ -537,13 +546,9 @@ pub trait AuxinStateManager {
 		peer: &AuxinAddress,
 		context: &AuxinContext,
 	) -> crate::Result<()>;
-	/// Delete or otherwise mark-dead a stored session for a peer. 
+	/// Delete or otherwise mark-dead a stored session for a peer.
 	/// Called when receiving a message with the END_SESSION flag enabled.
-	fn end_session(
-		&mut self,
-		peer: &AuxinAddress,
-		context: &AuxinContext,
-	) -> crate::Result<()>;
+	fn end_session(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()>;
 	/// Save peer record info from all peers.
 	fn save_all_peer_records(&mut self, context: &AuxinContext) -> crate::Result<()>;
 	/// Save peer record info from a specific peer.
@@ -569,24 +574,26 @@ pub trait AuxinStateManager {
 	}
 }
 
-/// Attempt to get a registration ID from the previous-session records. 
-/// Please note that this might result in cache inconsistency if a peer 
+/// Attempt to get a registration ID from the previous-session records.
+/// Please note that this might result in cache inconsistency if a peer
 /// reset a session specifically because they re-registerd.
-/// However, re-registering is a much rarer case than other reasons 
+/// However, re-registering is a much rarer case than other reasons
 /// one can need to reset a session, such as corrupt key state, for
-/// testing purposes, or for privacy concerns. 
-/// 
+/// testing purposes, or for privacy concerns.
+///
 /// Returns Ok(None) if no previous registration ID has been found, meaning
 /// you probably need to make a GET request to /v2/keys/
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `current_record` - The peer's session record as retrieved by session_store.load_session()
-pub fn try_excavate_registration_id(current_record: &libsignal_protocol::SessionRecord) -> crate::Result<Option<u32>> { 
+pub fn try_excavate_registration_id(
+	current_record: &libsignal_protocol::SessionRecord,
+) -> crate::Result<Option<u32>> {
 	// Obvious fast path in case we invoked this function but didn't need to.
 	if let Ok(reg_id) = current_record.remote_registration_id() {
 		return Ok(Some(reg_id));
-	} 
+	}
 	let bytes = current_record.serialize()?;
 
 	let fixed_bytes = fix_protobuf_buf(&bytes)?;
@@ -594,16 +601,16 @@ pub fn try_excavate_registration_id(current_record: &libsignal_protocol::Session
 	let mut decoder: CodedInputStream = CodedInputStream::from_bytes(&fixed_bytes);
 	let structure: auxin_protos::protos::storage::RecordStructure = decoder.read_message()?;
 
-	if structure.previous_sessions.len() > 0 { 
+	if structure.previous_sessions.len() > 0 {
 		// Libsignal protcol's record of previous states is FIFO. For reference, please see archive_current_state() in session.rs.
-		// This means the first one we encounter iterating through this list will be the most recent registration ID. 
-		for prev in structure.previous_sessions.iter() { 
+		// This means the first one we encounter iterating through this list will be the most recent registration ID.
+		for prev in structure.previous_sessions.iter() {
 			// 0 appears to be Protobuf's default "we don't have this field" for unsigned integers.
-			if prev.remote_registration_id != 0 { 
-				return Ok(Some(prev.get_remote_registration_id()))
+			if prev.remote_registration_id != 0 {
+				return Ok(Some(prev.get_remote_registration_id()));
 			}
 		}
 	}
-	// We haven't found anything. 
+	// We haven't found anything.
 	Ok(None)
 }

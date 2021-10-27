@@ -1,6 +1,4 @@
-use std::convert::TryFrom;
-use std::error::Error;
-use std::str::FromStr;
+use std::{convert::TryFrom, error::Error, str::FromStr};
 
 use crate::Result;
 use custom_error::custom_error;

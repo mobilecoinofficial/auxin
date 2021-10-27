@@ -3,8 +3,7 @@ use crate::{
 	Result, IAS_TRUST_ANCHOR,
 };
 use aes_gcm::{
-	aead::Payload,
-	aead::{Aead, NewAead},
+	aead::{Aead, NewAead, Payload},
 	Aes256Gcm, Nonce,
 };
 use libsignal_protocol::PublicKey;
@@ -286,8 +285,6 @@ pub fn gen_remote_attestation_keys(
 	let mut keys = [0; 64];
 	let generator = hkdf::Hkdf::<sha2::Sha256>::new(Some(&public_keys_salt), &master_secret);
 	generator.expand(b"", &mut keys).unwrap();
-
-	//	generator.derive_salted_secrets(&master_secret, &public_keys_salt, &([] as [u8; 0]), 64)?;
 
 	// Split "keys" into an agreed client key and  an agreed server key.
 	// "keys" should always have length 64, or else it'll panic here.

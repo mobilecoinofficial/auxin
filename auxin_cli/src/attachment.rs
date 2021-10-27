@@ -44,14 +44,14 @@ pub type PendingDownload = FutureBox<(), AttachmentPipelineError>;
 pub async fn save_attachment(
 	attachment_filename: String,
 	decrypted: Vec<u8>,
+	download_path_name: String,
 ) -> std::result::Result<(), AttachmentPipelineError> {
 	use std::fs;
 
-	let download_path_name = "downloads";
-	let completed_filename = format!("{}/{}", download_path_name, &attachment_filename);
+	let completed_filename = format!("{}/{}", &download_path_name, &attachment_filename);
 
 	//Create the directory if it's not there.
-	let download_path = std::path::Path::new(download_path_name);
+	let download_path = std::path::Path::new(&download_path_name);
 	if !download_path.exists() {
 		std::fs::create_dir(download_path).map_err(AttachmentPipelineError::Save)?;
 	}
@@ -67,6 +67,7 @@ pub async fn save_attachment(
 
 pub fn initiate_attachment_downloads(
 	attachments: Vec<AttachmentPointer>,
+	download_path_name: String,
 	http_client: &crate::net::AuxinHyperConnection,
 	timeout: Option<Duration>,
 ) -> Vec<PendingDownload> {
@@ -82,6 +83,7 @@ pub fn initiate_attachment_downloads(
 	let mut result: Vec<PendingDownload> = Vec::default();
 
 	for att in attachments.iter() {
+		let download_path_name = download_path_name.clone();
 		let first_handle = Box::pin(retrieve_attachment(
 			att.clone(),
 			http_client.clone(),
@@ -103,7 +105,7 @@ pub fn initiate_attachment_downloads(
 			Err(e) => Err(AttachmentPipelineError::Download(e)),
 		})
 		//Save step.
-		.map_ok(|(name, decrypted)| Box::pin(save_attachment(name, decrypted)))
+		.map_ok(|(name, decrypted)| Box::pin(save_attachment(name, decrypted, download_path_name)))
 		.try_flatten();
 
 		let handle: PendingDownload = {

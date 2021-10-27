@@ -1,1 +1,6 @@
 hard_tabs = true
+imports_granularity = "Crate"
+edition = "2021"
+ignore = ["auxin_protos/src/protos"]
+report_todo = "Always"
+
