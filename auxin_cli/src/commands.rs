@@ -65,6 +65,8 @@ pub enum AuxinCommand {
 	Upload(UploadCommand),
 	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	Receive(ReceiveCommand),
+	/// Continuously polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
+	ReceiveLoop,
 	///Attempts to get a payment address for the user with the specified phonenumber or UUID.
 	GetPayAddress(GetPayAddrCommand),
 	/// A simple echo server for demonstration purposes. Loops until killed.
