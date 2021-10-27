@@ -6,7 +6,11 @@ use crate::{
 };
 use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope, Envelope_Type};
 use custom_error::custom_error;
-use libsignal_protocol::{CiphertextMessage, CiphertextMessageType, SessionRecord, SessionStore, SignalMessage, SignalProtocolError, message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt};
+use libsignal_protocol::{
+	message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt,
+	CiphertextMessage, CiphertextMessageType, SessionRecord, SessionStore, SignalMessage,
+	SignalProtocolError,
+};
 use log::debug;
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
@@ -470,7 +474,7 @@ pub struct MessageContent {
 	pub source: Option<auxin_protos::Content>,
 	/// A list of attachment pointers to attach to this message, providing a CDN address.
 	pub attachments: Vec<AttachmentPointer>,
-	/// Should this message trigger a full clear / deletion of session state? 
+	/// Should this message trigger a full clear / deletion of session state?
 	pub end_session: bool,
 }
 
@@ -524,16 +528,19 @@ impl MessageContent {
 
 			// If we are attempting to end a session, set the end-session flag.
 			if self.end_session {
-				// Every field on a protobuf is optional. So - make sure we have a u32 for flags. 
-				if !data_message.has_flags() { 
+				// Every field on a protobuf is optional. So - make sure we have a u32 for flags.
+				if !data_message.has_flags() {
 					data_message.set_flags(0);
 				}
 				// 1 is the END_SESSION flag as per signalservice.proto
-				data_message.set_flags( data_message.get_flags().bitor(1) );
+				data_message.set_flags(data_message.get_flags().bitor(1));
 				use_data_message = true;
-				debug!("Setting the END_SESSION flag on a message with ID (timestamp) {}", timestamp);
+				debug!(
+					"Setting the END_SESSION flag on a message with ID (timestamp) {}",
+					timestamp
+				);
 			}
-      
+
 			if let Some(msg) = &self.text_message {
 				use_data_message = true;
 
@@ -609,33 +616,44 @@ impl MessageOut {
 			.await
 		{
 			Ok(s) => s.unwrap(),
-			Err(e) => match &e { 
-				SignalProtocolError::InvalidState(a, b) => { 
-					if b.eq_ignore_ascii_case("No session") { 
+			Err(e) => match &e {
+				SignalProtocolError::InvalidState(a, b) => {
+					if b.eq_ignore_ascii_case("No session") {
 						let session = SessionRecord::new_fresh();
-						context.session_store.store_session(&their_address, &session, context.get_signal_ctx().ctx).await.unwrap();
+						context
+							.session_store
+							.store_session(&their_address, &session, context.get_signal_ctx().ctx)
+							.await
+							.unwrap();
 						session
-					} else { 
-						return Err(Box::new(SignalProtocolError::InvalidState(a, b.to_string())));
+					} else {
+						return Err(Box::new(SignalProtocolError::InvalidState(
+							a,
+							b.to_string(),
+						)));
 					}
 				}
-				_ => {return Err(Box::new(e));}
+				_ => {
+					return Err(Box::new(e));
+				}
 			},
 		};
-		let reg_id =  if sess.has_current_session_state() { 
+		let reg_id = if sess.has_current_session_state() {
 			//Let's find their registration ID.
 			let r = sess.remote_registration_id()?;
 			drop(sess);
 			r
-		}
-		else { 
-			//Let's try something a little different. 
+		} else {
+			//Let's try something a little different.
 			let peer = context.peer_cache.get(&address_to.address);
-			match peer { 
-				None => panic!(), //TODO. Should never be possible to reach this point with no peer entry. 
-				Some(recipient) => { 
-					// Get registration ID from peer cache. 
-					*recipient.registration_ids.get(&address_to.device_id).unwrap()
+			match peer {
+				None => panic!(), //TODO. Should never be possible to reach this point with no peer entry.
+				Some(recipient) => {
+					// Get registration ID from peer cache.
+					*recipient
+						.registration_ids
+						.get(&address_to.device_id)
+						.unwrap()
 				}
 			}
 		};
@@ -663,8 +681,7 @@ impl MessageOut {
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len());
 
-		// Do we have a valid session? 
-		
+		// Do we have a valid session?
 
 		Ok(match mode {
 			MessageSendMode::Standard => {
@@ -1017,12 +1034,10 @@ impl MessageIn {
 		// TODO: Evaluate if Receipt Messages are ever delivered alongside anything else in the same envelope.
 		if let Some(_) = self.content.receipt_message {
 			false
-		} 
-		else if self.content.end_session { 
-			//End-session messages do not get recipts. 
+		} else if self.content.end_session {
+			//End-session messages do not get recipts.
 			false
-	    } 
-		else {
+		} else {
 			true
 		}
 	}
@@ -1183,8 +1198,8 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 				result.attachments = data_message.attachments.iter().cloned().collect();
 			}
 			// 1 is the END_SESSION flag.
-			if data_message.has_flags() { 
-				if data_message.get_flags().bitand(1) > 0 { 
+			if data_message.has_flags() {
+				if data_message.get_flags().bitand(1) > 0 {
 					result.end_session = true;
 				}
 			}

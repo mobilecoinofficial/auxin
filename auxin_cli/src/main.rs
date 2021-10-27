@@ -6,7 +6,7 @@
 use auxin::address::AuxinAddress;
 use auxin::message::{MessageContent, MessageIn, MessageOut};
 use auxin::state::AuxinStateManager;
-use auxin::{Result, generate_timestamp};
+use auxin::{generate_timestamp, Result};
 use auxin::{AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError};
 //use auxin_protos::AttachmentPointer;
 
@@ -17,17 +17,17 @@ use log::debug;
 
 use rand::rngs::OsRng;
 
-use std::path::PathBuf;
-use structopt::StructOpt;
 use std::cell::RefCell;
 use std::convert::TryFrom;
+use std::path::PathBuf;
+use structopt::StructOpt;
 
-use serde::{Serialize, Deserialize}; 
+use serde::{Deserialize, Serialize};
 
+use tokio::time::{Duration, Instant};
 use tracing::info;
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
-use tokio::time::{Duration, Instant};
 
 pub mod app;
 pub mod attachment;
@@ -43,113 +43,116 @@ pub type Context = auxin::AuxinContext;
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
 
-pub	const AUTHOR_STR: &str = "Forest Contact team";
+pub const AUTHOR_STR: &str = "Forest Contact team";
 pub const VERSION_STR: &str = "0.1.2";
 
-pub const JSONRPC_VER: &str=  "2.0";
+pub const JSONRPC_VER: &str = "2.0";
 
 /// Command-line interface wrapper around Auxin, a developer (and bot) friendly wrapper around the Signal protocol.
 #[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "auxin-cli", about = "Developer (and bot) friendly wrapper around the Signal protocol.", author = AUTHOR_STR, version = VERSION_STR)]
 struct AppArgs {
-    /// Select a user id (phone number in  E164 format, for example +12345678910. UUID support is planned) from which to use auxin-cli.
-    #[structopt(short, long)]
-    pub user: String,
+	/// Select a user id (phone number in  E164 format, for example +12345678910. UUID support is planned) from which to use auxin-cli.
+	#[structopt(short, long)]
+	pub user: String,
 
-    /// Specifies which directory auxin_cli will store and retrieve 
-	/// stateful configuration data in, using <DIRECTORY> to select 
+	/// Specifies which directory auxin_cli will store and retrieve
+	/// stateful configuration data in, using <DIRECTORY> to select
 	/// a directory. Defaults to \"./state\"
-    #[structopt(short, long, default_value = "state")]
-    pub config: String,
+	#[structopt(short, long, default_value = "state")]
+	pub config: String,
 
 	/// Controls which directory to save downloaded attachments to as files.
 	/// Defaults to \"./downloads\"
-    #[structopt(long = "download-path", default_value = "downloads", parse(from_os_str))]
+	#[structopt(
+		long = "download-path",
+		default_value = "downloads",
+		parse(from_os_str)
+	)]
 	pub download_path: PathBuf,
 
 	#[structopt(subcommand)]
 	pub command: AuxinCommand,
 }
 
-#[derive(StructOpt,Serialize,Deserialize,Debug, Clone)]
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub enum AuxinCommand {
-    /// Sends a message to the given address.
-    Send(SendCommand),
-	/// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json. 
-	/// This can be used with Send --prepared-attachments later. 
+	/// Sends a message to the given address.
+	Send(SendCommand),
+	/// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json.
+	/// This can be used with Send --prepared-attachments later.
 	Upload(UploadCommand),
-	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout. 
+	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	Receive(ReceiveCommand),
-	/// A simple echo server for demonstration purposes. Loops until killed. 
+	/// A simple echo server for demonstration purposes. Loops until killed.
 	Echoserver,
 	/// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
 	JsonRPC,
-	/// Launches a read-evaluate-print loop, for experimentation in a development environment. 
+	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
 	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 	Repl,
 }
 
-#[derive(StructOpt,Serialize,Deserialize,Debug, Clone)]
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct SendCommand {
 	/// Sets the destination for our message (as E164-format phone number or a UUID).
 	pub destination: String,
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
-    #[serde(default)]
+	#[serde(default)]
 	#[structopt(short, long, parse(from_os_str))]
 	pub attachments: Option<Vec<PathBuf>>,
 
-	/// Add one or more attachments to this message, passed in as a pre-generated \"AttachmentPointer\" 
+	/// Add one or more attachments to this message, passed in as a pre-generated \"AttachmentPointer\"
 	/// Signal Service protcol buffer struct, serialized to json."
-	#[structopt(long="prepared-attachments")]
-    #[serde(default)]
+	#[structopt(long = "prepared-attachments")]
+	#[serde(default)]
 	pub prepared_attachments: Option<Vec<String>>,
 
 	/// Adds a text message to the SignalProtocol message we are sending..
 	#[structopt(short, long)]
-    #[serde(default)]
+	#[serde(default)]
 	pub message: Option<String>,
 	/// Used to pass a \"Content\" protocol buffer struct from signalservice.proto, serialized as a json string.
 	#[structopt(short, long)]
-    #[serde(default)]
+	#[serde(default)]
 	pub content: Option<String>,
 	/// Generate a Signal Service \"Content\" structure without actually sending it. Useful for testing the -c / --content option.
 	#[structopt(short, long)]
-    #[serde(default)]
+	#[serde(default)]
 	pub simulate: bool,
 	/// Sets a flag so this message ends / resets your session with this peer.
-	/// 
-	/// Sets the END_SESSION flag (defined on line 109 of signalservice.proto) on this message, 
+	///
+	/// Sets the END_SESSION flag (defined on line 109 of signalservice.proto) on this message,
 	/// which means this message will reset your session.
 	/// This is the code-path which will cause a "Secure session reset" line to appear
 	/// inside a standard graphical Signal client.
-	#[structopt(short, long="end-session")]
-    #[serde(default)]
+	#[structopt(short, long = "end-session")]
+	#[serde(default)]
 	pub end_session: bool,
 }
 
-#[derive(StructOpt,Serialize,Deserialize,Debug, Clone)]
-pub struct UploadCommand { 
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct UploadCommand {
 	/// The path for the file (or files) to upload.
-	#[structopt(short, long="file-path", parse(from_os_str))]
-    #[serde(default)]
-	pub file_path: Vec<PathBuf>, 
+	#[structopt(short, long = "file-path", parse(from_os_str))]
+	#[serde(default)]
+	pub file_path: Vec<PathBuf>,
 }
 
-#[derive(StructOpt,Serialize,Deserialize,Debug, Clone)]
-pub struct ReceiveCommand { 
-	/// Skip actually downloading attachment, and instead print AttachmentPointer structures which can be used later. 
-	#[structopt(short, long="no-download")]
-    #[serde(default)]
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct ReceiveCommand {
+	/// Skip actually downloading attachment, and instead print AttachmentPointer structures which can be used later.
+	#[structopt(short, long = "no-download")]
+	#[serde(default)]
 	pub no_download: bool,
 }
-
 
 #[derive(Debug)]
 // Errors received when attempting to send a Signal message to another user.
 pub enum SendCommandError {
 	//Propagated through from app,send_message()
 	SendError(auxin::SendMessageError),
-	AttachmentUploadError(auxin::attachment::upload::AttachmentUploadError), 
+	AttachmentUploadError(auxin::attachment::upload::AttachmentUploadError),
 	AttachmentEncryptError(auxin::attachment::upload::AttachmentEncryptError),
 	AttachmentFileReadError(std::io::Error),
 	SimulateErr(String),
@@ -184,88 +187,114 @@ impl From<auxin::attachment::upload::AttachmentEncryptError> for SendCommandErro
 	}
 }
 
-#[derive(Serialize,Deserialize,Debug, Clone)]
-pub struct SendOutput { 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SendOutput {
 	pub timestamp: u64,
 	pub simulate_output: Option<String>,
 }
 
-
-#[derive(Serialize,Deserialize,Debug, Clone)]
-pub struct JsonRpcRequest { 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JsonRpcRequest {
 	/// he version of the JSON-RPC protocol. MUST be exactly "2.0".
 	pub jsonrpc: String,
 	/// An identifier used to track this request, so that when we give the JsonRPC client the result in return it should be possible
-	/// to correlate this request to that response. 
+	/// to correlate this request to that response.
 	/// A Request object without an "id" is a "Notification." Notification objects do not need to receive a response.
 	pub id: serde_json::Value,
 	/// A string containing the name of the method to be called.
 	/// In our case, this needs to be "send", "upload", or "receive".
 	pub method: String,
 	/// The arguments to our command. These are the same as the command-line arguments passed to the command corresponding to the "method" field on this struct.
-	pub params: serde_json::Value, 
+	pub params: serde_json::Value,
 }
 
-#[derive(Serialize,Deserialize,Debug, Clone)]
-pub struct JsonRpcError { 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JsonRpcError {
 	/// The type of error that occured.
 	pub code: i32,
 	///A short description of the error.
 	pub message: String,
-	/// A more detailed, possibly-structured description of the error. 
-	pub data: Option<serde_json::Value> 
+	/// A more detailed, possibly-structured description of the error.
+	pub data: Option<serde_json::Value>,
 }
 
-#[derive(Serialize,Deserialize,Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonRpcGoodResponse {
 	/// The version of the JSON-RPC protocol. MUST be exactly "2.0".
 	pub jsonrpc: String,
-	/// The output of the command invoked on Auxin. 
+	/// The output of the command invoked on Auxin.
 	pub result: serde_json::Value,
 	/// The id, which needs to be equal to the id parameter passed with the command.
 	pub id: serde_json::Value,
 }
 
-#[derive(Serialize,Deserialize,Debug, Clone)]
-pub struct JsonRpcErrorResponse { 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JsonRpcErrorResponse {
 	/// The version of the JSON-RPC protocol. MUST be exactly "2.0".
 	pub jsonrpc: String,
-	/// The output of the command invoked on Auxin. 
+	/// The output of the command invoked on Auxin.
 	pub error: JsonRpcError,
 	/// The id, which needs to be equal to the id parameter passed with the command.
 	pub id: serde_json::Value,
 }
 
-pub enum JsonRpcResponse { 
+pub enum JsonRpcResponse {
 	Ok(JsonRpcGoodResponse),
 	Err(JsonRpcErrorResponse),
 }
 
-pub async fn process_jsonrpc_input(input: &str,  app: &mut crate::app::App, download_path: &PathBuf) -> Vec<JsonRpcResponse> {
-	fn err(e: JsonRpcErrorResponse) -> Vec<JsonRpcResponse>  { 
-		vec!(JsonRpcResponse::Err(e))
+pub async fn process_jsonrpc_input(
+	input: &str,
+	app: &mut crate::app::App,
+	download_path: &PathBuf,
+) -> Vec<JsonRpcResponse> {
+	fn err(e: JsonRpcErrorResponse) -> Vec<JsonRpcResponse> {
+		vec![JsonRpcResponse::Err(e)]
 	}
 	// Initial parsing pass, get a json value so we can see if it's an object (single command) or an array (batch)
 	let command_or_commands: serde_json::Value = match serde_json::from_str(input) {
 		Ok(val) => val,
-		Err(e) => {return err(JsonRpcErrorResponse { 
-			jsonrpc: JSONRPC_VER.to_string(),
-			error: JsonRpcError {
-				code: -32700,
-				message: String::from("Invalid JSON was received by the server."),
-				data: Some(serde_json::Value::String(format!("{:?}", e))),
-			},
-			id: serde_json::Value::Null,
-		})},
+		Err(e) => {
+			return err(JsonRpcErrorResponse {
+				jsonrpc: JSONRPC_VER.to_string(),
+				error: JsonRpcError {
+					code: -32700,
+					message: String::from("Invalid JSON was received by the server."),
+					data: Some(serde_json::Value::String(format!("{:?}", e))),
+				},
+				id: serde_json::Value::Null,
+			})
+		}
 	};
-	
+
 	let mut requests: Vec<JsonRpcRequest> = Vec::default();
-	// If this is a batch request / array of requests, iterate through values in the array and put them to our list. 
-	if let serde_json::Value::Array(arr) = &command_or_commands { 
-		for val in arr { 
+	// If this is a batch request / array of requests, iterate through values in the array and put them to our list.
+	if let serde_json::Value::Array(arr) = &command_or_commands {
+		for val in arr {
 			let request: JsonRpcRequest = match serde_json::from_value(val.clone()) {
 				Ok(val) => val,
-				Err(e) => {return err(JsonRpcErrorResponse { 
+				Err(e) => {
+					return err(JsonRpcErrorResponse {
+						jsonrpc: JSONRPC_VER.to_string(),
+						error: JsonRpcError {
+							code: -32600,
+							message: String::from("The JSON sent is not a valid Request object."),
+							data: Some(serde_json::Value::String(format!("{:?}", e))),
+						},
+						id: serde_json::Value::Null,
+					})
+				}
+			};
+
+			requests.push(request);
+		}
+	}
+	// Otherwise, just decode a single command object
+	else {
+		let request: JsonRpcRequest = match serde_json::from_value(command_or_commands) {
+			Ok(val) => val,
+			Err(e) => {
+				return err(JsonRpcErrorResponse {
 					jsonrpc: JSONRPC_VER.to_string(),
 					error: JsonRpcError {
 						code: -32600,
@@ -273,33 +302,16 @@ pub async fn process_jsonrpc_input(input: &str,  app: &mut crate::app::App, down
 						data: Some(serde_json::Value::String(format!("{:?}", e))),
 					},
 					id: serde_json::Value::Null,
-				})},
-			};
-
-			requests.push(request);
-		}
-	}
-	// Otherwise, just decode a single command object 
-	else { 
-		let request: JsonRpcRequest = match serde_json::from_value(command_or_commands) {
-			Ok(val) => val,
-			Err(e) => {return err(JsonRpcErrorResponse { 
-				jsonrpc: JSONRPC_VER.to_string(),
-				error: JsonRpcError {
-					code: -32600,
-					message: String::from("The JSON sent is not a valid Request object."),
-					data: Some(serde_json::Value::String(format!("{:?}", e))),
-				},
-				id: serde_json::Value::Null,
-			})},
+				})
+			}
 		};
 		requests.push(request);
 	}
 
 	let mut output = Vec::default();
 
-	// We should now have one or more valid JsonRPC commands. Let's see if any of them match our method. 
-	for req in requests { 
+	// We should now have one or more valid JsonRPC commands. Let's see if any of them match our method.
+	for req in requests {
 		let lowercase = req.method.to_ascii_lowercase();
 		let methodstr = lowercase.as_str();
 		let response = match methodstr { 
@@ -433,33 +445,36 @@ pub async fn process_jsonrpc_input(input: &str,  app: &mut crate::app::App, down
 	output
 }
 
-pub async fn handle_send_command(mut cmd: SendCommand, app: &mut crate::app::App) -> std::result::Result<SendOutput, SendCommandError> {
-
+pub async fn handle_send_command(
+	mut cmd: SendCommand,
+	app: &mut crate::app::App,
+) -> std::result::Result<SendOutput, SendCommandError> {
 	// Ensure we're not trying to send *just* an end-session message with no text,
-	// which is not supported by  Signal's protocol 
-	if cmd.end_session && cmd.message.is_none() { 
+	// which is not supported by  Signal's protocol
+	if cmd.end_session && cmd.message.is_none() {
 		debug!("End-session flag with no message, setting message to \"TERMINATE\"");
 		cmd.message = Some("TERMINATE".to_string());
 	}
-	
+
 	//Set up our address
 	let recipient_addr = AuxinAddress::try_from(cmd.destination.as_str()).unwrap();
 
 	//MessageContent
 	let mut message_content = MessageContent::default();
 
-	//Do we want to end our session here? 
+	//Do we want to end our session here?
 	message_content.end_session = cmd.end_session;
 
 	//Do we have a regular text message?
 	message_content.text_message = cmd.message;
 
 	//Did the user pass in a "Content" protocol buffer serialized as json?
-	let mut premade_content: Option<auxin_protos::Content> = cmd.content
+	let mut premade_content: Option<auxin_protos::Content> = cmd
+		.content
 		.map(|s| serde_json::from_str(s.as_ref()).unwrap());
 
-	// TODO: PARALLELIZE ATTACHMENT DOWNLOADS 
-	
+	// TODO: PARALLELIZE ATTACHMENT DOWNLOADS
+
 	//Do we have one or more attachments?
 	//Note the use of values_of rather than value_of because there may be more than one of these.
 	if let Some(to_attach) = cmd.attachments {
@@ -471,7 +486,7 @@ pub async fn handle_send_command(mut cmd: SendCommand, app: &mut crate::app::App
 			let file_name = file_path.file_name().unwrap().to_str().unwrap();
 
 			let data = std::fs::read(&file_path)
-				.map_err(|e| { SendCommandError::AttachmentFileReadError(e) }  )?;
+				.map_err(|e| SendCommandError::AttachmentFileReadError(e))?;
 
 			//Encrypt our attachment.
 			let mut rng = OsRng::default();
@@ -509,32 +524,39 @@ pub async fn handle_send_command(mut cmd: SendCommand, app: &mut crate::app::App
 	//If there was no premade content there is no other reason for a MessageOut to have a "source" other than None.
 	message.content.source = premade_content;
 
-	Ok(if cmd.simulate { 
+	Ok(if cmd.simulate {
 		let timestamp = generate_timestamp();
-		//Are we just testing this thing? If so, print our content as json. 
-		let built_content = message.content.build_signal_content(&base64::encode(&app.context.identity.profile_key).to_string(), timestamp)
+		//Are we just testing this thing? If so, print our content as json.
+		let built_content = message
+			.content
+			.build_signal_content(
+				&base64::encode(&app.context.identity.profile_key).to_string(),
+				timestamp,
+			)
 			.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
 
 		let content_str = serde_json::to_string(&built_content)
 			.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
-		SendOutput { 
+		SendOutput {
 			timestamp,
 			simulate_output: Some(content_str),
 		}
-
 	} else {
 		//Not just testing, no -s argument, actually send our message.
 		let timestamp = app.send_message(&recipient_addr, message).await?;
-		SendOutput { 
+		SendOutput {
 			timestamp,
 			simulate_output: None,
 		}
 	})
-} 
+}
 
-pub async fn handle_upload_command(cmd: UploadCommand, app: &mut crate::app::App) -> Result<Vec<AttachmentPointer>> { 
+pub async fn handle_upload_command(
+	cmd: UploadCommand,
+	app: &mut crate::app::App,
+) -> Result<Vec<AttachmentPointer>> {
 	let mut attachments: Vec<AttachmentPointer> = Vec::default();
-	for path in cmd.file_path.iter() { 
+	for path in cmd.file_path.iter() {
 		let mut rng = OsRng::default();
 		let upload_attributes = app.request_upload_id().await?;
 
@@ -542,10 +564,13 @@ pub async fn handle_upload_command(cmd: UploadCommand, app: &mut crate::app::App
 
 		let file_name = path.file_name().unwrap();
 
-		let encrypted_attahcment =
-			auxin::attachment::upload::encrypt_attachment(file_name.to_str().unwrap(), &data, &mut rng)?;
+		let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(
+			file_name.to_str().unwrap(),
+			&data,
+			&mut rng,
+		)?;
 
-		// TODO: Refactor Auxin's HTTP client ownership to permit greater parallelism 
+		// TODO: Refactor Auxin's HTTP client ownership to permit greater parallelism
 		let attachment_pointer = app
 			.upload_attachment(&upload_attributes, &encrypted_attahcment)
 			.await?;
@@ -554,7 +579,11 @@ pub async fn handle_upload_command(cmd: UploadCommand, app: &mut crate::app::App
 	Ok(attachments)
 }
 
-pub async fn handle_receive_command(cmd: ReceiveCommand, download_path: &PathBuf, app: &mut crate::app::App) -> Result<Vec<MessageIn>> { 
+pub async fn handle_receive_command(
+	cmd: ReceiveCommand,
+	download_path: &PathBuf,
+	app: &mut crate::app::App,
+) -> Result<Vec<MessageIn>> {
 	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
 
 	let mut messages: Vec<MessageIn> = Vec::default();
@@ -577,7 +606,7 @@ pub async fn handle_receive_command(cmd: ReceiveCommand, download_path: &PathBuf
 		//Force all downloads to complete.
 		futures::future::try_join_all(pending_downloads.into_iter()).await?;
 	}
-	
+
 	Ok(messages)
 }
 
@@ -625,7 +654,6 @@ pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<()> {
-
 	/*-----------------------------------------------\\
 	||------------ LOGGER INITIALIZATION ------------||
 	\\-----------------------------------------------*/
@@ -648,7 +676,7 @@ pub async fn main() -> Result<()> {
 	||------------ INIT CONTEXT/IDENTITY ------------||
 	\\-----------------------------------------------*/
 
-    let arguments = AppArgs::from_args();
+	let arguments = AppArgs::from_args();
 
 	let base_dir = format!("{}/data", arguments.config.as_str());
 	debug!(
@@ -675,41 +703,50 @@ pub async fn main() -> Result<()> {
 	||--------------- COMMAND DISPATCH --------------||
 	\\-----------------------------------------------*/
 
-	// This is the only place commands which initiate an infinite loop or otherwise 
-	// take over program flow are handled. Anything which should not be available 
-	// within json-rpc (including the command to start a json-rpc daemon) goes here. 
-	// As of 0.1.2, that is Echoserver, JsonRPC, and REPL. 
+	// This is the only place commands which initiate an infinite loop or otherwise
+	// take over program flow are handled. Anything which should not be available
+	// within json-rpc (including the command to start a json-rpc daemon) goes here.
+	// As of 0.1.2, that is Echoserver, JsonRPC, and REPL.
 
-	match arguments.command { 
+	match arguments.command {
 		// Sends a message to the given address.
-		AuxinCommand::Send(send_command) => { 
-			let SendOutput{timestamp, simulate_output } = handle_send_command(send_command, &mut app).await.unwrap();
+		AuxinCommand::Send(send_command) => {
+			let SendOutput {
+				timestamp,
+				simulate_output,
+			} = handle_send_command(send_command, &mut app).await.unwrap();
 
-			if let Some(json_out) = &simulate_output { 
+			if let Some(json_out) = &simulate_output {
 				println!("Simulated generating a message with timestamp {} and generated json structure: {}", timestamp, json_out);
+			} else {
+				println!(
+					"Successfully sent Signal message with timestamp: {}",
+					timestamp
+				);
 			}
-			else {
-				println!("Successfully sent Signal message with timestamp: {}", timestamp);
-			}
-		},
-		// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json. 
-		// This can be used with Send --prepared-attachments later. 
-		AuxinCommand::Upload(upload_command) => { 
+		}
+		// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json.
+		// This can be used with Send --prepared-attachments later.
+		AuxinCommand::Upload(upload_command) => {
 			let start_time = Instant::now();
 			let attachments = handle_upload_command(upload_command, &mut app).await?;
-			
+
 			let json_attachment_pointer = serde_json::to_string_pretty(&attachments)?;
 			println!("{}", json_attachment_pointer);
 
-			info!("Uploaded attachments in {} milliseconds.", start_time.elapsed().as_millis() );
-		},
-		// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout. 
-		AuxinCommand::Receive(receive_command) => { 
-			let messages = handle_receive_command(receive_command, &arguments.download_path, &mut app).await?;
+			info!(
+				"Uploaded attachments in {} milliseconds.",
+				start_time.elapsed().as_millis()
+			);
+		}
+		// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
+		AuxinCommand::Receive(receive_command) => {
+			let messages =
+				handle_receive_command(receive_command, &arguments.download_path, &mut app).await?;
 			let messages_json = serde_json::to_string_pretty(&messages)?;
 			println!("{}", messages_json);
-		},
-		// A simple echo server for demonstration purposes. Loops until killed. 
+		}
+		// A simple echo server for demonstration purposes. Loops until killed.
 		AuxinCommand::Echoserver => {
 			let exit = false;
 			// Ugly hack to get around the multiple ways the borrow checker doesn't recognize what we're trying to do.
@@ -719,10 +756,10 @@ pub async fn main() -> Result<()> {
 				let mut receiver = receiver.unwrap();
 				while let Some(msg) = receiver.next().await {
 					let msg = msg.unwrap();
-	
+
 					let msg_json = serde_json::to_string_pretty(&msg).unwrap();
 					println!("{}", msg_json);
-	
+
 					if let Some(st) = msg.content.text_message {
 						info!("Message received with text \"{}\", replying...", st);
 						receiver
@@ -736,10 +773,10 @@ pub async fn main() -> Result<()> {
 							.unwrap();
 					}
 				}
-	
+
 				let sleep_time = Duration::from_millis(100);
 				tokio::time::sleep(sleep_time).await;
-	
+
 				if let Err(e) = receiver.refresh().await {
 					log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
 					receiver
@@ -748,43 +785,45 @@ pub async fn main() -> Result<()> {
 						.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 						.unwrap();
 				}
-	
+
 				receiver_main.replace(Some(receiver));
 			}
-		},
+		}
 		// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
-		AuxinCommand::JsonRPC => { 
+		AuxinCommand::JsonRPC => {
 			// Infinite loop
-			loop { 
+			loop {
 				let stdin = tokio::io::stdin();
 				let reader = tokio::io::BufReader::new(stdin);
 				let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
 
 				let input_maybe = lines.next_line().await?;
 
-				if let Some(input) = input_maybe { 
-					let output_list = process_jsonrpc_input(input.as_str(), &mut app, &arguments.download_path).await;
+				if let Some(input) = input_maybe {
+					let output_list =
+						process_jsonrpc_input(input.as_str(), &mut app, &arguments.download_path)
+							.await;
 					for entry in output_list {
 						match entry {
-							JsonRpcResponse::Ok(result) => { 
+							JsonRpcResponse::Ok(result) => {
 								let result_str = serde_json::to_string_pretty(&result)?;
-								println!("{}",result_str);
+								println!("{}", result_str);
 							}
-							JsonRpcResponse::Err(result) => { 
+							JsonRpcResponse::Err(result) => {
 								let result_str = serde_json::to_string_pretty(&result)?;
-								println!("{}",result_str);
+								println!("{}", result_str);
 							}
 						}
 					}
 				}
 			}
-		},
-		// Launches a read-evaluate-print loop, for experimentation in a development environment. 
+		}
+		// Launches a read-evaluate-print loop, for experimentation in a development environment.
 		// If the "repl" feature was not enabled when compiling this binary, this command will crash.
-		AuxinCommand::Repl => { 
+		AuxinCommand::Repl => {
 			app.retrieve_sender_cert().await?;
 			launch_repl(&mut app)?;
-		},
+		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	Ok(())

@@ -17,7 +17,11 @@ impl<'a> AppWrapper<'a> {
 	pub fn ensure_peer_loaded(&mut self, recipient_addr: &AuxinAddress) {
 		block_on(self.app_inner.ensure_peer_loaded(recipient_addr)).unwrap()
 	}
-	pub fn send_message(&mut self, recipient_addr: &AuxinAddress, message: MessageOut) -> auxin::Timestamp {
+	pub fn send_message(
+		&mut self,
+		recipient_addr: &AuxinAddress,
+		message: MessageOut,
+	) -> auxin::Timestamp {
 		block_on(self.app_inner.send_message(recipient_addr, message)).unwrap()
 	}
 	pub fn retrieve_sender_cert(&mut self) {

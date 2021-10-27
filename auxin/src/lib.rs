@@ -28,7 +28,11 @@ use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
 use protobuf::CodedInputStream;
 use serde_json::json;
-use std::{collections::{HashMap, HashSet}, convert::TryFrom, fmt::Debug};
+use std::{
+	collections::{HashMap, HashSet},
+	convert::TryFrom,
+	fmt::Debug,
+};
 use std::{
 	error::Error,
 	time::{SystemTime, UNIX_EPOCH},
@@ -43,7 +47,7 @@ pub mod net;
 pub mod receiver;
 pub mod state;
 
-pub use message::Timestamp as Timestamp;
+pub use message::Timestamp;
 
 /// Self-signing root cert for TLS connections to Signal's web API..
 pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
@@ -67,7 +71,7 @@ use crate::{
 		MessageContent, MessageSendMode,
 	},
 	net::common_http_headers,
-	state::{ForeignPeerProfile, ProfileResponse, try_excavate_registration_id},
+	state::{try_excavate_registration_id, ForeignPeerProfile, ProfileResponse},
 };
 
 pub const PROFILE_KEY_LEN: usize = 32;
@@ -462,12 +466,11 @@ where
 	///
 	/// * `recipient_addr` - The address of the peer whose contact information we are checking (and retrieving if it's missing).
 	pub async fn ensure_peer_loaded(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
-
 		debug!(
 			"Attempting to ensure all necessary information is present for peer {}",
 			recipient_addr
 		);
-    
+
 		let recipient_addr = self
 			.context
 			.peer_cache
@@ -483,7 +486,7 @@ where
 		if recipient.is_none() && recipient_addr.has_uuid() {
 			let new_id = self.context.peer_cache.last_id + 1;
 			self.context.peer_cache.last_id = new_id;
-			
+
 			let peer_record = PeerRecord {
 				id: new_id,
 				number: None,
@@ -510,66 +513,76 @@ where
 			.peer_cache
 			.complete_address(&recipient_addr)
 			.unwrap();
-		let recipient = self
-			.context
-			.peer_cache
-			.get_mut(&recipient_addr)
-			.unwrap();
+		let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
 
 		// Was there a session which hadn't started?
-		let mut missing_session = false; 
+		let mut missing_session = false;
 
-		// Ensure our cache is consistent. 
+		// Ensure our cache is consistent.
 		// We should ABSOLUTELY have a UUID by now if this hasn't errored out.
 		for device_id in recipient.device_ids_used.iter() {
-			let device_addr = AuxinDeviceAddress{address: recipient_addr.clone(), device_id: *device_id};
+			let device_addr = AuxinDeviceAddress {
+				address: recipient_addr.clone(),
+				device_id: *device_id,
+			};
 			let ctx = self.context.ctx.get();
 			let protocol_addr = device_addr.uuid_protocol_address().unwrap();
-			if let Ok(Some(session)) = self.context.session_store.load_session(&protocol_addr, ctx).await {
-				if !session.has_current_session_state() { 
-					// We do not have a current session state, go re-grab pre-keys. 
+			if let Ok(Some(session)) = self
+				.context
+				.session_store
+				.load_session(&protocol_addr, ctx)
+				.await
+			{
+				if !session.has_current_session_state() {
+					// We do not have a current session state, go re-grab pre-keys.
 					missing_session = true;
-				} 
-				//Store the registration ID if we've got it. 
-				else if let Ok(reg_id) = session.remote_registration_id() {
-					debug!("Using registration ID {} for peer {} 's device #{}", reg_id, &recipient_addr, device_id);
-					recipient.registration_ids.insert(*device_id, reg_id);
 				}
-				else { 					
+				//Store the registration ID if we've got it.
+				else if let Ok(reg_id) = session.remote_registration_id() {
+					debug!(
+						"Using registration ID {} for peer {} 's device #{}",
+						reg_id, &recipient_addr, device_id
+					);
+					recipient.registration_ids.insert(*device_id, reg_id);
+				} else {
 					// See if we have a registration ID on file in an archived record.
 					let old_id_maybe = try_excavate_registration_id(&session);
-					match old_id_maybe { 
-						Ok(Some(old_id)) => { 
+					match old_id_maybe {
+						Ok(Some(old_id)) => {
 							debug!("Found registration ID {} for peer {} 's device #{} in an old session. Using that.", old_id, &recipient_addr, device_id);
 							recipient.registration_ids.insert(*device_id, old_id);
-						},
-						Err(e) => { 
+						}
+						Err(e) => {
 							// Digging around in old sessions was a "We are less likely to get ratelimited"
 							// move anyway, so it is not critical that it succeeds.
 							warn!("Encountered an error while digging for an old registration ID in a session for {} \
 								   - silencing this error and assuming we don't have one (most likely we will need \
 									to retrieve a registration ID from Signal's web API). Error was: {:?}", &recipient_addr, e);
 						}
-						Ok(None) => {}, //Nothing found, no error, no action taken.
+						Ok(None) => {} //Nothing found, no error, no action taken.
 					}
 				}
 			}
 		}
-		
+
 		debug!("Peer has device IDs {:?}", &recipient.device_ids_used);
 		// Corrupt data / missing device list!
-		if recipient.device_ids_used.is_empty() || recipient.profile.is_none() 
-			|| (recipient.registration_ids.len() < recipient.device_ids_used.len()) {
+		if recipient.device_ids_used.is_empty()
+			|| recipient.profile.is_none()
+			|| (recipient.registration_ids.len() < recipient.device_ids_used.len())
+		{
 			debug!("Calling fill_peer_info() at the bottom of ensure_peer_loaded() because of missing device / registration ID.");
 			self.fill_peer_info(&recipient_addr).await?;
 		}
 		//Session was recently cleared / no session?
-		else if missing_session { 
+		else if missing_session {
 			debug!("Calling fill_peer_info() at the bottom of ensure_peer_loaded() because of missing session.");
 			self.fill_peer_info(&recipient_addr).await?;
 		}
-		self.state_manager.save_peer_record(&recipient_addr, &self.context)?;
-		self.state_manager.save_peer_sessions(&recipient_addr, &self.context)?;
+		self.state_manager
+			.save_peer_record(&recipient_addr, &self.context)?;
+		self.state_manager
+			.save_peer_sessions(&recipient_addr, &self.context)?;
 		Ok(())
 	}
 
@@ -584,7 +597,7 @@ where
 		recipient_addr: &AuxinAddress,
 		message: MessageOut,
 	) -> std::result::Result<Timestamp, SendMessageError> {
-		info!("Start of send_message() at {}", generate_timestamp()); 
+		info!("Start of send_message() at {}", generate_timestamp());
 
 		let recipient_addr = self
 			.context
@@ -593,17 +606,13 @@ where
 			.or(Some(recipient_addr.clone()))
 			.unwrap();
 
-		
-		// Will this be the last mssage in a session that we send? 
-		let end_session =  message.content.end_session;
+		// Will this be the last mssage in a session that we send?
+		let end_session = message.content.end_session;
 
 		//Make sure we know everything about this user that we need to.
-		self.ensure_peer_loaded(&recipient_addr).await
-		.map_err(|e| {
-			SendMessageError::PeerStoreIssue (
-				format!("{:?}", e),
-			)
-		})?;
+		self.ensure_peer_loaded(&recipient_addr)
+			.await
+			.map_err(|e| SendMessageError::PeerStoreIssue(format!("{:?}", e)))?;
 
 		let recipient_addr = self
 			.context
@@ -628,10 +637,9 @@ where
 		let mode = match sealed_sender {
 			true => {
 				// Make sure we have a sender certificate to do this stuff with.
-				self.retrieve_sender_cert().await
-				.map_err(|e| { 
-					SendMessageError::SenderCertRetrieval( format!("{:?}", e) )
-				})?;
+				self.retrieve_sender_cert()
+					.await
+					.map_err(|e| SendMessageError::SenderCertRetrieval(format!("{:?}", e)))?;
 				MessageSendMode::SealedSender
 			}
 			false => MessageSendMode::Standard,
@@ -641,31 +649,16 @@ where
 		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
 		let outgoing_push_list = message_list
 			.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, timestamp)
-			.await.map_err(|e| {
-				SendMessageError::MessageBuildErr (
-					format!("{:?}", e),
-				)
-			})?;
+			.await
+			.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
 
-		let request: http::Request<Vec<u8>> = outgoing_push_list.build_http_request(
-			&recipient_addr,
-			mode,
-			&mut self.context,
-			&mut self.rng,
-		)
-		.map_err(|e| {
-			SendMessageError::CannotMakeMessageRequest (
-				format!("{:?}", e),
-			)
-		})?;
+		let request: http::Request<Vec<u8>> = outgoing_push_list
+			.build_http_request(&recipient_addr, mode, &mut self.context, &mut self.rng)
+			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
 		let message_response = self
 			.http_client
 			.request(request)
-			.map_err(|e| {
-				SendMessageError::CannotMakeMessageRequest (
-					format!("{:?}", e),
-				)
-			})
+			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
 			.await?;
 
 		debug!(
@@ -676,22 +669,16 @@ where
 		//Only necessary if fill_peer_info is called, and we do it in there.
 		self.state_manager
 			.save_peer_sessions(&recipient_addr, &self.context)
-			.map_err(|e| {
-				SendMessageError::PeerSaveIssue (
-					format!("{:?}", e),
-				)
-			})?;
+			.map_err(|e| SendMessageError::PeerSaveIssue(format!("{:?}", e)))?;
 
 		// If this was intended as a session termination message, clear out session state.
-		if end_session { 
- 			self.clear_session(&recipient_addr).await.map_err(|e| {
-				SendMessageError::EndSessionErr (
-					format!("{:?}", e),
-				)
-			})?;
+		if end_session {
+			self.clear_session(&recipient_addr)
+				.await
+				.map_err(|e| SendMessageError::EndSessionErr(format!("{:?}", e)))?;
 		}
 
-		info!("End of send_message() at {}", generate_timestamp()); 
+		info!("End of send_message() at {}", generate_timestamp());
 		Ok(timestamp)
 	}
 
@@ -768,8 +755,8 @@ where
 			let req = req.body(Vec::default())?;
 
 			let res = self.http_client.request(req).await?;
-      
-      let res_str = String::from_utf8(res.body().to_vec())?;
+
+			let res_str = String::from_utf8(res.body().to_vec())?;
 			debug!("Profile response: {:?}", res_str);
 			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
 
@@ -786,17 +773,18 @@ where
 			let recipient = self.context.peer_cache.get_mut(recipient_addr).unwrap();
 			//Track device IDs used.
 			recipient.device_ids_used.insert(device.device_id);
-			//Track registration IDs. 
-			recipient.registration_ids.insert(device.device_id, device.registration_id);
+			//Track registration IDs.
+			recipient
+				.registration_ids
+				.insert(device.device_id, device.registration_id);
 			//Note that we are aware of this peer.
 			let addr = ProtocolAddress::new(uuid.to_string(), device.device_id);
-			//Save this peer's public key. 
+			//Save this peer's public key.
 			self.context
 				.identity_store
 				.save_identity(&addr, &identity_key, signal_ctx)
 				.await?;
 		}
-
 
 		{
 			//And now for our own, signal-cli-compatible "Identity Store"
@@ -828,7 +816,8 @@ where
 
 		self.state_manager
 			.save_peer_record(recipient_addr, &self.context)?;
-		self.state_manager.save_peer_sessions(recipient_addr, &self.context)?;
+		self.state_manager
+			.save_peer_sessions(recipient_addr, &self.context)?;
 		Ok(())
 	}
 
@@ -874,7 +863,10 @@ where
 	/// * `uuid` - The address of the peer whose information we are retrieving. A UUID is required for this.
 	pub async fn request_peer_info(&self, uuid: &Uuid) -> Result<PeerInfoReply> {
 		let uuid_str = uuid.to_string();
-		let path: String = format!("https://textsecure-service.whispersystems.org/v2/keys/{}/*", &uuid_str);
+		let path: String = format!(
+			"https://textsecure-service.whispersystems.org/v2/keys/{}/*",
+			&uuid_str
+		);
 
 		let auth = self.context.identity.make_auth_header();
 
@@ -885,9 +877,9 @@ where
 
 		let res = self.http_client.request(req).await?;
 
-    let res_str = String::from_utf8(res.body().to_vec())?;
+		let res_str = String::from_utf8(res.body().to_vec())?;
 		debug!("Peer keys response: {:?}", res_str);
-    
+
 		let info: PeerInfoReply = serde_json::from_str(&res_str)?;
 		Ok(info)
 	}
@@ -909,11 +901,10 @@ where
 		)?;
 		let req = req.body(Vec::default())?;
 
-		let auth_upgrade_response = self.http_client.request(req).await.map_err(|e| {
-			Box::new(SendMessageError::CannotSendAuthUpgrade (
-				format!("{:?}", e),
-			))
-		})?;
+		let auth_upgrade_response =
+			self.http_client.request(req).await.map_err(|e| {
+				Box::new(SendMessageError::CannotSendAuthUpgrade(format!("{:?}", e)))
+			})?;
 		assert!(auth_upgrade_response.status().is_success());
 
 		let auth_upgrade_response_str = String::from_utf8(auth_upgrade_response.body().to_vec())?;
@@ -950,11 +941,11 @@ where
 
 		debug!("Sending attestation request: {:?}", req);
 
-		let attestation_response = self.http_client.request(req).await.map_err(|e| {
-			Box::new(SendMessageError::CannotSendAttestReq (
-				format!("{:?}", e),
-			))
-		})?;
+		let attestation_response = self
+			.http_client
+			.request(req)
+			.await
+			.map_err(|e| Box::new(SendMessageError::CannotSendAttestReq(format!("{:?}", e))))?;
 
 		let attestation_response_str = String::from_utf8(attestation_response.body().to_vec())?;
 		let attestation_response_body: AttestationResponseList =
@@ -1021,11 +1012,10 @@ where
 		req = req.header("Cookie", resulting_cookie_string);
 		let req = req.body(query_str.into_bytes())?;
 
-		let response = self.http_client.request(req).await.map_err(|e| {
-			Box::new(SendMessageError::CannotSendDiscoveryReq (
-				format!("{:?}", e),
-			))
-		})?;
+		let response =
+			self.http_client.request(req).await.map_err(|e| {
+				Box::new(SendMessageError::CannotSendDiscoveryReq(format!("{:?}", e)))
+			})?;
 		debug!("{:?}", response);
 
 		let response_str = String::from_utf8(response.body().to_vec())?;
@@ -1296,25 +1286,41 @@ where
 	}
 
 	async fn record_ids_from_message(&mut self, message: &MessageIn) -> Result<()> {
-		let completed_addr = self.context.peer_cache.complete_address(&message.remote_address.address)
-		.unwrap_or(message.remote_address.address.clone());
-		// Make sure we know about their device ID. 
-		let peer_maybe = self.context.peer_cache.get_mut(&message.remote_address.address);
-		if let Some(peer) = peer_maybe { 
-			peer.device_ids_used.insert(message.remote_address.device_id);
+		let completed_addr = self
+			.context
+			.peer_cache
+			.complete_address(&message.remote_address.address)
+			.unwrap_or(message.remote_address.address.clone());
+		// Make sure we know about their device ID.
+		let peer_maybe = self
+			.context
+			.peer_cache
+			.get_mut(&message.remote_address.address);
+		if let Some(peer) = peer_maybe {
+			peer.device_ids_used
+				.insert(message.remote_address.device_id);
 			// Did the session just get a registration ID?
 			let ctx = self.context.ctx.get();
-			let completed_device_addr = AuxinDeviceAddress{ address: completed_addr, device_id: message.remote_address.device_id};
+			let completed_device_addr = AuxinDeviceAddress {
+				address: completed_addr,
+				device_id: message.remote_address.device_id,
+			};
 			let protocol_addr = completed_device_addr.uuid_protocol_address().unwrap();
-			if let Ok(Some(session)) = self.context.session_store.load_session(&protocol_addr, ctx).await { 
-				//Store the registration ID if we've got it. 
+			if let Ok(Some(session)) = self
+				.context
+				.session_store
+				.load_session(&protocol_addr, ctx)
+				.await
+			{
+				//Store the registration ID if we've got it.
 				if let Ok(reg_id) = session.remote_registration_id() {
-					peer.registration_ids.insert(completed_device_addr.device_id, reg_id);
+					peer.registration_ids
+						.insert(completed_device_addr.device_id, reg_id);
 				}
 			}
 		}
 		Ok(())
-	} 
+	}
 
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
 	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
@@ -1328,18 +1334,24 @@ where
 		envelope: Envelope,
 	) -> std::result::Result<Option<MessageIn>, HandleEnvelopeError> {
 		match envelope.get_field_type() {
-			auxin_protos::Envelope_Type::UNKNOWN =>  Err(HandleEnvelopeError::UnknownEnvelopeType(envelope)), 
-			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some({ 
-				let result = MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng).await?;
+			auxin_protos::Envelope_Type::UNKNOWN => {
+				Err(HandleEnvelopeError::UnknownEnvelopeType(envelope))
+			}
+			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some({
+				let result =
+					MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng)
+						.await?;
 
 				self.record_ids_from_message(&result).await.unwrap();
 
-				if result.content.end_session { 
+				if result.content.end_session {
 					debug!("Got an END_SESSION flag from a peer, clearing out their session state. Message was: {:?}", result);
-					self.clear_session(&result.remote_address.address).await.unwrap(); // TODO: Proper error handling on clear_session();
+					self.clear_session(&result.remote_address.address)
+						.await
+						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
-				//Return 
+				//Return
 				result
 			})),
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
@@ -1369,7 +1381,7 @@ where
 					return Err(HandleEnvelopeError::PreKeyNoAddress);
 				}
 				let remote_address = remote_address.unwrap();
-        
+
 				let protocol_address = remote_address.uuid_protocol_address().unwrap();
 				let pre_key_message = PreKeySignalMessage::try_from(envelope.get_content())?;
 
@@ -1378,26 +1390,31 @@ where
 				// Update registration ID
 				let reg_id = pre_key_message.registration_id();
 
-				// Make sure we know about their device ID. 
+				// Make sure we know about their device ID.
 				let peer_maybe = self.context.peer_cache.get_mut(&remote_address.address);
-				if let Some(peer) = peer_maybe { 
+				if let Some(peer) = peer_maybe {
 					debug!("Updating existing peer with IDs from pre-key message.");
 					peer.device_ids_used.insert(remote_address.device_id);
-					//Record registration ID, which a prey key message will always have. 
-					peer.registration_ids.insert(remote_address.device_id, reg_id);
+					//Record registration ID, which a prey key message will always have.
+					peer.registration_ids
+						.insert(remote_address.device_id, reg_id);
 				}
-				//If we have never encountered this peer before, go get information on them remotely. 
-				self.ensure_peer_loaded(&remote_address.address).await
+				//If we have never encountered this peer before, go get information on them remotely.
+				self.ensure_peer_loaded(&remote_address.address)
+					.await
 					.map_err(|e| HandleEnvelopeError::ProfileError(format!("{:?}", e)))?;
-			
-				let decrypted=  message_decrypt_prekey(&pre_key_message,
-					&protocol_address, 
-					&mut self.context.session_store, 
-					&mut self.context.identity_store, 
-					&mut self.context.pre_key_store, 
-					&mut self.context.signed_pre_key_store, 
-					&mut self.rng, 
-					ctx).await?;
+
+				let decrypted = message_decrypt_prekey(
+					&pre_key_message,
+					&protocol_address,
+					&mut self.context.session_store,
+					&mut self.context.identity_store,
+					&mut self.context.pre_key_store,
+					&mut self.context.signed_pre_key_store,
+					&mut self.rng,
+					ctx,
+				)
+				.await?;
 
 				let unpadded_message = remove_message_padding(&decrypted)
 					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
@@ -1428,16 +1445,15 @@ where
 							return Ok(None);
 						}
 
-						// If this is an end session message, clear out the session for this peer. 
-						//if data_message.get_flags() & 1 > 0 { 
-						//	self.clear_session(&remote_address.address).await.unwrap(); //TODO: proper error hanndling here. 
+						// If this is an end session message, clear out the session for this peer.
+						//if data_message.get_flags() & 1 > 0 {
+						//	self.clear_session(&remote_address.address).await.unwrap(); //TODO: proper error hanndling here.
 						//}
 						//Prekey distribution messages should never be end-session.
-
 					}
 				}
 
-				let result = MessageIn { 
+				let result = MessageIn {
 					content: MessageContent::try_from(content)?,
 					remote_address,
 					timestamp: envelope.get_timestamp(),
@@ -1446,16 +1462,17 @@ where
 				};
 
 				self.record_ids_from_message(&result).await.unwrap();
-				
-				if result.content.end_session { 
-					debug!("Got an END_SESSION flag from a peer as part of a PreKeyBundle message, clearing out their session state. Message was: {:?}", &result);
-					self.clear_session(&result.remote_address.address).await.unwrap(); // TODO: Proper error handling on clear_session();
-				}
-				
 
-				Ok(Some( result ))
-			},
-			auxin_protos::Envelope_Type::RECEIPT => Ok(Some( { 
+				if result.content.end_session {
+					debug!("Got an END_SESSION flag from a peer as part of a PreKeyBundle message, clearing out their session state. Message was: {:?}", &result);
+					self.clear_session(&result.remote_address.address)
+						.await
+						.unwrap(); // TODO: Proper error handling on clear_session();
+				}
+
+				Ok(Some(result))
+			}
+			auxin_protos::Envelope_Type::RECEIPT => Ok(Some({
 				let result = MessageIn::from_receipt(envelope, &mut self.context).await?;
 
 				//Receipts cannot be end-session messages.
@@ -1468,12 +1485,14 @@ where
 
 				self.record_ids_from_message(&result).await.unwrap();
 
-				if result.content.end_session { 
+				if result.content.end_session {
 					debug!("Got an END_SESSION flag from a peer, clearing out their session state. Message was: {:?}", &result);
-					self.clear_session(&result.remote_address.address).await.unwrap(); // TODO: Proper error handling on clear_session();
+					self.clear_session(&result.remote_address.address)
+						.await
+						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
-				
-				//Return 
+
+				//Return
 				result
 			})),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
@@ -1483,17 +1502,14 @@ where
 	/// Clear out all local session data with the specified peer.
 	/// Note that this doesn't send a message with the END_SESSION flag set,
 	/// it only gets rid of session data on our end.
-	/// 
+	///
 	/// To end a session, send a message with the end_session field set to true.
-	/// 
+	///
 	/// # Arguments
-	/// 
+	///
 	/// * `peer` - The Signal Service address to end our session with.
-	pub async fn clear_session(
-		&mut self,
-		peer_addr: &AuxinAddress) -> Result<()> {
-			
-		self.state_manager.end_session(peer_addr, &self.context)?; 
+	pub async fn clear_session(&mut self, peer_addr: &AuxinAddress) -> Result<()> {
+		self.state_manager.end_session(peer_addr, &self.context)?;
 
 		// Pull up the relevant peer
 		let peer_record = match self.context.peer_cache.get(&peer_addr) {
@@ -1505,25 +1521,41 @@ where
 		};
 
 		// Archive or generate-fresh a new session store.
-		for device_id in peer_record.device_ids_used.iter() { 
-			let device_addr = AuxinDeviceAddress{ address: peer_addr.clone(), device_id: *device_id };
+		for device_id in peer_record.device_ids_used.iter() {
+			let device_addr = AuxinDeviceAddress {
+				address: peer_addr.clone(),
+				device_id: *device_id,
+			};
 
 			let protocol_addr = device_addr.uuid_protocol_address()?;
 
-			let session = self.context.session_store.load_session(&protocol_addr, self.context.get_signal_ctx().get()).await;
-	
-			if let Ok(Some(mut s)) = session { 
+			let session = self
+				.context
+				.session_store
+				.load_session(&protocol_addr, self.context.get_signal_ctx().get())
+				.await;
+
+			if let Ok(Some(mut s)) = session {
 				s.archive_current_state()?;
-				self.context.session_store.store_session(&protocol_addr, &s, self.context.get_signal_ctx().get()).await?;
-			}
-			else { 
+				self.context
+					.session_store
+					.store_session(&protocol_addr, &s, self.context.get_signal_ctx().get())
+					.await?;
+			} else {
 				let new_record = SessionRecord::new_fresh();
-				self.context.session_store.store_session(&protocol_addr, &new_record, self.context.get_signal_ctx().get()).await?;
+				self.context
+					.session_store
+					.store_session(
+						&protocol_addr,
+						&new_record,
+						self.context.get_signal_ctx().get(),
+					)
+					.await?;
 			}
-	
 		}
 
-		self.state_manager.save_peer_sessions(&peer_addr, &self.context)?;
+		self.state_manager
+			.save_peer_sessions(&peer_addr, &self.context)?;
 
 		Ok(())
 	}

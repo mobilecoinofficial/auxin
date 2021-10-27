@@ -83,7 +83,6 @@ pub fn initiate_attachment_downloads(
 	let mut result: Vec<PendingDownload> = Vec::default();
 
 	for att in attachments.iter() {
-
 		let download_path_name = download_path_name.clone();
 		let first_handle = Box::pin(retrieve_attachment(
 			att.clone(),
