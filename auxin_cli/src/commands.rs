@@ -4,7 +4,7 @@ use auxin::{
 	address::AuxinAddress,
 	generate_timestamp,
 	message::{MessageContent, MessageIn, MessageOut},
-    AuxinReceiver, Result,
+	AuxinReceiver, Result,
 };
 
 //External dependencies
@@ -19,8 +19,7 @@ use structopt::StructOpt;
 
 use serde::{Deserialize, Serialize};
 
-
-use crate::{ATTACHMENT_TIMEOUT_DURATION, initiate_attachment_downloads};
+use crate::{initiate_attachment_downloads, ATTACHMENT_TIMEOUT_DURATION};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
 pub const VERSION_STR: &str = "0.1.2";
@@ -134,7 +133,7 @@ pub struct ReceiveCommand {
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct GetPayAddrCommand {
-	/// Sets the address identifying the peer whose payment address we are retrieving. 
+	/// Sets the address identifying the peer whose payment address we are retrieving.
 	pub peer_name: String,
 }
 
@@ -184,7 +183,6 @@ pub struct SendOutput {
 	pub simulate_output: Option<String>,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonRpcRequest {
 	/// he version of the JSON-RPC protocol. MUST be exactly "2.0".
@@ -192,7 +190,19 @@ pub struct JsonRpcRequest {
 	/// An identifier used to track this request, so that when we give the JsonRPC client the result in return it should be possible
 	/// to correlate this request to that response.
 	/// A Request object without an "id" is a "Notification." Notification objects do not need to receive a response.
-	pub id: serde_json::Value,
+	pub id: Option<serde_json::Value>,
+	/// A string containing the name of the method to be called.
+	/// In our case, this needs to be "send", "upload", "get-pay-address",  or "receive".
+	pub method: String,
+	/// The arguments to our command. These are the same as the command-line arguments passed to the command corresponding to the "method" field on this struct.
+	pub params: serde_json::Value,
+}
+/// Serde_json will generate a "field=null" when serializing a field=None sort of situation, rather than just leaving it out.
+/// To send a notification, it must be serialized a little differently.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JsonRpcNotification {
+	/// he version of the JSON-RPC protocol. MUST be exactly "2.0".
+	pub jsonrpc: String,
 	/// A string containing the name of the method to be called.
 	/// In our case, this needs to be "send", "upload", "get-pay-address",  or "receive".
 	pub method: String,
@@ -217,7 +227,7 @@ pub struct JsonRpcGoodResponse {
 	/// The output of the command invoked on Auxin.
 	pub result: serde_json::Value,
 	/// The id, which needs to be equal to the id parameter passed with the command.
-	pub id: serde_json::Value,
+	pub id: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -227,7 +237,7 @@ pub struct JsonRpcErrorResponse {
 	/// The output of the command invoked on Auxin.
 	pub error: JsonRpcError,
 	/// The id, which needs to be equal to the id parameter passed with the command.
-	pub id: serde_json::Value,
+	pub id: Option<serde_json::Value>,
 }
 
 pub enum JsonRpcResponse {
@@ -254,7 +264,8 @@ pub async fn process_jsonrpc_input(
 					message: String::from("Invalid JSON was received by the server."),
 					data: Some(serde_json::Value::String(format!("{:?}", e))),
 				},
-				id: serde_json::Value::Null,
+				// An error should have an ID field of Null rather than just having no ID field.
+				id: Some(serde_json::Value::Null),
 			})
 		}
 	};
@@ -273,7 +284,8 @@ pub async fn process_jsonrpc_input(
 							message: String::from("The JSON sent is not a valid Request object."),
 							data: Some(serde_json::Value::String(format!("{:?}", e))),
 						},
-						id: serde_json::Value::Null,
+						// An error should have an ID field of Null rather than just having no ID field.
+						id: Some(serde_json::Value::Null),
 					})
 				}
 			};
@@ -293,7 +305,8 @@ pub async fn process_jsonrpc_input(
 						message: String::from("The JSON sent is not a valid Request object."),
 						data: Some(serde_json::Value::String(format!("{:?}", e))),
 					},
-					id: serde_json::Value::Null,
+					// An error should have an ID field of Null rather than just having no ID field.
+					id: Some(serde_json::Value::Null),
 				})
 			}
 		};

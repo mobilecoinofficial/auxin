@@ -1556,6 +1556,10 @@ where
 
 		Ok(())
 	}
+
+	pub async fn save_entire_context(&mut self) -> Result<()> {
+		self.state_manager.save_entire_context(&self.context)
+	}
 }
 
 impl<R, N, S> Drop for AuxinApp<R, N, S>
