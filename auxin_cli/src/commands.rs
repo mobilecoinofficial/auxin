@@ -187,12 +187,13 @@ pub struct SendOutput {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonRpcRequest {
-	/// he version of the JSON-RPC protocol. MUST be exactly "2.0".
-	pub jsonrpc: String,
+	/// The version of the JSON-RPC protocol. MUST be exactly "2.0".
+	/// Be more permissive
+	pub jsonrpc: Option<String>,
 	/// An identifier used to track this request, so that when we give the JsonRPC client the result in return it should be possible
 	/// to correlate this request to that response.
 	/// A Request object without an "id" is a "Notification." Notification objects do not need to receive a response.
-	pub id: serde_json::Value,
+	pub id: serde_json::Value, // Option<serde_json::Value> ?
 	/// A string containing the name of the method to be called.
 	/// In our case, this needs to be "send", "upload", "get-pay-address",  or "receive".
 	pub method: String,
