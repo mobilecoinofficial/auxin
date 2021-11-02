@@ -658,11 +658,17 @@ where
 			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
 			.await?;
 
+		let message_response_str = String::from_utf8(message_response.body().to_vec()).unwrap();
 		debug!(
-			"Got response to attempt to send message: {:?}",
-			message_response
+			"Got response to attempt to send message: {:?} {}",
+			message_response, message_response_str
 		);
-
+		if !message_response.status().is_success() {
+			return Err(SendMessageError::CannotMakeMessageRequest(format!(
+				"Response to send message: {:?} {}",
+				message_response, message_response_str
+			)));
+		}
 		//Only necessary if fill_peer_info is called, and we do it in there.
 		self.state_manager
 			.save_peer_sessions(&recipient_addr, &self.context)
