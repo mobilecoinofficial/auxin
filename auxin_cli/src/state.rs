@@ -476,6 +476,8 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 
 	let mut recipients_path = our_path.clone();
 	recipients_path.push_str("recipients-store");
+	let mut recipients_bk_path = recipients_path.clone();
+	recipients_bk_path.push_str(".bk");
 
 	let mut session_path = our_path.clone();
 	session_path.push_str("sessions/");
@@ -534,6 +536,16 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 
 	// Save recipient store:
 	let json_recipient_structure = serde_json::to_string_pretty(&context.peer_cache)?;
+
+	let mut bk_file = OpenOptions::new()
+		.truncate(true)
+		.write(true)
+		.create(true)
+		.open(recipients_bk_path.clone())?;
+
+	bk_file.write_all(json_recipient_structure.as_bytes())?;
+	bk_file.flush()?;
+	drop(bk_file);
 
 	let mut file = OpenOptions::new()
 		.truncate(true)
