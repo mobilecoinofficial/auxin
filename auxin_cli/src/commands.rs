@@ -266,7 +266,7 @@ pub async fn process_jsonrpc_input(
 				},
 				// An error should have an ID field of Null rather than just having no ID field.
 				id: Some(serde_json::Value::Null),
-			})
+			});
 		}
 	};
 
@@ -286,7 +286,7 @@ pub async fn process_jsonrpc_input(
 						},
 						// An error should have an ID field of Null rather than just having no ID field.
 						id: Some(serde_json::Value::Null),
-					})
+					});
 				}
 			};
 
@@ -307,7 +307,7 @@ pub async fn process_jsonrpc_input(
 					},
 					// An error should have an ID field of Null rather than just having no ID field.
 					id: Some(serde_json::Value::Null),
-				})
+				});
 			}
 		};
 		requests.push(request);

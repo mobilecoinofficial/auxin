@@ -271,10 +271,10 @@ pub async fn main() -> Result<()> {
 						handle_receive_command(receive_command.clone(), &arguments.download_path, &mut app).await?;
 						// If we actually got any messages this time we checked out mailbox, print them.
 						if !messages.is_empty() {
-							//Format our output as a JsonRPC notification. 
-							let notification = JsonRpcNotification { 
+							//Format our output as a JsonRPC notification.
+							let notification = JsonRpcNotification {
 								jsonrpc: String::from(commands::JSONRPC_VER),
-								method: String::from("receive"), 
+								method: String::from("receive"),
 								params: serde_json::to_value(messages)?
 							};
 							let messages_json = serde_json::to_string(&notification)?;
