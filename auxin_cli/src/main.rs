@@ -32,8 +32,7 @@ pub mod net;
 pub mod repl_wrapper;
 pub mod state;
 
-pub use crate::commands::*;
-pub use crate::attachment::*;
+pub use crate::{attachment::*, commands::*};
 
 use net::load_root_tls_cert;
 pub type Context = auxin::AuxinContext;
@@ -155,7 +154,7 @@ pub async fn main() -> Result<()> {
 					timestamp
 				);
 			}
-		},
+		}
 		// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json.
 		// This can be used with Send --prepared-attachments later.
 		AuxinCommand::Upload(upload_command) => {
@@ -169,7 +168,7 @@ pub async fn main() -> Result<()> {
 				"Uploaded attachments in {} milliseconds.",
 				start_time.elapsed().as_millis()
 			);
-		},
+		}
 		AuxinCommand::ReceiveLoop => {
 			let exit = false;
 			let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app).await.unwrap()));
@@ -195,14 +194,14 @@ pub async fn main() -> Result<()> {
 
 				receiver_main.replace(Some(receiver));
 			}
-		},
+		}
 		// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 		AuxinCommand::Receive(receive_command) => {
 			let messages =
 				handle_receive_command(receive_command, &arguments.download_path, &mut app).await?;
 			let messages_json = serde_json::to_string(&messages)?;
 			println!("{}", messages_json);
-		},
+		}
 		// A simple echo server for demonstration purposes. Loops until killed.
 		AuxinCommand::Echoserver => {
 			let exit = false;
@@ -247,49 +246,81 @@ pub async fn main() -> Result<()> {
 
 				receiver_main.replace(Some(receiver));
 			}
-		},
+		}
 		// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
 		AuxinCommand::JsonRPC => {
+			// TODO: Permit people to configure this in the JsonRPC command,
+			// including interval and whether or not to do receive ticks at all.
+			let receive_command = ReceiveCommand { no_download: false };
+
+			// How often should we check for incoming messages?
+			let receive_when = Duration::from_secs(5);
+			let mut receive_clock = tokio::time::interval(receive_when);
+
+			let stdin = tokio::io::stdin();
+			let reader = tokio::io::BufReader::new(stdin);
+			let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
+
 			// Infinite loop
 			loop {
-				let stdin = tokio::io::stdin();
-				let reader = tokio::io::BufReader::new(stdin);
-				let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
-
-				let input_maybe = lines.next_line().await?;
-
-				if let Some(input) = input_maybe {
-					let output_list =
-						process_jsonrpc_input(input.as_str(), &mut app, &arguments.download_path)
-							.await;
-					for entry in output_list {
-						match entry {
-							JsonRpcResponse::Ok(result) => {
-								let result_str = serde_json::to_string(&result)?;
-								println!("{}", result_str);
-							}
-							JsonRpcResponse::Err(result) => {
-								let result_str = serde_json::to_string(&result)?;
-								println!("{}", result_str);
-							}
+				tokio::select! {
+					biased;
+					_ = receive_clock.tick() => {
+						//Receive first, attempting to ensure messagss are read in the order they are sent.
+						let messages =
+						handle_receive_command(receive_command.clone(), &arguments.download_path, &mut app).await?;
+						// If we actually got any messages this time we checked out mailbox, print them.
+						if !messages.is_empty() {
+							//Format our output as a JsonRPC notification. 
+							let notification = JsonRpcNotification { 
+								jsonrpc: String::from(commands::JSONRPC_VER),
+								method: String::from("receive"), 
+								params: serde_json::to_value(messages)?
+							};
+							let messages_json = serde_json::to_string(&notification)?;
+							println!("{}", messages_json);
+						}
+					}
+					maybe_input = lines.next_line() => {
+						debug!("Inside maybe_input = lines.next_line() => {{ ");
+						// A line of code OR an error has been sent.
+						match maybe_input? {
+							Some(input) => {
+								// A line of input has arrived!
+								let output_list = process_jsonrpc_input(input.as_str(),
+									&mut app, &arguments.download_path).await;
+								for entry in output_list {
+									match entry {
+										JsonRpcResponse::Ok(result) => {
+											let result_str = serde_json::to_string(&result)?;
+											println!("{}", result_str);
+										}
+										JsonRpcResponse::Err(result) => {
+											let result_str = serde_json::to_string(&result)?;
+											println!("{}", result_str);
+										}
+									}
+								}
+							},
+							None => {},
 						}
 					}
 				}
 			}
-		},
+		}
 		// Launches a read-evaluate-print loop, for experimentation in a development environment.
 		// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 		AuxinCommand::Repl => {
 			app.retrieve_sender_cert().await?;
 			launch_repl(&mut app)?;
-		},
+		}
 		AuxinCommand::GetPayAddress(cmd) => {
-			//Try converting our peer name into an AuxinAddress. 
+			//Try converting our peer name into an AuxinAddress.
 			let recipient_addr = AuxinAddress::try_from(cmd.peer_name.as_str()).unwrap();
 			let payment_address = app.retrieve_payment_address(&recipient_addr).await.unwrap();
 			let payaddr_json = serde_json::to_string(&payment_address).unwrap();
 			println!("{}", payaddr_json);
-		},
+		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	Ok(())
