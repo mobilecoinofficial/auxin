@@ -12,7 +12,7 @@ use auxin::{
 
 //External dependencies
 
-use log::debug;
+use log::{debug, warn};
 
 use rand::rngs::OsRng;
 
@@ -272,15 +272,32 @@ pub async fn main() -> Result<()> {
 			const LINE_BUF_COUNT: usize = 4096;
 
 			let (line_sender, mut line_receiver): (
-				Sender<std::result::Result<Option<String>, std::io::Error>>,
-				Receiver<std::result::Result<Option<String>, std::io::Error>>,
+				Sender<std::result::Result<String, std::io::Error>>,
+				Receiver<std::result::Result<String, std::io::Error>>,
 			) = mpsc::channel(LINE_BUF_COUNT);
 
 			tokio::task::spawn_blocking(move || loop {
+				// Poll stdin
 				let maybe_input = block_on(lines.next_line());
-				block_on(line_sender.send(maybe_input))
+				// What did we get back from stdin?
+				match maybe_input { 
+					Ok(Some(input)) => { 
+						//Pass along a valid string. 
+						block_on(line_sender.send(Ok(input)))
 					.expect(format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str());
+					}, 
+					Err(e) => {
+						// Write a debug string of the error before the sender takes ownership of it.
+						let err_string = format!("{:?}", &e); 
+						block_on(line_sender.send(std::result::Result::Err(e))) 
+							.expect(format!("Exceeded input buffer of {} lines, while attempting to return error: {:?}", 
+							LINE_BUF_COUNT, err_string).as_str());
+					},
+					// Ignore a None value, continuing to loop on this thread waiting for input. 
+					Ok(None) => {},
+				}
 			});
+
 			// Infinite loop
 			loop {
 				tokio::select! {
@@ -297,30 +314,38 @@ pub async fn main() -> Result<()> {
 								method: String::from("receive"),
 								params: serde_json::to_value(messages)?
 							};
-							let messages_json = serde_json::to_string(&notification)?;
+							//Perform some cleanup
+							let messages_value = serde_json::to_value(&notification)?;
+							let cleaned_value = clean_json(&messages_value)?; 
+							//Actually print our output!
+							let messages_json = serde_json::to_string(&cleaned_value)?;
 							println!("{}", messages_json);
 						}
 					}
 					maybe_input = line_receiver.recv() => {
-						// Convert Option<Result<Option<T>> into Result<Option<Option<T>>, then error check it to an Option<Option<T>>,
-						// then flatten to Option<T>
-						let maybe_input = maybe_input.transpose()?.flatten();
-						// A line of code OR an error has been sent.
-						match maybe_input {
+						// Convert Option<Result<T>> into Result<Option<T>>, then error check it to an Option<T>
+						match maybe_input.transpose()? {
 							Some(input) => {
 								// A line of input has arrived!
 								let output_list = process_jsonrpc_input(input.as_str(),
 									&mut app, &arguments.download_path).await;
 								for entry in output_list {
-									match entry {
-										JsonRpcResponse::Ok(result) => {
-											let result_str = serde_json::to_string(&result)?;
-											println!("{}", result_str);
-										}
-										JsonRpcResponse::Err(result) => {
-											let result_str = serde_json::to_string(&result)?;
-											println!("{}", result_str);
-										}
+									// Convert to a json AST
+									let result_val = match &entry {
+										JsonRpcResponse::Ok(result) => serde_json::to_value(result),
+										JsonRpcResponse::Err(result) => serde_json::to_value(result),
+									}?;
+									// Clean up our json structure for API compatibility with signal-cli.
+									let cleaned_val = clean_json(&result_val)?;
+									// Is this not just a null or an empty list? 
+									if let Some(inner_val) = cleaned_val { 
+										// Print it.
+										let result_str = serde_json::to_string(&inner_val)?;
+										println!("{}", result_str);
+									}
+									else {
+										// Entire structure was empty. 
+										warn!("process_jsonrpc_input() produced an all-empty or all-null output, ignoring it. This was in response to: {}", &input);
 									}
 								}
 							},

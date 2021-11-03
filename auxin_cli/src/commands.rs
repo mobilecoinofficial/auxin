@@ -663,3 +663,125 @@ pub async fn handle_receive_command(
 
 	Ok(messages)
 }
+
+#[allow(unused_assignments)]
+pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::Value>> { 
+	use serde_json::Value;
+	let mut output = None; 
+	match val {
+
+		// Silence nulls
+		Value::Null => output = None,
+
+		// Is this an array of bytes? 
+		Value::Array(array) => {
+			// Skip empty arrays. 
+			if array.len() == 0 { 
+				output = None;
+			} 
+			else { 
+				// Let's see if this is an array of bytes which needs to turn into a base-64 string.
+				let mut assume_bytes = true; 
+				let mut bytes: Vec<u8> = Vec::default();
+				// Non-empty array 
+				for elem in array.iter() { 
+					let mut byte_value: u8 = 0; 
+					// If there is a single non-number type in the array, don't treat it as bytes.
+					// Bytes are also *never* serialized to floating-point numbers.
+					if ( !elem.is_number() ) || elem.is_f64() {
+						//Non-integer. Do not base-64 this. 
+						assume_bytes = false;
+						break;
+					}
+					// We reached this codepath because elem is a number. 
+					// Vec<u8>s get serialized very naively. So, all numbers should be 0 <= x < 255
+					else if elem.is_i64() { 
+						let num = elem.as_i64().unwrap();
+						if num < 0 || num > 255 { 
+							//Out of range. Do not base-64 this. 
+							assume_bytes = false;
+							break;
+						}
+						else { 
+							byte_value = num as u8;
+						}
+					}
+					else if elem.is_u64() { 
+						let num = elem.as_u64().unwrap();
+						if num > 255 { 
+							//Out of range. Do not base-64 this. 
+							assume_bytes = false;
+							break;
+						}
+						else { 
+							byte_value = num as u8;
+						}
+					}
+					else { 
+						//Should be unreachable. 
+						unreachable!("Serde_json value was not a number (!elem.is_number() block did not get evaluated), but also did not match any serde_json number type.")
+					}
+	
+					if assume_bytes { 
+						// If we got this far and that boolean is still true, push our byte to the byte buffer. 
+						bytes.push(byte_value);
+					}
+				}
+				if assume_bytes { 
+					// This is a byte buffer, encode it! 
+					let base64_string = base64::encode(&bytes);
+					output = Some(Value::String(base64_string));
+				}
+				else {
+					let mut result_array_value = Vec::default();
+					//Recurse on child structures. 
+					for elem in array.iter() { 
+						if let Some(val) = clean_json(elem)? { 
+							result_array_value.push(val);
+						}
+						// else { 
+							//skip nulls
+						// }
+					}
+					// Now let's look at what we just made.
+					if result_array_value.len() > 0 {
+						//Make an actual serde_json Value that wraps this. 
+						output = Some(Value::Array(result_array_value));
+					}
+					else { 
+						// Silence empty arrays - zero-length array doesn't get written.
+						output = None;
+					}
+				}
+			}
+		},
+		// Recursion on object's children
+		Value::Object(obj) => { 
+			let mut new_map = serde_json::Map::default();
+			for (name, val) in obj.iter() {
+				if let Some(new_val) = clean_json(val)? {
+					new_map.insert(name.clone(), new_val);
+				}
+			}
+			if new_map.len() > 0 { 
+				output = Some(Value::Object(new_map));
+			}
+			else {
+				//Do not include nulls or empties. 
+				output = None;
+			}
+		},
+		// Check to see if a string is just ""
+		Value::String(s) => { 
+			if s.is_empty() || s.eq_ignore_ascii_case("") { 
+				output = None; 
+			}
+			else { 
+				output = Some(Value::String(s.clone()));
+			}
+		},
+		// In the case of booleans and numbers, leave the structure alone. 
+		_ => output = Some(val.clone()),
+	}
+	Ok(output)
+}
