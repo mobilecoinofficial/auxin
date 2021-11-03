@@ -20,7 +20,9 @@ use std::{cell::RefCell, convert::TryFrom};
 
 use structopt::StructOpt;
 
-use tokio::time::{Duration, Instant};
+use tokio::{sync::mpsc::{Receiver, Sender}, time::{Duration, Instant}};
+use tokio::sync::mpsc;
+use futures::executor::block_on;
 use tracing::{info, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
@@ -261,6 +263,19 @@ pub async fn main() -> Result<()> {
 			let reader = tokio::io::BufReader::new(stdin);
 			let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
 
+			//How many lines can we receive in one pass? 
+			const LINE_BUF_COUNT: usize = 4096;
+
+			let (line_sender, mut line_receiver) 
+				: (Sender<std::result::Result<Option<String>, std::io::Error>>, Receiver<std::result::Result<Option<String>, std::io::Error>>) 
+				= mpsc::channel(LINE_BUF_COUNT);
+
+			tokio::task::spawn_blocking(move || { 
+				loop { 
+					let maybe_input = block_on(lines.next_line());
+					block_on(line_sender.send(maybe_input)).expect(format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str());
+				}
+			});
 			// Infinite loop
 			loop {
 				tokio::select! {
@@ -281,10 +296,12 @@ pub async fn main() -> Result<()> {
 							println!("{}", messages_json);
 						}
 					}
-					maybe_input = lines.next_line() => {
-						debug!("Inside maybe_input = lines.next_line() => {{ ");
+					maybe_input = line_receiver.recv() => {
+						// Convert Option<Result<Option<T>> into Result<Option<Option<T>>, then error check it to an Option<Option<T>>,
+						// then flatten to Option<T>
+						let maybe_input = maybe_input.transpose()?.flatten();
 						// A line of code OR an error has been sent.
-						match maybe_input? {
+						match maybe_input {
 							Some(input) => {
 								// A line of input has arrived!
 								let output_list = process_jsonrpc_input(input.as_str(),
