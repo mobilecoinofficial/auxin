@@ -20,9 +20,14 @@ use std::{cell::RefCell, convert::TryFrom};
 
 use structopt::StructOpt;
 
-use tokio::{sync::mpsc::{Receiver, Sender}, time::{Duration, Instant}};
-use tokio::sync::mpsc;
 use futures::executor::block_on;
+use tokio::{
+	sync::{
+		mpsc,
+		mpsc::{Receiver, Sender},
+	},
+	time::{Duration, Instant},
+};
 use tracing::{info, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
@@ -263,18 +268,18 @@ pub async fn main() -> Result<()> {
 			let reader = tokio::io::BufReader::new(stdin);
 			let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
 
-			//How many lines can we receive in one pass? 
+			//How many lines can we receive in one pass?
 			const LINE_BUF_COUNT: usize = 4096;
 
-			let (line_sender, mut line_receiver) 
-				: (Sender<std::result::Result<Option<String>, std::io::Error>>, Receiver<std::result::Result<Option<String>, std::io::Error>>) 
-				= mpsc::channel(LINE_BUF_COUNT);
+			let (line_sender, mut line_receiver): (
+				Sender<std::result::Result<Option<String>, std::io::Error>>,
+				Receiver<std::result::Result<Option<String>, std::io::Error>>,
+			) = mpsc::channel(LINE_BUF_COUNT);
 
-			tokio::task::spawn_blocking(move || { 
-				loop { 
-					let maybe_input = block_on(lines.next_line());
-					block_on(line_sender.send(maybe_input)).expect(format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str());
-				}
+			tokio::task::spawn_blocking(move || loop {
+				let maybe_input = block_on(lines.next_line());
+				block_on(line_sender.send(maybe_input))
+					.expect(format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str());
 			});
 			// Infinite loop
 			loop {
