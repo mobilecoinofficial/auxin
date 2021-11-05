@@ -839,7 +839,7 @@ pub async fn decrypt_unidentified_sender(
 		device_id: decrypted.device_id,
 	};
 
-	MessageIn::update_profile_key_from(&message, &sender_address, context)?;
+	MessageIn::update_key_and_address_from(&message, &sender_address, context)?;
 
 	debug!("Decrypted sealed sender message into: {:?}", &message);
 	Ok((
@@ -888,7 +888,7 @@ impl MessageIn {
 	/// * `content` - The Signal message content that may contain a new profile key.
 	/// * `remote_address` - The address of the peer we received this message from.
 	/// * `context` - The session state, including the peer record structure we might be updating with this new profile key.
-	pub fn update_profile_key_from(
+	pub fn update_key_and_address_from(
 		content: &auxin_protos::Content,
 		remote_address: &AuxinAddress,
 		context: &mut AuxinContext,
@@ -898,6 +898,7 @@ impl MessageIn {
 			.complete_address(remote_address)
 			.unwrap_or(remote_address.clone());
 
+		
 		if content.has_dataMessage() && content.get_dataMessage().has_profileKey() {
 			let mut pk: ProfileKey = ProfileKey::default();
 			let pk_slice = content.get_dataMessage().get_profileKey();
@@ -906,6 +907,40 @@ impl MessageIn {
 			let peer = context.peer_cache.get_mut(&remote_address);
 			if let Some(peer) = peer {
 				peer.profile_key = Some(base64::encode(pk));
+			}
+		}
+
+		Self::update_address_from(&remote_address, context)?;
+
+		Ok(())
+	}
+
+	/// Checks to see if the remote address passed in from a newly-arrived envelope has
+	/// either a phone number for a contact we only had a UUID for previously, or 
+	/// has a UUID for a contact we only had a phone number for previously.
+	///
+	/// # Arguments
+	///
+	/// * `remote_address` - The address of the peer we received this message from.
+	/// * `context` - The session state, including the peer record structure we might be updating with this new profile key.
+	pub fn update_address_from(
+		remote_address: &AuxinAddress,
+		context: &mut AuxinContext,
+	) -> std::result::Result<(), MessageInError> {
+		let remote_address = context
+			.peer_cache
+			.complete_address(remote_address)
+			.unwrap_or(remote_address.clone());
+
+		let peer = context.peer_cache.get_mut(&remote_address);
+		if let Some(peer) = peer {
+			if let Ok(number) = remote_address.get_phone_number() { 
+				//Set phone number
+				peer.number = Some(number.clone());
+			}
+			if let Ok(uuid) = remote_address.get_uuid() {
+				//Set uuid
+				peer.uuid = Some(uuid.clone());
 			}
 		}
 		Ok(())
@@ -946,7 +981,7 @@ impl MessageIn {
 		let ciph = CiphertextMessage::SignalMessage(signal_message);
 		let decrypted = decrypt_ciphertext(&ciph, context, rng, &remote_address).await?;
 
-		Self::update_profile_key_from(&decrypted, &remote_address.address, context)?;
+		Self::update_key_and_address_from(&decrypted, &remote_address.address, context)?;
 
 		Ok(MessageIn {
 			content: MessageContent::try_from(decrypted)?,
@@ -1012,6 +1047,10 @@ impl MessageIn {
 		});
 
 		let remote_address = remote_address.unwrap();
+
+		// Did they just give us new contact information?
+		MessageIn::update_address_from(&remote_address.address, context)?;
+
 		Ok(MessageIn {
 			content: MessageContent {
 				receipt_message: Some((ReceiptMode::DELIVERY, vec![envelope.get_timestamp()])),
@@ -1053,7 +1092,13 @@ pub(crate) fn address_from_envelope(envelope: &Envelope) -> Option<AuxinDeviceAd
 	match envelope.has_sourceDevice() {
 		true => {
 			let source_device = envelope.get_sourceDevice();
-			if envelope.has_sourceUuid() {
+			if envelope.has_sourceUuid() && envelope.has_sourceE164() {
+				Some(AuxinDeviceAddress {
+					address: AuxinAddress::Both(envelope.get_sourceE164().into(), 
+						Uuid::from_str(envelope.get_sourceUuid()).unwrap()),
+					device_id: source_device,
+				})
+			} else if envelope.has_sourceUuid() {
 				Some(AuxinDeviceAddress {
 					address: AuxinAddress::try_from(envelope.get_sourceUuid()).unwrap(),
 					device_id: source_device,

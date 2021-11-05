@@ -1434,28 +1434,12 @@ where
 				debug!("Produced content from PreKeyBundle message: {:?}", &content);
 
 				//If they're providing us with their profile key, store / update that information.
-				MessageIn::update_profile_key_from(
+				MessageIn::update_key_and_address_from(
 					&content,
 					&remote_address.address,
 					&mut self.context,
 				)?;
-
-				if content.has_dataMessage() {
-					let data_message = content.get_dataMessage();
-					if data_message.has_flags() && data_message.has_profileKey() {
-						// If this is a profile key distribution message and nothing else, return without trying to generate a MessageIn
-						if data_message.get_flags() & 4 > 0 {
-							return Ok(None);
-						}
-
-						// If this is an end session message, clear out the session for this peer.
-						//if data_message.get_flags() & 1 > 0 {
-						//	self.clear_session(&remote_address.address).await.unwrap(); //TODO: proper error hanndling here.
-						//}
-						//Prekey distribution messages should never be end-session.
-					}
-				}
-
+				
 				let result = MessageIn {
 					content: MessageContent::try_from(content)?,
 					remote_address,

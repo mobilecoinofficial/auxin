@@ -1,7 +1,12 @@
+// Copyright (c) 2021 The MobileCoin Foundation
+// Emily "Gyro" Cutlip / The Forest team
+
+//! Developer (and bot) friendly wrapper around the Signal protocol.
+
 #![feature(async_closure)]
 #![deny(bare_trait_objects)]
 
-//Internal dependencies
+//Auxin dependencies
 
 use auxin::{
 	address::AuxinAddress,
@@ -12,6 +17,8 @@ use auxin::{
 
 //External dependencies
 
+use futures::executor::block_on;
+
 use log::{debug, warn};
 
 use rand::rngs::OsRng;
@@ -20,7 +27,6 @@ use std::{cell::RefCell, convert::TryFrom};
 
 use structopt::StructOpt;
 
-use futures::executor::block_on;
 use tokio::{
 	sync::{
 		mpsc,
@@ -39,8 +45,8 @@ pub mod net;
 pub mod repl_wrapper;
 pub mod state;
 
+// Dependencies from this crate. 
 pub use crate::{attachment::*, commands::*};
-
 use net::load_root_tls_cert;
 pub type Context = auxin::AuxinContext;
 
