@@ -128,8 +128,10 @@ pub async fn main() -> Result<()> {
 	);
 
 	let cert = load_root_tls_cert().unwrap();
-	let net = crate::net::NetManager::new(cert);
+	let net = crate::net::NetManager::new(cert.clone());
 	let state = crate::state::StateManager::new(&base_dir);
+	let net2 = crate::net::NetManager::new(cert);
+	let state2 = crate::state::StateManager::new(&base_dir);
 	// Get it to all come together.
 	let mut app = AuxinApp::new(
 		arguments.user.clone(),
@@ -139,6 +141,16 @@ pub async fn main() -> Result<()> {
 		OsRng::default(),
 	)
 	.instrument(tracing::info_span!("AuxinApp"))
+	.await
+	.unwrap();
+	let mut app2 = AuxinApp::new(
+		arguments.user.clone(),
+		AuxinConfig {},
+		net2,
+		state2,
+		OsRng::default(),
+	)
+	.instrument(tracing::info_span!("AuxinApp2"))
 	.await
 	.unwrap();
 
@@ -303,9 +315,30 @@ pub async fn main() -> Result<()> {
 					Ok(None) => {},
 				}
 			});
+			let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app2).await.unwrap()));
 
 			// Infinite loop
 			loop {
+				let receiver = receiver_main.take();
+				let mut receiver = receiver.unwrap();
+				while let Some(msg) = receiver.next().await {
+					let msg = msg.unwrap();
+					let msg_json = serde_json::to_string(&msg).unwrap();
+					println!("{}", msg_json);
+				}
+				let sleep_time = Duration::from_millis(100);
+				tokio::time::sleep(sleep_time).await;
+
+				if let Err(e) = receiver.refresh().await {
+					log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+					receiver
+						.reconnect()
+						.await
+						.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+						.unwrap();
+				}
+
+				receiver_main.replace(Some(receiver));
 				tokio::select! {
 					biased;
 					_ = receive_clock.tick() => {
