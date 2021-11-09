@@ -6,20 +6,7 @@ use log::{debug, info, warn};
 use rand::{CryptoRng, RngCore};
 use std::{fmt::Debug, pin::Pin};
 
-use crate::{
-	address::AuxinAddress,
-	message::{fix_protobuf_buf, MessageIn, MessageInError, MessageOut},
-	net::{AuxinNetManager, AuxinWebsocketConnection},
-	state::AuxinStateManager,
-	AuxinApp, HandleEnvelopeError, SendMessageError,
-};
-
-/// (Try to) read a raw byte buffer as a Signal Envelope (defined by a protocol buffer).
-pub fn read_envelope_from_bin(buf: &[u8]) -> crate::Result<auxin_protos::Envelope> {
-	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
-	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
-	Ok(reader.read_message()?)
-}
+use crate::{AuxinApp, HandleEnvelopeError, SendMessageError, address::AuxinAddress, message::{MessageIn, MessageInError, MessageOut}, net::{AuxinNetManager, AuxinWebsocketConnection}, read_envelope_from_bin, state::AuxinStateManager};
 
 /// Any error encountered while receiving and decoding a message.
 #[derive(Debug)]
