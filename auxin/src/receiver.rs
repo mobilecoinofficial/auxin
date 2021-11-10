@@ -4,72 +4,10 @@ use auxin_protos::{
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
 use rand::{CryptoRng, RngCore};
-use std::{fmt::Debug, pin::Pin};
+use std::pin::Pin;
 
-use crate::{AuxinApp, HandleEnvelopeError, SendMessageError, address::AuxinAddress, message::{MessageIn, MessageInError, MessageOut}, net::{AuxinNetManager, AuxinWebsocketConnection}, read_envelope_from_bin, state::AuxinStateManager};
+use crate::{AuxinApp, HandleEnvelopeError, ReceiveError, SendMessageError, address::AuxinAddress, message::{MessageIn, MessageInError, MessageOut}, net::{AuxinNetManager, AuxinWebsocketConnection}, read_envelope_from_bin, state::AuxinStateManager};
 
-/// Any error encountered while receiving and decoding a message.
-#[derive(Debug)]
-pub enum ReceiveError {
-	NetSpecific(String),
-	SendErr(String),
-	InError(MessageInError),
-	HandlerError(HandleEnvelopeError),
-	StoreStateError(String),
-	ReconnectErr(String),
-	AttachmentErr(String),
-	DeserializeErr(String),
-	UnknownWebsocketTy,
-}
-
-impl std::fmt::Display for ReceiveError {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		match self {
-			Self::NetSpecific(e) => {
-				write!(f, "Net manager implementation produced an error: {:?}", e)
-			}
-			Self::SendErr(e) => write!(
-				f,
-				"Net manager errored while attempting to send a response: {:?}",
-				e
-			),
-			Self::InError(e) => write!(f, "Unable to decode or decrypt message: {:?}", e),
-			Self::StoreStateError(e) => {
-				write!(f, "Unable to store state after receiving message: {:?}", e)
-			}
-			Self::ReconnectErr(e) => {
-				write!(f, "Error while attempting to reconnect websocket: {:?}", e)
-			}
-			Self::AttachmentErr(e) => {
-				write!(f, "Error while attempting to retrieve attachment: {:?}", e)
-			}
-			Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
-			Self::DeserializeErr(e) => write!(f, "Failed to deserialize incoming message: {:?}", e),
-			Self::HandlerError(e) => write!(
-				f,
-				"Failed to handle incoming envelope inside receive loop: {:?}",
-				e
-			),
-		}
-	}
-}
-
-impl std::error::Error for ReceiveError {}
-
-impl From<MessageInError> for ReceiveError {
-	fn from(val: MessageInError) -> Self {
-		Self::InError(val)
-	}
-}
-impl From<HandleEnvelopeError> for ReceiveError {
-	fn from(val: HandleEnvelopeError) -> Self {
-		if let HandleEnvelopeError::MessageDecodingErr(e) = val {
-			Self::InError(e)
-		} else {
-			Self::HandlerError(val)
-		}
-	}
-}
 
 type OutstreamT<N> = Pin<
 	Box<
@@ -316,6 +254,7 @@ where
 	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
 	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
 		let mut req = WebSocketRequestMessage::default();
+		// Only invocation of "self.app" in this method. Replace? 
 		req.set_id(self.app.rng.next_u64());
 		req.set_verb("GET".to_string());
 		req.set_path("/v1/messages/".to_string());
@@ -342,6 +281,7 @@ where
 			.close()
 			.await
 			.map_err(|e| ReceiveError::ReconnectErr(format!("Could not close: {:?}", e)))?;
+		// Better way to do this... 
 		let ws = self
 			.app
 			.net

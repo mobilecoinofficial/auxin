@@ -855,6 +855,9 @@ pub struct MessageIn {
 	pub content: MessageContent,
 	/// The address of the peer we are receiving from.
 	pub remote_address: AuxinDeviceAddress,
+	/// The timestamp the sender built into this message - their Message Id, essentially.
+	/// This is very close to a "timestamp_sent" but it'd be more accurate to call it
+	/// the timestamp representing when the message was encoded. 
 	pub timestamp: u64,
 	/// Timestamp for when we got this message. Technically this is when it was *decoded*, not *received,* but it should be close enough for any metric we're worried about.
 	pub timestamp_received: u64,
