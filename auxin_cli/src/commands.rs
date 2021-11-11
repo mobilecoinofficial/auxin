@@ -4,7 +4,7 @@ use auxin::{
 	address::AuxinAddress,
 	generate_timestamp,
 	message::{MessageContent, MessageIn, MessageOut},
-	AuxinReceiver, Result,
+	Result,
 };
 
 //External dependencies

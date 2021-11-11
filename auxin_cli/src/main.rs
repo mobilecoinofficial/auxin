@@ -12,7 +12,7 @@ use auxin::{
 	address::AuxinAddress,
 	message::{MessageContent, MessageOut},
 	state::AuxinStateManager,
-	AuxinApp, AuxinConfig, AuxinReceiver, ReceiveError, Result,
+	AuxinApp, AuxinConfig, ReceiveError, Result,
 };
 
 //External dependencies

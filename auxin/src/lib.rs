@@ -37,7 +37,6 @@ pub mod context;
 pub mod discovery;
 pub mod message;
 pub mod net;
-pub mod receiver;
 pub mod state;
 
 pub use message::Timestamp;
@@ -67,7 +66,6 @@ use crate::{
 	net::common_http_headers,
 	state::{try_excavate_registration_id, ForeignPeerProfile, ProfileResponse},
 };
-pub use crate::receiver::{AuxinReceiver};
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
