@@ -1,4 +1,4 @@
-FROM rust:latest as builder
+FROM ghcr.io/rust-lang/rust:nightly as builder
 WORKDIR /app
 RUN rustup default nightly
 # from https://stackoverflow.com/questions/58473606/cache-rust-dependencies-with-docker-build
@@ -8,6 +8,7 @@ COPY ./auxin/Cargo.toml /app/auxin/
 COPY ./auxin_cli/Cargo.toml /app/auxin_cli/
 RUN mkdir -p /app/auxin_cli/src /app/auxin/src
 COPY auxin_protos /app/auxin_protos
+COPY ./auxin_protos/build.rs.always /app/auxin_protos/build.rs
 WORKDIR /app/auxin_cli
 # build dummy auxin_cli using latest Cargo.toml/Cargo.lock
 RUN echo 'fn main() { println!("Dummy!"); }' > ./src/lib.rs
@@ -19,6 +20,7 @@ RUN rm -r /app/auxin/src /app/auxin_cli/src
 COPY ./auxin/src /app/auxin/src
 COPY ./auxin/data /app/auxin/data
 COPY ./auxin_cli/src /app/auxin_cli/src
+
 RUN find /app/auxin_cli
 RUN touch -a -m /app/auxin_cli/src/main.rs
 
