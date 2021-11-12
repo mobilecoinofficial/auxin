@@ -8,22 +8,18 @@
 
 //Auxin dependencies
 
-use auxin::{
-	address::AuxinAddress,
-	message::{MessageContent, MessageOut},
-	state::AuxinStateManager,
-	AuxinApp, AuxinConfig, ReceiveError, Result,
-};
+use auxin::{AuxinApp, AuxinConfig, ReceiveError, Result, address::AuxinAddress, message::{MessageContent, MessageOut}, state::AuxinStateManager};
 
 //External dependencies
 
+use auxin_protos::WebSocketMessage;
 use futures::executor::block_on;
 
-use log::{debug, warn};
+use log::{debug, error, trace, warn};
 
 use rand::rngs::OsRng;
 
-use std::{cell::RefCell, convert::TryFrom};
+use std::{convert::TryFrom};
 
 use structopt::StructOpt;
 
@@ -45,6 +41,7 @@ pub mod net;
 pub mod repl_wrapper;
 pub mod state;
 
+use crate::net::AuxinTungsteniteConnection;
 // Dependencies from this crate. 
 pub use crate::{attachment::*, commands::*};
 use net::load_root_tls_cert;
@@ -184,15 +181,18 @@ pub async fn main() -> Result<()> {
 		}
 		AuxinCommand::ReceiveLoop => {
 			let exit = false;
-			let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app).await.unwrap()));
+			let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?; 
 			while !exit {
-				let receiver = receiver_main.take();
-				let mut receiver = receiver.unwrap();
-				while let Some(msg) = receiver.next().await {
-					let msg = msg.unwrap();
-					let msg_json = serde_json::to_string(&msg).unwrap();
-					println!("{}", msg_json);
+				while let Some(Ok(wsmessage)) = receiver.next().await {
+					let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
+
+					if let Some(msg) = msg_maybe { 
+						let msg_json = serde_json::to_string(&msg).unwrap();
+						println!("{}", msg_json);
+					}
 				}
+
+				trace!("Entering sleep...");
 				let sleep_time = Duration::from_millis(100);
 				tokio::time::sleep(sleep_time).await;
 
@@ -204,8 +204,6 @@ pub async fn main() -> Result<()> {
 						.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 						.unwrap();
 				}
-
-				receiver_main.replace(Some(receiver));
 			}
 		}
 		// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
@@ -218,33 +216,35 @@ pub async fn main() -> Result<()> {
 		// A simple echo server for demonstration purposes. Loops until killed.
 		AuxinCommand::Echoserver => {
 			let exit = false;
-			// Ugly hack to get around the multiple ways the borrow checker doesn't recognize what we're trying to do.
-			let receiver_main = RefCell::new(Some(AuxinReceiver::new(&mut app).await.unwrap()));
+			let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?; 
 			while !exit {
-				let receiver = receiver_main.take();
-				let mut receiver = receiver.unwrap();
 				while let Some(msg) = receiver.next().await {
-					let msg = msg.unwrap();
+					let wsmessage = msg.unwrap();
+					let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
 
-					let msg_json = serde_json::to_string(&msg).unwrap();
-					println!("{}", msg_json);
+					if let Some(msg) = msg_maybe { 
 
-					if msg.content.receipt_message.is_none() {
-						if let Some(st) = msg.content.text_message {
-							info!("Message received with text \"{}\", replying...", st);
-							receiver
-								.send_message(
-									&msg.remote_address.address,
-									MessageOut {
-										content: MessageContent::default().with_text(st.clone()),
-									},
-								)
-								.await
-								.unwrap();
+						let msg_json = serde_json::to_string(&msg).unwrap();
+						println!("{}", msg_json);
+	
+						if msg.content.receipt_message.is_none() {
+							if let Some(st) = msg.content.text_message {
+								info!("Message received with text \"{}\", replying...", st);
+								app
+									.send_message(
+										&msg.remote_address.address,
+										MessageOut {
+											content: MessageContent::default().with_text(st.clone()),
+										},
+									)
+									.await
+									.unwrap();
+							}
 						}
 					}
 				}
 
+				trace!("Entering sleep...");
 				let sleep_time = Duration::from_millis(100);
 				tokio::time::sleep(sleep_time).await;
 
@@ -256,23 +256,18 @@ pub async fn main() -> Result<()> {
 						.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 						.unwrap();
 				}
-
-				receiver_main.replace(Some(receiver));
 			}
 		}
 		// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
 		AuxinCommand::JsonRPC => {
-			// TODO: Permit people to configure this in the JsonRPC command,
+			// TODO: Permit people to configure receive behavior in the JsonRPC command,
 			// including interval and whether or not to do receive ticks at all.
-			let receive_command = ReceiveCommand { no_download: false };
-
-			// How often should we check for incoming messages?
-			let receive_when = Duration::from_secs(5);
-			let mut receive_clock = tokio::time::interval(receive_when);
 
 			let stdin = tokio::io::stdin();
 			let reader = tokio::io::BufReader::new(stdin);
 			let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
+
+			// --- SET UP OUR STDIN READER TASK  
 
 			//How many lines can we receive in one pass?
 			const LINE_BUF_COUNT: usize = 4096;
@@ -304,28 +299,90 @@ pub async fn main() -> Result<()> {
 				}
 			});
 
+			// ---- SET UP OUR MAGIC MESSAGE RECEIVER 
+
+			let receiver_credentials = app.context.identity.clone();
+
+			const MESSAGE_BUF_COUNT: usize = 4096;
+
+			let (msg_channel, mut msg_receiver): (
+				Sender<std::result::Result<WebSocketMessage, ReceiveError>>,
+				Receiver<std::result::Result<WebSocketMessage, ReceiveError>>,
+			) = mpsc::channel(MESSAGE_BUF_COUNT);
+
+			tokio::task::spawn_blocking(move || {
+				let mut receiver = block_on(AuxinTungsteniteConnection::new(receiver_credentials)).unwrap();
+
+				loop {
+					while let Some(msg) = block_on(receiver.next()) {
+						block_on(msg_channel.send(msg))
+							.expect(format!("Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}", MESSAGE_BUF_COUNT).as_str());
+					}
+					trace!("Entering sleep...");
+					let sleep_time = Duration::from_millis(100);
+					block_on(tokio::time::sleep(sleep_time));
+	
+					if let Err(e) = block_on(receiver.refresh()) {
+						log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+						block_on(receiver
+							.reconnect())
+							.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+							.unwrap();
+					}
+				}
+			});
+
+			let mut exit = false; 
+
 			// Infinite loop
-			loop {
+			while !exit {
+				//Receive first, attempting to ensure messagss are read in the order they are sent.
 				tokio::select! {
 					biased;
-					_ = receive_clock.tick() => {
-						//Receive first, attempting to ensure messagss are read in the order they are sent.
-						let messages =
-						handle_receive_command(receive_command.clone(), &arguments.download_path, &mut app).await?;
-						// If we actually got any messages this time we checked out mailbox, print them.
-						if !messages.is_empty() {
-							//Format our output as a JsonRPC notification.
-							let notification = JsonRpcNotification {
-								jsonrpc: String::from(commands::JSONRPC_VER),
-								method: String::from("receive"),
-								params: serde_json::to_value(messages)?
-							};
-							//Perform some cleanup
-							let messages_value = serde_json::to_value(&notification)?;
-							let cleaned_value = clean_json(&messages_value)?; 
-							//Actually print our output!
-							let messages_json = serde_json::to_string(&cleaned_value)?;
-							println!("{}", messages_json);
+					wsmessage_maybe = msg_receiver.recv() => {
+						if let Some(wsmessage_result) = wsmessage_maybe { 
+							match wsmessage_result { 
+								Ok(wsmessage) => { 
+									let message_maybe = app.receive_and_acknowledge(&wsmessage).await;
+									match message_maybe {
+										// If we actually got any messages this time we checked out mailbox, print them.
+										Ok(Some(message)) => {
+											//Format our output as a JsonRPC notification.
+											let notification = JsonRpcNotification {
+												jsonrpc: String::from(commands::JSONRPC_VER),
+												method: String::from("receive"),
+												params: serde_json::to_value(message)?
+											};
+											//Perform some cleanup
+											let message_value = serde_json::to_value(&notification)?;
+											let cleaned_value = clean_json(&message_value)?; 
+											//Actually print our output!
+											let message_json = serde_json::to_string(&cleaned_value)?;
+											println!("{}", message_json);
+										},
+										Err(e) => {
+											//Notify them of the error.
+											let json_error = JsonRpcErrorResponse::from(e);
+											let err_value = serde_json::to_value(&json_error)?;
+											let cleaned_value = clean_json(&err_value)?; 
+											let resulting_error_json = serde_json::to_string(&cleaned_value)?;
+											println!("{}", resulting_error_json);
+										},
+										Ok(None) => warn!("Recoverable error ignored in websocket message {:?}", &wsmessage),
+									}
+								}, 
+								Err(e) => { 
+									let json_error = JsonRpcErrorResponse::from(e);
+									let err_value = serde_json::to_value(&json_error)?;
+									let cleaned_value = clean_json(&err_value)?; 
+									let resulting_error_json = serde_json::to_string(&cleaned_value)?;
+									println!("{}", resulting_error_json);
+								}
+							}
+						}
+						else { 
+							error!("Message-receiver channel closed unexpectedly. Closing application.");
+							exit = true; 
 						}
 					}
 					maybe_input = line_receiver.recv() => {
@@ -355,7 +412,10 @@ pub async fn main() -> Result<()> {
 									}
 								}
 							},
-							None => {},
+							None => { 
+								error!("Stdin line receiver channel closed unexpectedly. Closing application.");
+								exit = true; 
+							},
 						}
 					}
 				}

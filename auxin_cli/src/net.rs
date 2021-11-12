@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{convert::TryFrom};
+use std::{convert::TryFrom, pin::Pin};
 
 use async_global_executor::block_on;
 use auxin::{message::fix_protobuf_buf, net::*, LocalIdentity, SIGNAL_TLS_CERT};
@@ -270,7 +270,7 @@ pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;
 
 pub struct AuxinTungsteniteConnection {
 	credentials: LocalIdentity,
-	client: WsStream,
+	client: Pin<Box<WsStream>>,
 }
 
 pub struct NetManager {
@@ -375,7 +375,7 @@ impl AuxinTungsteniteConnection {
 		let client = Self::connect(&credentials).await?;
 		Ok(AuxinTungsteniteConnection {
 			credentials,
-			client,
+			client: Box::pin(client),
 		})
 	}
 
@@ -390,7 +390,11 @@ impl AuxinTungsteniteConnection {
 
 		self.client
 			.send(msg)
-			.await
+			.await?;
+
+		self.client.flush().await?;
+
+		Ok(())
 	}
 
 	/// Notify the server that we have received a message.
@@ -428,73 +432,87 @@ impl AuxinTungsteniteConnection {
 
 	/// Polls for the next available message.  Returns none when the end of the stream has been reached.
 	pub async fn next(&mut self) -> Option<std::result::Result<WebSocketMessage, ReceiveError>> {
-		//Try up to 64 times if necessary.
-		for _ in 0..64 {
-			//Decode to auxin_protos::WebSocketMessage.
-			let msg = match self.client.next().await {
-				None => None,
-				Some(Ok(tungstenite::Message::Text(_msg))) => todo!(), // From json maybe?
-				Some(Ok(tungstenite::Message::Binary(buf))) => {
-					Some(
-						Ok(
-							match read_wsmessage(&buf) {
-								Ok(msg) => msg, 
-								Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))), 
-							}
-						)
+		trace!("Entering AuxinTungsteniteConnection::next()");
+
+		trace!("Incoming message read attempt...");
+		//Decode to auxin_protos::WebSocketMessage.
+		let msg = match self.client.next().await {
+			None => {
+				trace!("self.client.next() is a None");
+				None
+			},
+			Some(Ok(tungstenite::Message::Text(_msg))) => todo!(), // From json maybe?
+			Some(Ok(tungstenite::Message::Binary(buf))) => {
+				trace!("Some(Ok(tungstenite::Message::Binary(buf)))");
+				Some(
+					Ok(
+						match read_wsmessage(&buf) {
+							Ok(msg) => msg, 
+							Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))), 
+						}
 					)
-				},
-				Some(Ok(tungstenite::Message::Ping(_))) => None,
-				Some(Ok(tungstenite::Message::Pong(_))) => None,
-				Some(Ok(tungstenite::Message::Close(frame))) => {
-					Some(Err(WebsocketError::StreamClosed(frame)))
-				},
-				_ => None,
-			};
+				)
+			},
+			Some(Ok(tungstenite::Message::Ping(_))) => None,
+			Some(Ok(tungstenite::Message::Pong(_))) => None,
+			Some(Ok(tungstenite::Message::Close(frame))) => {
+				trace!("Some(Ok(tungstenite::Message::Close(frame)))");
+				Some(Err(WebsocketError::StreamClosed(frame)))
+			},
+			_ => None,
+		};
 
-			//Match message.
-			match msg {
-				None => {
-					return None;
-				}
-				Some(Err(e)) => {
-					return Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))));
-				}
-				Some(Ok(m)) => {
-					let wsmessage: WebSocketMessage = m.into();
-					//Check to see if we're done.
-					if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST {
-						let req = wsmessage.get_request();
-						if req.has_path() {
-							// The server has sent us all the messages it has waiting for us.
-							if req.get_path().contains("/api/v1/queue/empty") {
-								debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
-								//Acknowledge we received the end-of-queue and do many clunky error-handling things:
-								let res = self
-									.acknowledge_message(&req)
-									.await
-									.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
-								let res = match res {
-									Ok(()) => None,
-									Err(e) => Some(Err(e)),
-								};
+		trace!("msg is: {:?}", msg);
+		//Match message.
+		match msg {
+			None => {
+				trace!("msg was a None");
+				return None;
+			}
+			Some(Err(e)) => {
+				trace!("NetErr");
+				return Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))));
+			}
+			Some(Ok(m)) => {
+				trace!("Some(Ok(m)) - trying to turn m into wsmessage.");
+				let wsmessage: WebSocketMessage = m.into();
+				//Check to see if we're done.
+				if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST {
+					trace!("Acknowledging.");
+					let req = wsmessage.get_request();
+					if req.has_path() {
+						// The server has sent us all the messages it has waiting for us.
+						if req.get_path().contains("/api/v1/queue/empty") {
+							debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
+							//Acknowledge we received the end-of-queue and do many clunky error-handling things:
+							let res = self
+								.acknowledge_message(&req)
+								.await
+								.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
+							let res = match res {
+								Ok(()) => None,
+								Err(e) => Some(Err(e)),
+							};
 
-								// Receive operation is done. Indicate there are no further messages left to poll for.
-								return res; //Usually this returns None.
-							}
+							trace!("closing queue, returning {:?}.", res);
+							// Receive operation is done. Indicate there are no further messages left to poll for.
+							return res; //Usually this returns None.
 						}
 					}
-					else { 
-						return Some(Ok(wsmessage));
-					}
+					trace!("request-shaped Some(Ok(wsmessage))");
+					return Some(Ok(wsmessage));
+				}
+				else {
+					trace!("non-request Some(Ok(wsmessage))");
+					return Some(Ok(wsmessage));
 				}
 			}
 		}
-		None
 	}
 
 	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
 	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
+		trace!("Entering refresh()");
 		let mut req = WebSocketRequestMessage::default();
 
 		let mut rng = OsRng::default();
@@ -520,15 +538,16 @@ impl AuxinTungsteniteConnection {
 
 	/// Re-initialize a Signal websocket connection so you can continue polling for messages.
 	pub async fn reconnect(&mut self) -> crate::Result<()> {
+		trace!("Entering reconnect()");
 		self.client
-			.close(None)
+			.close()
 			.await
 			.map_err(|e| ReceiveError::ReconnectErr(format!("Could not close: {:?}", e)))?;
 		// Better way to do this... 
 		let client = Self::connect(&self.credentials)
 			.await?;
 
-		self.client = client;
+		self.client = Box::pin(client);
 
 		Ok(())
 	}

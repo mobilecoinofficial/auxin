@@ -22,7 +22,7 @@ use libsignal_protocol::{
 	PreKeySignalMessage, ProtocolAddress, PublicKey,
 	SessionRecord, SessionStore, SignalProtocolError,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
@@ -1227,6 +1227,7 @@ where
 	/// * `msg` - A WebSocketMessage polled from Signal's websocket API (wss://textsecure-service.whispersystems.org/v1/websocket/).
 	/// This is the "WebSocketMessage" protocol buffer struct as defined in websocket.proto
 	pub async fn receive_decode(&mut self, msg: &auxin_protos::WebSocketMessage) -> std::result::Result<Option<MessageIn>, ReceiveError> {
+		trace!("Receive_decode on {:?}", msg);
 		match msg.get_field_type() {
 			auxin_protos::WebSocketMessage_Type::UNKNOWN => Err(ReceiveError::UnknownWebsocketTy),
 			auxin_protos::WebSocketMessage_Type::REQUEST => {
