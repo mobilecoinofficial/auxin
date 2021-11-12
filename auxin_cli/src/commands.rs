@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::{initiate_attachment_downloads, ATTACHMENT_TIMEOUT_DURATION};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
-pub const VERSION_STR: &str = "0.1.2";
+pub const VERSION_STR: &str = "0.1.3";
 
 pub const JSONRPC_VER: &str = "2.0";
 
