@@ -499,8 +499,17 @@ impl AuxinTungsteniteConnection {
 							return res; //Usually this returns None.
 						}
 					}
-					trace!("request-shaped Some(Ok(wsmessage))");
-					return Some(Ok(wsmessage));
+					// Ack it. We will not double-ack because the acknowledgement above
+					// directly returns from that  if req.get_path().contains("/api/v1/queue/empty") block
+					let res = self.acknowledge_message(&req).await;
+					
+					if let Err(e) = res { 
+						return Some(Err(e));
+					}
+					else {
+						trace!("request-shaped Some(Ok(wsmessage))");
+						return Some(Ok(wsmessage));
+					}
 				}
 				else {
 					trace!("non-request Some(Ok(wsmessage))");
