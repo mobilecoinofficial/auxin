@@ -2,6 +2,8 @@
 #![feature(associated_type_bounds)]
 #![deny(bare_trait_objects)]
 
+//! Developer (and bot) friendly wrapper around the Signal protocol.
+
 use address::{AddressError, AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
@@ -12,39 +14,33 @@ use attachment::{
 	upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment},
 };
 use auxin_protos::{AttachmentPointer, Envelope};
-use custom_error::custom_error;
 
+use custom_error::custom_error;
 use futures::TryFutureExt;
 use libsignal_protocol::{
-	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyPair, IdentityKeyStore,
-	InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore,
-	InMemSignedPreKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderCertificate,
+	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
+	PreKeySignalMessage, ProtocolAddress, PublicKey,
 	SessionRecord, SessionStore, SignalProtocolError,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
 use protobuf::CodedInputStream;
 use serde_json::json;
-use std::{
-	collections::{HashMap, HashSet},
-	convert::TryFrom,
-	error::Error,
-	fmt::Debug,
-	time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::{HashMap, HashSet}, convert::TryFrom, error::Error, fmt::Debug, time::{SystemTime, UNIX_EPOCH}};
 use uuid::Uuid;
 
 pub mod address;
 pub mod attachment;
+pub mod context;
 pub mod discovery;
 pub mod message;
 pub mod net;
-pub mod receiver;
 pub mod state;
 
 pub use message::Timestamp;
+pub use context::*;
 
 /// Self-signing root cert for TLS connections to Signal's web API..
 pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
@@ -53,8 +49,8 @@ pub const IAS_TRUST_ANCHOR: &[u8] = include_bytes!("../data/ias.der");
 
 use rand::{CryptoRng, Rng, RngCore};
 use state::{
-	AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerRecordStructure, PeerStore,
-	UnidentifiedAccessMode,
+	AuxinStateManager, PeerIdentity, 
+	PeerInfoReply, PeerRecord, PeerStore
 };
 
 use crate::{
@@ -70,13 +66,6 @@ use crate::{
 	net::common_http_headers,
 	state::{try_excavate_registration_id, ForeignPeerProfile, ProfileResponse},
 };
-
-pub const PROFILE_KEY_LEN: usize = 32;
-
-pub type ProfileKey = [u8; PROFILE_KEY_LEN];
-
-#[derive(Clone, Debug, Default)]
-pub struct AuxinConfig {}
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -101,205 +90,11 @@ pub fn sealed_sender_trust_root() -> PublicKey {
 
 pub const DEFAULT_DEVICE_ID: u32 = 1;
 
-#[derive(Clone)]
-/// Basic signal protocol information and key secrets for the local signal node.
-/// This is not intended to be used to represent peers - instead, this is your user account,
-/// the identity with which interacting with the SIgnal Protocol.
-/// Primarily includes credentials and identifying information
-pub struct LocalIdentity {
-	/// Our local phone number (or UUID, or both) as well as the device ID of this node.
-	pub address: AuxinDeviceAddress,
-	/// Signal user password.
-	pub password: String,
-	/// Our 32-byte (256-bit) Profile Key. Used extensively for sealed-sender messages.
-	pub profile_key: ProfileKey,
-	/// This node's public and private key.
-	pub identity_keys: IdentityKeyPair,
-	/// Registration ID.
-	pub reg_id: u32,
-}
-
-impl LocalIdentity {
-	/// Required HTTP header for our Signal requests.
-	/// Authorization: "Basic {AUTH}""
-	/// AUTH is a base64-encoding of: NUMBER:B64PWD, where NUMBER is our UUID and
-	/// B64PWD is our base64-encoded password. It used to require NUMBER=E164 phone number but this has been changed.
-	/// NOTE: Discovery requests will require a different user-ID and password, which is retrieved with a GET request to https://textsecure-service.whispersystems.org/v1/directory/auth
-	pub fn make_auth_header(&self) -> String {
-		let our_auth_value = format!(
-			"{}.{}:{}",
-			&self.address.address.get_uuid().unwrap().to_string(),
-			self.address.device_id,
-			&self.password
-		);
-
-		let b64_auth = base64::encode(our_auth_value);
-
-		let mut our_auth = String::from("Basic ");
-		our_auth.push_str(b64_auth.as_str());
-
-		our_auth
-	}
-
-	/// Build a request for a "Sender Certificate," which is required in order to deliver "sealed sender" messages.
-	pub fn build_sendercert_request<Body: Default>(&self) -> Result<http::Request<Body>> {
-		let req = crate::net::common_http_headers(
-			http::Method::GET,
-			"https://textsecure-service.whispersystems.org/v1/certificate/delivery",
-			self.make_auth_header().as_str(),
-		)?;
-		Ok(req.body(Body::default())?)
-	}
-}
-
-/// Wrapper type to force Rust to recognize libsignal ctx as "Send"
-#[derive(Clone, Copy, Default)]
-pub struct SignalCtx {
-	ctx: libsignal_protocol::Context,
-}
-
-impl SignalCtx {
-	pub fn get(&self) -> libsignal_protocol::Context {
-		self.ctx
-	}
-}
-
-// Dark magic! may cause crashes! completely unavoidable! Yay!
-unsafe impl Send for SignalCtx {}
-
-/// An AuxinContext holds all critical Signal protocol data.
-/// It holds sessions, public keys of other users, and our public and private key, among other things.
-/// This contains all of the keys and session state required to send and receive SIgnal messages.
-#[allow(unused)] // TODO: Remove this after we can send/remove a message.
-				 // This is the structure that an AuxinStateHandler builds and saves.
-pub struct AuxinContext {
-	/// The LocalIdentity holds this node's public and private key, its profile key, pwssword, and its UUID and phone number.
-	pub identity: LocalIdentity,
-	/// A certificate used to send sealded-sender / unidentified-sender messages.
-	/// Retrieved through a request to https://textsecure-service.whispersystems.org/v1/certificate/delivery
-	pub sender_certificate: Option<SenderCertificate>,
-
-	/// Records of peer session - their UUIDs, device IDs, preferences, etc.
-	pub peer_cache: PeerRecordStructure,
-	/// Signal Protocol in-memory session state. This holds Signal protocol sessions, which contain the ratchet key state and counter.
-	pub session_store: InMemSessionStore,
-	pub pre_key_store: InMemPreKeyStore,
-	pub signed_pre_key_store: InMemSignedPreKeyStore,
-	/// Stores public keys from peers.
-	pub identity_store: InMemIdentityKeyStore,
-	pub sender_key_store: InMemSenderKeyStore,
-
-	/// Configuration for the Auxin library.
-	pub config: AuxinConfig,
-	/// Should we show up as "Online" to other Signal users?
-	pub report_as_online: bool,
-
-	/// Signal context - pointer to a C data type.
-	/// It seems like this is future-proofing on Signal's behalf, because
-	/// the Signal's library never uses theis datatype directly even though
-	/// it is required as an argument to many of their methods.
-	pub ctx: SignalCtx,
-}
-
-/// Generate an unidentified access key from a profile key.
-/// Basically, performs a cryptographic operation on this profile key to generate another key,
-/// which can be used to send and receive sealed-sender messages.
-///
-/// # Arguments
-///
-/// * `profile_key` - A base-64 string encoding of a signal user's 32-byte (256-bit) Profile Key.
-pub fn get_unidentified_access_for_key(profile_key: &String) -> Result<Vec<u8>> {
-	let profile_key_bytes = base64::decode(profile_key)?;
-	let profile_key = aes_gcm::Key::from_slice(profile_key_bytes.as_slice());
-	let cipher = aes_gcm::Aes256Gcm::new(profile_key);
-	//Libsignal-service-java enciphers 16 zeroes with a (re-used) nonce of 12 zeroes
-	//to get this access key, unless I am horribly misreading it.
-	let zeroes: [u8; 16] = [0; 16];
-	let nonce: [u8; 12] = [0; 12];
-	let nonce = Nonce::from_slice(&nonce);
-
-	let payload = Payload {
-		msg: &zeroes,
-		aad: b"",
-	};
-
-	Ok(cipher.encrypt(nonce, payload)?)
-}
-
-custom_error! { pub UnidentifiedAccessError
-	NoProfileKey{uuid: Uuid} = "Cannot generate an unidentified access key for user {uuid}: We do not know their profile key! This would not matter for a user with UnidentifiedAccessMode::UNRESTRICTED.",
-	PeerDisallowsSealedSender{uuid: Uuid} = "Tried to generatet an unidentified access key for peer {uuid}, but this user has disabled unidentified access!",
-	UnrecognizedUser{address: AuxinAddress} = "Cannot generate an unidentified access key for address {address} as that is not a recognized peer.",
-	NoProfile{uuid: Uuid} = "Attempted to generate an unidenttified access key for peer {uuid}, but this user has no profile field whatsoever on record with this Auxin instance. We cannot retrieve their profile key.",
-}
-
-impl AuxinContext {
-	/// Generate an unidentified-access key for a user who accepts unrestricted unidentified access.
-	///
-	/// # Arguments
-	///
-	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
-	fn get_unidentified_access_unrestricted<R>(&mut self, rng: &mut R) -> Result<Vec<u8>>
-	where
-		R: RngCore + CryptoRng,
-	{
-		let bytes: [u8; 16] = rng.gen();
-
-		Ok(Vec::from(bytes))
-	}
-
-	/// Generate an unidentified access key for a Signal peer, querying self.peer_cache to see what their unidentified access mode is.
-	///
-	/// # Arguments
-	///
-	/// * `peer_address` - The peer for whom to generate an unidentified access key.
-	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
-	pub fn get_unidentified_access_for<R>(
-		&mut self,
-		peer_address: &AuxinAddress,
-		rng: &mut R,
-	) -> Result<Vec<u8>>
-	where
-		R: RngCore + CryptoRng,
-	{
-		let peer = self.peer_cache.get(peer_address);
-		if peer.is_none() {
-			return Err(Box::new(UnidentifiedAccessError::UnrecognizedUser {
-				address: peer_address.clone(),
-			}));
-		}
-		let peer = peer.unwrap();
-
-		let uuid = peer.uuid.unwrap();
-
-		match &peer.profile {
-			Some(p) => match p.unidentified_access_mode {
-				UnidentifiedAccessMode::UNRESTRICTED => {
-					debug!(
-						"User {} has unrestricted unidentified access, generating random key.",
-						uuid.to_string()
-					);
-					Ok(self.get_unidentified_access_unrestricted(rng)?)
-				}
-				UnidentifiedAccessMode::ENABLED => {
-					debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", uuid.to_string());
-					match &peer.profile_key {
-						Some(pk) => Ok(get_unidentified_access_for_key(pk)?),
-						None => Err(Box::new(UnidentifiedAccessError::NoProfileKey { uuid })),
-					}
-				}
-				UnidentifiedAccessMode::DISABLED => Err(Box::new(
-					UnidentifiedAccessError::PeerDisallowsSealedSender { uuid },
-				)),
-			},
-			None => Err(Box::new(UnidentifiedAccessError::NoProfile { uuid })),
-		}
-	}
-	/// Retrieve the Signal Context - a C-style pointer to a placeholder data type.
-	/// The signal context is wrapped this way so that the borrow checker doesn't complain about this non-Send datatype.
-	pub fn get_signal_ctx(&self) -> &SignalCtx {
-		&self.ctx
-	}
+/// (Try to) read a raw byte buffer as a Signal Envelope (defined by a protocol buffer).
+pub fn read_envelope_from_bin(buf: &[u8]) -> crate::Result<auxin_protos::Envelope> {
+	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
+	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
+	Ok(reader.read_message()?)
 }
 
 /// An Auxin application which can send and receive Signal messages and interact with the Signal protocol.
@@ -412,6 +207,71 @@ impl From<MessageInError> for HandleEnvelopeError {
 		HandleEnvelopeError::MessageDecodingErr(val)
 	}
 }
+
+
+/// Any error encountered while receiving and decoding a message.
+#[derive(Debug)]
+pub enum ReceiveError {
+	NetSpecific(String),
+	SendErr(String),
+	InError(MessageInError),
+	HandlerError(HandleEnvelopeError),
+	StoreStateError(String),
+	ReconnectErr(String),
+	AttachmentErr(String),
+	DeserializeErr(String),
+	UnknownWebsocketTy,
+}
+
+impl std::fmt::Display for ReceiveError {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match self {
+			Self::NetSpecific(e) => {
+				write!(f, "Net manager implementation produced an error: {:?}", e)
+			}
+			Self::SendErr(e) => write!(
+				f,
+				"Net manager errored while attempting to send a response: {:?}",
+				e
+			),
+			Self::InError(e) => write!(f, "Unable to decode or decrypt message: {:?}", e),
+			Self::StoreStateError(e) => {
+				write!(f, "Unable to store state after receiving message: {:?}", e)
+			}
+			Self::ReconnectErr(e) => {
+				write!(f, "Error while attempting to reconnect websocket: {:?}", e)
+			}
+			Self::AttachmentErr(e) => {
+				write!(f, "Error while attempting to retrieve attachment: {:?}", e)
+			}
+			Self::UnknownWebsocketTy => write!(f, "Websocket message type is Unknown!"),
+			Self::DeserializeErr(e) => write!(f, "Failed to deserialize incoming message: {:?}", e),
+			Self::HandlerError(e) => write!(
+				f,
+				"Failed to handle incoming envelope inside receive loop: {:?}",
+				e
+			),
+		}
+	}
+}
+
+impl std::error::Error for ReceiveError {}
+
+impl From<MessageInError> for ReceiveError {
+	fn from(val: MessageInError) -> Self {
+		Self::InError(val)
+	}
+}
+impl From<HandleEnvelopeError> for ReceiveError {
+	fn from(val: HandleEnvelopeError) -> Self {
+		if let HandleEnvelopeError::MessageDecodingErr(e) = val {
+			Self::InError(e)
+		} else {
+			Self::HandlerError(val)
+		}
+	}
+}
+
 
 impl<R, N, S> AuxinApp<R, N, S>
 where
@@ -1325,6 +1185,100 @@ where
 		Ok(())
 	}
 
+	/// Handle an incoming message, process it from a Signal-protocol websocket message. 
+	/// This automatically sends a receipt notifying the sender that we have received this message.
+	/// 
+	/// Note that this does NOT send a WebSocketMessage response to the server - that layer of the
+	/// protocol is not handled by Auxin App. If you are writing a message receiver loop, please 
+	/// ensure that you also acknowledge messages inside the Websocket channel properly.
+	/// 
+	/// Returns the decoded message.
+	/// 
+	/// Returns `Ok(None)` (and logs a warning) on recoverable error.
+	///
+	/// # Arguments
+	/// 
+	/// * `msg` - A WebSocketMessage polled from Signal's websocket API (wss://textsecure-service.whispersystems.org/v1/websocket/).
+	/// This is the "WebSocketMessage" protocol buffer struct as defined in websocket.proto
+	pub async fn receive_and_acknowledge(&mut self, msg: &auxin_protos::WebSocketMessage) -> std::result::Result<Option<MessageIn>, ReceiveError> {
+		let msg_maybe = self.receive_decode(msg).await?;
+
+		// See if we need to send a receipt. 
+		if let Some(msg_ok) = &msg_maybe { 
+			if msg_ok.needs_receipt() {
+				let receipt = msg_ok.generate_receipt(auxin_protos::ReceiptMessage_Type::DELIVERY);
+				self.send_message(&msg_ok.remote_address.address, receipt)
+					.await
+					.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+			}
+		}
+		Ok(msg_maybe)
+	}
+
+	/// Handle an incoming message, process it from a Signal-protocol websocket message. 
+	/// Updates ratchet key state accordingly. 
+	/// 
+	/// Returns the decoded message.
+	/// 
+	/// Returns `Ok(None)` (and logs a warning) on recoverable error.
+	///
+	/// # Arguments
+	/// 
+	/// * `msg` - A WebSocketMessage polled from Signal's websocket API (wss://textsecure-service.whispersystems.org/v1/websocket/).
+	/// This is the "WebSocketMessage" protocol buffer struct as defined in websocket.proto
+	pub async fn receive_decode(&mut self, msg: &auxin_protos::WebSocketMessage) -> std::result::Result<Option<MessageIn>, ReceiveError> {
+		trace!("Receive_decode on {:?}", msg);
+		match msg.get_field_type() {
+			auxin_protos::WebSocketMessage_Type::UNKNOWN => Err(ReceiveError::UnknownWebsocketTy),
+			auxin_protos::WebSocketMessage_Type::REQUEST => {
+				let req = msg.get_request();
+
+				let envelope = read_envelope_from_bin(req.get_body())
+					.map_err(|e| ReceiveError::DeserializeErr(format!("{:?}", e)))?;
+
+				let maybe_a_message = self.handle_inbound_envelope(envelope).await;
+
+				// Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
+				let msg = match maybe_a_message {
+					Err(HandleEnvelopeError::MessageDecodingErr(
+						MessageInError::ProtocolError(e),
+					)) => {
+						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+						None
+					}
+					Err(HandleEnvelopeError::ProtocolErr(e)) => {
+						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+						None
+					}
+					Err(HandleEnvelopeError::MessageDecodingErr(
+						MessageInError::DecodingProblem(e),
+					)) => {
+						warn!("Message failed to decode (bad envelope?) - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+						None
+					}
+					Err(e) => {
+						return Err(e.into());
+					}
+					Ok(m) => m,
+					//It's okay that this can return None, because next() will continue to poll on a None return from this method, and try getting more messages.
+					//"None" returns from handle_inbound_envelope() imply messages meant for the protocol rather than the end-user.
+				};
+				if let Some(msg) = &msg {
+					//Save session.
+					self.state_manager
+						.save_peer_sessions(&msg.remote_address.address, &self.context)
+						.map_err(|e| ReceiveError::StoreStateError(format!("{:?}", e)))?;
+				}
+				Ok(msg)
+			}
+			auxin_protos::WebSocketMessage_Type::RESPONSE => {
+				let res = msg.get_response();
+				warn!("WebSocket response message received: {:?}", res);
+				Ok(None)
+			}
+		}
+	}
+
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
 	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
 	/// If it's something intended to be read by the end-user / externally to Signal, it returns a Some(MessageIn)
@@ -1566,5 +1520,3 @@ where
 		self.state_manager.flush(&self.context).unwrap();
 	}
 }
-
-pub use crate::receiver::{AuxinReceiver, ReceiveError};

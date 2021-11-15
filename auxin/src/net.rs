@@ -1,7 +1,7 @@
 use std::{fmt::Debug, pin::Pin};
 
-use crate::{LocalIdentity, Result};
-use futures::{Future, Sink, Stream};
+use crate::Result;
+use futures::Future;
 
 #[allow(unused_must_use)]
 pub mod api_paths {
@@ -81,24 +81,7 @@ pub trait AuxinHttpsConnection {
 		req: http::request::Builder,
 	) -> ResponseFuture<Self::Error>;
 }
-/// Wraps a WebSocket connection with which to poll Signal's servers for new messages to our account.
-pub trait AuxinWebsocketConnection {
-	type Message: From<auxin_protos::WebSocketMessage>
-		+ Into<auxin_protos::WebSocketMessage>
-		+ Clone
-		+ Debug
-		+ Send;
-	type SinkError: Debug + std::error::Error;
-	type StreamError: Debug + std::error::Error;
 
-	///Converts this type into a message sink and a message stream..
-	fn into_streams(
-		self,
-	) -> (
-		Pin<Box<dyn Sink<Self::Message, Error = Self::SinkError>>>,
-		Pin<Box<dyn Stream<Item = std::result::Result<Self::Message, Self::StreamError>>>>,
-	);
-}
 /// Wraps a future pending on initating as new connection to HTTPS or Websocket.
 pub type ConnectFuture<O, E> =
 	Pin<Box<dyn Future<Output = std::result::Result<O, E>> + Send + Unpin>>;
@@ -106,20 +89,9 @@ pub type ConnectFuture<O, E> =
 /// The trait used to give an AuxinApp (abstracted from any particular i/o code) the ability to initiate HTTPS and WebSocket connections.
 pub trait AuxinNetManager {
 	type C: AuxinHttpsConnection + Sized + Send + Clone;
-	type W: AuxinWebsocketConnection + Sized + Send;
 
 	type Error: 'static + std::error::Error + Send;
 
 	/// Initialize an https connection to Signal which recognizes Signal's self-signed TLS certificate.
 	fn connect_to_signal_https(&mut self) -> ConnectFuture<Self::C, Self::Error>;
-
-	/// Initialize a websocket connection to Signal's "https://textsecure-service.whispersystems.org" address, taking our credentials as an argument.
-	///
-	/// # Arguments
-	///
-	/// * `credentials` - The identity of the Signal user from whose perspective Auxin is being used.
-	fn connect_to_signal_websocket(
-		&mut self,
-		credentials: LocalIdentity,
-	) -> ConnectFuture<Self::W, Self::Error>;
 }

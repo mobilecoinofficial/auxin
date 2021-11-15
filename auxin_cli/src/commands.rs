@@ -1,14 +1,10 @@
 //Internal dependencies
 
-use auxin::{
-	address::AuxinAddress,
-	generate_timestamp,
-	message::{MessageContent, MessageIn, MessageOut},
-	AuxinReceiver, Result,
-};
+use auxin::{ReceiveError, Result, address::AuxinAddress, generate_timestamp, message::{MessageContent, MessageIn, MessageOut}};
 
 //External dependencies
 
+use auxin_cli::net::AuxinTungsteniteConnection;
 use auxin_protos::AttachmentPointer;
 use log::debug;
 
@@ -243,6 +239,63 @@ pub struct JsonRpcErrorResponse {
 pub enum JsonRpcResponse {
 	Ok(JsonRpcGoodResponse),
 	Err(JsonRpcErrorResponse),
+}
+
+impl From<ReceiveError> for JsonRpcErrorResponse {
+    fn from(err_in: ReceiveError) -> Self {
+        let resulting_err = match err_in {
+            ReceiveError::NetSpecific(e) => JsonRpcError {
+                code: -32001,
+                message: String::from("Network Errror"),
+                data: Some(serde_json::Value::String(e)),
+            },
+            ReceiveError::SendErr(e) => JsonRpcError {
+                code: -32002,
+                message: String::from("Message Acknowledgement Error"),
+                data: Some(serde_json::Value::String(e)),
+            },
+            ReceiveError::InError(e) => JsonRpcError {
+                code: -32003,
+                message: String::from("Incoming Message Decoding Error"),
+                data: Some(serde_json::Value::String(format!("{:?}", e))),
+            },
+            ReceiveError::HandlerError(e) => JsonRpcError {
+                code: -32004,
+                message: String::from("Signal Envelope Handler Error"),
+                data: Some(serde_json::Value::String(format!("{:?}", e))),
+            },
+            ReceiveError::StoreStateError(e) => JsonRpcError {
+                code: -32005,
+                message: String::from("Session-state Error"),
+                data: Some(serde_json::Value::String(e)),
+            },
+            ReceiveError::ReconnectErr(e) => JsonRpcError {
+                code: -32006,
+                message: String::from("Unable To Reconnect"),
+                data: Some(serde_json::Value::String(e)),
+            },
+            ReceiveError::AttachmentErr(e) => JsonRpcError {
+                code: -32007,
+                message: String::from("Attachment Error"),
+                data: Some(serde_json::Value::String(e)),
+            },
+            ReceiveError::DeserializeErr(e) => JsonRpcError {
+                code: -32008,
+                message: String::from("Incoming Message Could Not Be Deserialized"),
+                data: Some(serde_json::Value::String(e)),
+            },
+            ReceiveError::UnknownWebsocketTy => JsonRpcError {
+                code: -32009,
+                message: String::from("Invalid Websocket Message Type"),
+                data: None,
+            },
+        };
+		JsonRpcErrorResponse { 
+			jsonrpc: JSONRPC_VER.to_string(), 
+			error: resulting_err,
+			id: None,
+		}
+    }
 }
 
 pub async fn process_jsonrpc_input(
@@ -641,11 +694,15 @@ pub async fn handle_receive_command(
 	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
 
 	let mut messages: Vec<MessageIn> = Vec::default();
-	let mut receiver = AuxinReceiver::new(app).await.unwrap();
-	while let Some(msg) = receiver.next().await {
-		let msg = msg.unwrap();
-		attachments_to_download.extend_from_slice(&msg.content.attachments);
-		messages.push(msg);
+	let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
+	while let Some(wsmessage_maybe) = receiver.next().await {
+		let wsmessage = wsmessage_maybe?; 
+		// Decode/decrypt.
+		let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
+		if let Some(msg) = msg_maybe { 
+			attachments_to_download.extend_from_slice(&msg.content.attachments);
+			messages.push(msg);
+		}
 	}
 
 	//Download all attachments

@@ -4,7 +4,6 @@ use auxin::{
 	address::{AuxinAddress, E164},
 	message::MessageOut,
 	state::PeerInfoReply,
-	AuxinReceiver,
 };
 use uuid::Uuid;
 
@@ -48,6 +47,7 @@ impl<'a> AppWrapper<'a> {
 		};
 		self.send_message(&AuxinAddress::Phone(recipient_phone.into()), message_struct)
 	}
+	/*
 	pub fn query_messages(&mut self) -> Vec<String> {
 		let mut result = Vec::default();
 		let mut receiver = block_on(AuxinReceiver::new(self.app_inner)).unwrap();
@@ -61,5 +61,5 @@ impl<'a> AppWrapper<'a> {
 			}
 		}
 		result
-	}
+	}*/
 }
