@@ -323,6 +323,7 @@ where
 	///
 	/// * `recipient_addr` - The address of the peer whose contact information we are checking (and retrieving if it's missing).
 	pub async fn ensure_peer_loaded(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
+		info!("Start of ensure_peer_loaded() at {}", generate_timestamp());
 		debug!(
 			"Attempting to ensure all necessary information is present for peer {}",
 			recipient_addr
@@ -440,6 +441,7 @@ where
 			.save_peer_record(&recipient_addr, &self.context)?;
 		self.state_manager
 			.save_peer_sessions(&recipient_addr, &self.context)?;
+		info!("End of ensure_peer_loaded() at {}", generate_timestamp());
 		Ok(())
 	}
 
@@ -548,6 +550,7 @@ where
 	/// Get a sender certificate for ourselves from Signal's web API, so that we can send sealed_sender messages properly.
 	/// Retrieved through a request to https://textsecure-service.whispersystems.org/v1/certificate/delivery
 	pub async fn retrieve_sender_cert(&mut self) -> Result<()> {
+		info!("Start of retrieve_sender_cert() at {}", generate_timestamp());
 		let trust_root = sealed_sender_trust_root();
 
 		let sender_cert_request: http::Request<Vec<u8>> =
@@ -586,6 +589,7 @@ where
 		}
 		self.context.sender_certificate = Some(sender_cert);
 
+		info!("End of retrieve_sender_cert() at {}", generate_timestamp());
 		Ok(())
 	}
 
@@ -595,6 +599,7 @@ where
 	///
 	/// * `recipient_addr` - The address of the peer whose information we are retrieving.
 	pub async fn fill_peer_info(&mut self, recipient_addr: &AuxinAddress) -> Result<()> {
+		info!("Start of fill_peer_info() at {}", generate_timestamp());
 		let signal_ctx = self.context.get_signal_ctx().get();
 
 		// Once you get here, retrieve_and_store_peer() shuld have already been called, so we should definitely have a UUID.
@@ -681,6 +686,7 @@ where
 			.save_peer_record(recipient_addr, &self.context)?;
 		self.state_manager
 			.save_peer_sessions(recipient_addr, &self.context)?;
+		info!("End of fill_peer_info() at {}", generate_timestamp());
 		Ok(())
 	}
 
@@ -690,6 +696,7 @@ where
 	///
 	/// * `recipient_addr` - The address of the peer whose contact information we are retrieving.
 	pub async fn retrieve_and_store_peer(&mut self, recipient_phone: &E164) -> Result<()> {
+		info!("Start of retrieve_and_store_peer() at {}", generate_timestamp());
 		let uuid = self.make_discovery_request(recipient_phone).await?;
 
 		let new_id = self.context.peer_cache.last_id + 1;
@@ -715,6 +722,7 @@ where
 		debug!("Calling fill_peer_info() from inside retrieve_and_store_peer() for uuid {} retrieved for phone number {}", &address, &recipient_phone);
 		self.fill_peer_info(&address).await?;
 
+		info!("End of retrieve_and_store_peer() at {}", generate_timestamp());
 		Ok(())
 	}
 
@@ -725,6 +733,7 @@ where
 	///
 	/// * `uuid` - The address of the peer whose information we are retrieving. A UUID is required for this.
 	pub async fn request_peer_info(&self, uuid: &Uuid) -> Result<PeerInfoReply> {
+		info!("Start of request_peer_info() at {}", generate_timestamp());
 		let uuid_str = uuid.to_string();
 		let path: String = format!(
 			"https://textsecure-service.whispersystems.org/v2/keys/{}/*",
@@ -744,6 +753,7 @@ where
 		debug!("Peer keys response: {:?}", res_str);
 
 		let info: PeerInfoReply = serde_json::from_str(&res_str)?;
+		info!("End of request_peer_info() at {}", generate_timestamp());
 		Ok(info)
 	}
 
@@ -755,6 +765,7 @@ where
 	///
 	/// * `recipient_phone` - The phone number we are attempting to retrieve a corresponding UUID for.
 	pub async fn make_discovery_request(&mut self, recipient_phone: &E164) -> Result<Uuid> {
+		info!("Start of make_discovery_request() at {}", generate_timestamp());
 		//Get upgraded auth for discovery / directory.
 		let auth = self.context.identity.make_auth_header();
 		let req = common_http_headers(
@@ -889,6 +900,7 @@ where
 			"Successfully decoded discovery response! The recipient's UUID is: {:?}",
 			uuid
 		);
+		info!("End of make_discovery_request() at {}", generate_timestamp());
 		Ok(uuid)
 	}
 
@@ -901,6 +913,7 @@ where
 		&mut self,
 		recipient_addr: &AuxinAddress,
 	) -> std::result::Result<auxin_protos::PaymentAddress, PaymentAddressRetrievalError> {
+		info!("Start of retrieve_payment_address() at {}", generate_timestamp());
 		self.ensure_peer_loaded(recipient_addr).await.map_err(|e| {
 			PaymentAddressRetrievalError::ErrPeer {
 				peer: recipient_addr.clone(),
@@ -1071,6 +1084,7 @@ where
 							peer: recipient.clone(),
 							msg: format!("{:?}", e),
 						})?;
+					info!("End of retrieve_payment_address() at {}", generate_timestamp());
 					return Ok(payment_address);
 				};
 				Err(PaymentAddressRetrievalError::NoPaymentAddressForUser {
@@ -1149,6 +1163,7 @@ where
 	}
 
 	async fn record_ids_from_message(&mut self, message: &MessageIn) -> Result<()> {
+		info!("Start of record_ids_from_message() at {}", generate_timestamp());
 		let completed_addr = self
 			.context
 			.peer_cache
@@ -1182,6 +1197,7 @@ where
 				}
 			}
 		}
+		info!("End of record_ids_from_message() at {}", generate_timestamp());
 		Ok(())
 	}
 
@@ -1201,6 +1217,7 @@ where
 	/// * `msg` - A WebSocketMessage polled from Signal's websocket API (wss://textsecure-service.whispersystems.org/v1/websocket/).
 	/// This is the "WebSocketMessage" protocol buffer struct as defined in websocket.proto
 	pub async fn receive_and_acknowledge(&mut self, msg: &auxin_protos::WebSocketMessage) -> std::result::Result<Option<MessageIn>, ReceiveError> {
+		info!("Start of receive_and_acknowledge() at {}", generate_timestamp());
 		let msg_maybe = self.receive_decode(msg).await?;
 
 		// See if we need to send a receipt. 
@@ -1212,6 +1229,7 @@ where
 					.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
 			}
 		}
+		info!("End of receive_and_acknowledge() at {}", generate_timestamp());
 		Ok(msg_maybe)
 	}
 
@@ -1295,6 +1313,7 @@ where
 				Err(HandleEnvelopeError::UnknownEnvelopeType(envelope))
 			}
 			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some({
+				info!("Start of decrypting a standard ciphertext message at {}", generate_timestamp());
 				let result =
 					MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng)
 						.await?;
@@ -1308,11 +1327,13 @@ where
 						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
+				info!("End of decrypting a standard ciphertext message at {}", generate_timestamp());
 				//Return
 				result
 			})),
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
 			auxin_protos::Envelope_Type::PREKEY_BUNDLE => {
+				info!("Start of decrypting a prekey bundle message at {}", generate_timestamp());
 				if !(envelope.has_sourceUuid() || envelope.has_sourceE164()) {
 					return Err(HandleEnvelopeError::PreKeyNoAddress);
 				}
@@ -1411,28 +1432,33 @@ where
 						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
+				info!("End of decrypting a prekey bundle message at {}", generate_timestamp());
 				Ok(Some(result))
 			}
 			auxin_protos::Envelope_Type::RECEIPT => Ok(Some({
+				info!("Start of decoding a receipt message at {}", generate_timestamp());
 				let result = MessageIn::from_receipt(envelope, &mut self.context).await?;
 
 				//Receipts cannot be end-session messages.
 				self.record_ids_from_message(&result).await.unwrap();
+				info!("End of decoding a receipt message at {}", generate_timestamp());
 
 				result
 			})),
 			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some({
+				info!("Start of decrypting a sealed-sender message at {}", generate_timestamp());
 				let result = MessageIn::from_sealed_sender(envelope, &mut self.context).await?;
 
 				self.record_ids_from_message(&result).await.unwrap();
 
 				if result.content.end_session {
-					debug!("Got an END_SESSION flag from a peer, clearing out their session state. Message was: {:?}", &result);
+					info!("Got an END_SESSION flag from a peer, clearing out their session state. Message was: {:?}", &result);
 					self.clear_session(&result.remote_address.address)
 						.await
 						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
+				info!("End of decrypting a sealed-sender message at {}", generate_timestamp());
 				//Return
 				result
 			})),

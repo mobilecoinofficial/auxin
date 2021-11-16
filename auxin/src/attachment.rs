@@ -20,10 +20,10 @@ pub mod download {
 	use std::convert::TryFrom;
 
 	use auxin_protos::protos::signalservice::AttachmentPointer;
-	use log::{debug, warn};
+	use log::{debug, info, warn};
 	use serde::{Deserialize, Serialize};
 
-	use crate::net::AuxinHttpsConnection;
+	use crate::{generate_timestamp, net::AuxinHttpsConnection};
 
 	use block_modes::BlockMode;
 
@@ -357,6 +357,7 @@ pub mod download {
 		http_client: H,
 		cdn_address: &str,
 	) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
+		info!("Start of retrieve_attachment() at {}", generate_timestamp());
 		let meta =
 			AttachmentMetadata::try_from(&attachment).map_err(AttachmentDownloadError::Meta)?;
 		let download_path = match &meta.attachment_identifier {
@@ -385,6 +386,7 @@ pub mod download {
 			"If we were to save this as a file, the filename would be: {}",
 			meta.get_or_generate_filename()
 		);
+		info!("End of retrieve_attachment() at {}", generate_timestamp());
 		Ok(EncryptedAttachment {
 			metadata: meta,
 			ciphertext: body,
@@ -395,7 +397,7 @@ pub mod download {
 pub mod upload {
 	use auxin_protos::AttachmentPointer;
 	use block_modes::BlockMode;
-	use log::debug;
+	use log::{debug, info};
 	use rand::{CryptoRng, Rng, RngCore};
 	use ring::{
 		digest::SHA256,
@@ -404,7 +406,7 @@ pub mod upload {
 
 	use serde::{Deserialize, Serialize};
 
-	use crate::net::{AuxinHttpsConnection, MultipartEntry};
+	use crate::{generate_timestamp, net::{AuxinHttpsConnection, MultipartEntry}};
 
 	use super::AttachmentCipher;
 
@@ -491,6 +493,7 @@ pub mod upload {
 		attachment: &[u8],
 		rng: &mut R,
 	) -> std::result::Result<PreparedAttachment, AttachmentEncryptError> {
+		info!("Start of encrypt_attachment() at {}", generate_timestamp());
 		let unpadded_size = attachment.len();
 
 		//Set up ciphers and such
@@ -542,6 +545,7 @@ pub mod upload {
 		//Write the tag after our ciphertext.
 		output.extend_from_slice(signature.as_ref());
 
+		info!("End of encrypt_attachment() at {}", generate_timestamp());
 		Ok(PreparedAttachment {
 			filename: filename.to_string(),
 			data: output,
@@ -584,6 +588,7 @@ pub mod upload {
 		auth: (&str, &str),
 		http_client: H,
 	) -> std::result::Result<PreUploadToken, AttachmentUploadError> {
+		info!("Start of request_attachment_token() at {}", generate_timestamp());
 		let req_addr = super::ATTACHMENT_UPLOAD_START_PATH.to_string();
 
 		let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
@@ -606,6 +611,7 @@ pub mod upload {
 		let result: PreUploadToken = serde_json::from_str(&body).map_err(|e| {
 			AttachmentUploadError::CantDeserializePreUploadToken(format!("{:?}", e))
 		})?;
+		info!("End of request_attachment_token() at {}", generate_timestamp());
 		Ok(result)
 	}
 
@@ -625,6 +631,7 @@ pub mod upload {
 		http_client: H,
 		cdn_address: &str,
 	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
+		info!("Start of upload_attachment() at {}", generate_timestamp());
 		let upload_address = format!("{}/attachments/", cdn_address);
 
 		let mut multipart_form = Vec::default();
@@ -715,6 +722,7 @@ pub mod upload {
 
 		attachment_pointer.set_contentType(mime_name.to_string());
 
+		info!("End of upload_attachment() at {}", generate_timestamp());
 		Ok(attachment_pointer)
 	}
 }
