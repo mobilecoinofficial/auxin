@@ -434,6 +434,10 @@ pub async fn main() -> Result<()> {
 			let payaddr_json = serde_json::to_string(&payment_address).unwrap();
 			println!("{}", payaddr_json);
 		}
+    	AuxinCommand::SetProfile(cmd) => {
+			let resp = handle_set_profile_command(cmd, &mut app).await?;
+			println!("Successfully updated Signal user profile! Http response was {:?}", resp); 
+		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	Ok(())

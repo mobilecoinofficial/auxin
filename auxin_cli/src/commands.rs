@@ -71,6 +71,8 @@ pub enum AuxinCommand {
 	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
 	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 	Repl,
+	/// Update one or more fields on your user profile via SIgnal's web API. 
+	SetProfile(SetProfileCommand), 
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -131,6 +133,13 @@ pub struct ReceiveCommand {
 pub struct GetPayAddrCommand {
 	/// Sets the address identifying the peer whose payment address we are retrieving.
 	pub peer_name: String,
+}
+
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct SetProfileCommand { 
+	/// Sets the address identifying the peer whose payment address we are retrieving.
+	/// Pass as a string on the command line, or as a json object in jsonrpc. 
+	pub profile_fields: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -535,6 +544,40 @@ pub async fn process_jsonrpc_input(
 					}),
 				}
 			},
+			"set-profile" | "setprofile" => { 
+				match serde_json::from_value::<SetProfileCommand>(req.params) {
+					// Is this a valid parameter? 
+					Ok(cmd) => {
+						match handle_set_profile_command(cmd, app).await {
+							Ok(response) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
+								jsonrpc: JSONRPC_VER.to_string(),
+								// send_output shouldn't be possible to error while encoding to json. 
+								result: serde_json::Value::String(format!("{:?}", response)),
+								id: req.id.clone(),
+							}),
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+								jsonrpc: JSONRPC_VER.to_string(),
+								error: JsonRpcError {
+									code: -32099,
+									message: String::from("Couldn't set profile."),
+									data: Some(serde_json::Value::String(format!("{:?}", e))),
+								},
+								id: req.id.clone(),
+							}),
+						}
+					}, 
+					// Could not decode params
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+						jsonrpc: JSONRPC_VER.to_string(),
+						error: JsonRpcError {
+							code: -32602,
+							message: String::from("Invalid method parameter(s) for \"set-profile\"."),
+							data: Some(serde_json::Value::String(format!("{:?}", e))),
+						},
+						id: req.id.clone(),
+					}),
+				}
+			},
 			// Not a valid command! 
 			_ => JsonRpcResponse::Err(JsonRpcErrorResponse { 
 				jsonrpc: JSONRPC_VER.to_string(),
@@ -719,6 +762,16 @@ pub async fn handle_receive_command(
 	}
 
 	Ok(messages)
+}
+
+
+pub async fn handle_set_profile_command(
+	cmd: SetProfileCommand,
+	app: &mut crate::app::App,
+) -> Result<http::Response<String>> {
+	let params = serde_json::from_value(cmd.profile_fields)?;
+	//TODO: Service configuration to select base URL.
+	Ok(app.upload_profile("https://textsecure-service.whispersystems.org", params).await?)
 }
 
 #[allow(unused_assignments)]

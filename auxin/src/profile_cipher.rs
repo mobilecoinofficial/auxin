@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use zkgroup::profiles::ProfileKey;
 
 #[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ProfileName<S> {
     pub given_name: S,
     pub family_name: Option<S>,

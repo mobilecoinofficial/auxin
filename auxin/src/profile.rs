@@ -3,6 +3,7 @@ use log::debug;
 use protobuf::CodedOutputStream;
 use protobuf::Message;
 use rand::{CryptoRng, Rng};
+use serde::Deserialize;
 use serde::Serialize;
 use uuid::Uuid;
 use crate::LocalIdentity;
@@ -13,7 +14,7 @@ use crate::utils::{serde_base64, serde_optional_base64};
 use zkgroup::profiles::{ProfileKeyVersion}; 
 
 /// Parameters for a Signal user profile, plaintext, as provided by the user.
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileConfig { 
     pub about: Option<String>,
@@ -47,7 +48,6 @@ pub struct ProfileSetRequest {
     #[serde(with = "serde_base64")]
     commitment: Vec<u8>,
 }
-
 
 /// Prepare a ProfileSetRequest from the given arguments. This struct can be serialized to json and sent in the body of
 /// a PUT request to "/v1/profile/%s" to modify your profile. 
