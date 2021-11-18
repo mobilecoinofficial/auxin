@@ -2,17 +2,19 @@ use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
 	Nonce,
 };
-use rand::{CryptoRng, Rng, RngCore};
-use libsignal_protocol::{
-	IdentityKeyPair,
-	InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore,
-	InMemSignedPreKeyStore, SenderCertificate,
-};
 use custom_error::custom_error;
+use libsignal_protocol::{
+	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore,
+	InMemSessionStore, InMemSignedPreKeyStore, SenderCertificate,
+};
 use log::debug;
+use rand::{CryptoRng, Rng, RngCore};
 use uuid::Uuid;
 
-use crate::{address::*, state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode}};
+use crate::{
+	address::*,
+	state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode},
+};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 pub type ProfileKey = [u8; PROFILE_KEY_LEN];

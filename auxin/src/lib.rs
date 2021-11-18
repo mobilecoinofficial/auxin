@@ -19,17 +19,23 @@ use custom_error::custom_error;
 use futures::TryFutureExt;
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
-	PreKeySignalMessage, ProtocolAddress, PublicKey,
-	SessionRecord, SessionStore, SignalProtocolError,
+	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
+	SignalProtocolError,
 };
 use log::{debug, error, info, trace, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
 use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
-use profile::{ProfileConfig};
+use profile::ProfileConfig;
 use protobuf::CodedInputStream;
 use serde_json::json;
-use std::{collections::{HashMap, HashSet}, convert::TryFrom, error::Error, fmt::Debug, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+	collections::{HashMap, HashSet},
+	convert::TryFrom,
+	error::Error,
+	fmt::Debug,
+	time::{SystemTime, UNIX_EPOCH},
+};
 use uuid::Uuid;
 
 pub mod address;
@@ -43,8 +49,8 @@ pub mod profile_cipher;
 pub mod state;
 pub mod utils;
 
-pub use message::Timestamp;
 pub use context::*;
+pub use message::Timestamp;
 
 /// Self-signing root cert for TLS connections to Signal's web API..
 pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
@@ -52,18 +58,22 @@ pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
 pub const IAS_TRUST_ANCHOR: &[u8] = include_bytes!("../data/ias.der");
 
 use rand::{CryptoRng, Rng, RngCore};
-use state::{
-	AuxinStateManager, PeerIdentity, 
-	PeerInfoReply, PeerRecord, PeerStore
-};
+use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerStore};
 
-use crate::{attachment::download::EncryptedAttachment, discovery::{
+use crate::{
+	attachment::download::EncryptedAttachment,
+	discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
-	}, message::{
+	},
+	message::{
 		address_from_envelope, fix_protobuf_buf, remove_message_padding, AuxinMessageList,
 		MessageContent, MessageSendMode,
-	}, net::common_http_headers, profile::build_set_profile_request, state::{try_excavate_registration_id, ForeignPeerProfile, ProfileResponse}};
+	},
+	net::common_http_headers,
+	profile::build_set_profile_request,
+	state::{try_excavate_registration_id, ForeignPeerProfile, ProfileResponse},
+};
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -206,7 +216,6 @@ impl From<MessageInError> for HandleEnvelopeError {
 	}
 }
 
-
 /// Any error encountered while receiving and decoding a message.
 #[derive(Debug)]
 pub enum ReceiveError {
@@ -269,8 +278,6 @@ impl From<HandleEnvelopeError> for ReceiveError {
 		}
 	}
 }
-
-
 
 #[derive(Debug)]
 pub enum SetProfileError {
@@ -563,7 +570,10 @@ where
 	/// Get a sender certificate for ourselves from Signal's web API, so that we can send sealed_sender messages properly.
 	/// Retrieved through a request to https://textsecure-service.whispersystems.org/v1/certificate/delivery
 	pub async fn retrieve_sender_cert(&mut self) -> Result<()> {
-		info!("Start of retrieve_sender_cert() at {}", generate_timestamp());
+		info!(
+			"Start of retrieve_sender_cert() at {}",
+			generate_timestamp()
+		);
 		let trust_root = sealed_sender_trust_root();
 
 		let sender_cert_request: http::Request<Vec<u8>> =
@@ -709,7 +719,10 @@ where
 	///
 	/// * `recipient_addr` - The address of the peer whose contact information we are retrieving.
 	pub async fn retrieve_and_store_peer(&mut self, recipient_phone: &E164) -> Result<()> {
-		info!("Start of retrieve_and_store_peer() at {}", generate_timestamp());
+		info!(
+			"Start of retrieve_and_store_peer() at {}",
+			generate_timestamp()
+		);
 		let uuid = self.make_discovery_request(recipient_phone).await?;
 
 		let new_id = self.context.peer_cache.last_id + 1;
@@ -735,7 +748,10 @@ where
 		debug!("Calling fill_peer_info() from inside retrieve_and_store_peer() for uuid {} retrieved for phone number {}", &address, &recipient_phone);
 		self.fill_peer_info(&address).await?;
 
-		info!("End of retrieve_and_store_peer() at {}", generate_timestamp());
+		info!(
+			"End of retrieve_and_store_peer() at {}",
+			generate_timestamp()
+		);
 		Ok(())
 	}
 
@@ -770,7 +786,7 @@ where
 		Ok(info)
 	}
 
-	pub async fn upgrade_auth_header(&mut self) -> Result<String>{ 
+	pub async fn upgrade_auth_header(&mut self) -> Result<String> {
 		let auth = self.context.identity.make_auth_header();
 		let req = common_http_headers(
 			http::Method::GET,
@@ -808,7 +824,10 @@ where
 	///
 	/// * `recipient_phone` - The phone number we are attempting to retrieve a corresponding UUID for.
 	pub async fn make_discovery_request(&mut self, recipient_phone: &E164) -> Result<Uuid> {
-		info!("Start of make_discovery_request() at {}", generate_timestamp());
+		info!(
+			"Start of make_discovery_request() at {}",
+			generate_timestamp()
+		);
 		//Get upgraded auth for discovery / directory.
 		let upgraded_auth_header = self.upgrade_auth_header().await?;
 		//Temporary Keypair for discovery
@@ -917,7 +936,10 @@ where
 			"Successfully decoded discovery response! The recipient's UUID is: {:?}",
 			uuid
 		);
-		info!("End of make_discovery_request() at {}", generate_timestamp());
+		info!(
+			"End of make_discovery_request() at {}",
+			generate_timestamp()
+		);
 		Ok(uuid)
 	}
 
@@ -930,7 +952,10 @@ where
 		&mut self,
 		recipient_addr: &AuxinAddress,
 	) -> std::result::Result<auxin_protos::PaymentAddress, PaymentAddressRetrievalError> {
-		info!("Start of retrieve_payment_address() at {}", generate_timestamp());
+		info!(
+			"Start of retrieve_payment_address() at {}",
+			generate_timestamp()
+		);
 		self.ensure_peer_loaded(recipient_addr).await.map_err(|e| {
 			PaymentAddressRetrievalError::ErrPeer {
 				peer: recipient_addr.clone(),
@@ -1101,7 +1126,10 @@ where
 							peer: recipient.clone(),
 							msg: format!("{:?}", e),
 						})?;
-					info!("End of retrieve_payment_address() at {}", generate_timestamp());
+					info!(
+						"End of retrieve_payment_address() at {}",
+						generate_timestamp()
+					);
 					return Ok(payment_address);
 				};
 				Err(PaymentAddressRetrievalError::NoPaymentAddressForUser {
@@ -1180,7 +1208,10 @@ where
 	}
 
 	async fn record_ids_from_message(&mut self, message: &MessageIn) -> Result<()> {
-		info!("Start of record_ids_from_message() at {}", generate_timestamp());
+		info!(
+			"Start of record_ids_from_message() at {}",
+			generate_timestamp()
+		);
 		let completed_addr = self
 			.context
 			.peer_cache
@@ -1214,31 +1245,40 @@ where
 				}
 			}
 		}
-		info!("End of record_ids_from_message() at {}", generate_timestamp());
+		info!(
+			"End of record_ids_from_message() at {}",
+			generate_timestamp()
+		);
 		Ok(())
 	}
 
-	/// Handle an incoming message, process it from a Signal-protocol websocket message. 
+	/// Handle an incoming message, process it from a Signal-protocol websocket message.
 	/// This automatically sends a receipt notifying the sender that we have received this message.
-	/// 
+	///
 	/// Note that this does NOT send a WebSocketMessage response to the server - that layer of the
-	/// protocol is not handled by Auxin App. If you are writing a message receiver loop, please 
+	/// protocol is not handled by Auxin App. If you are writing a message receiver loop, please
 	/// ensure that you also acknowledge messages inside the Websocket channel properly.
-	/// 
+	///
 	/// Returns the decoded message.
-	/// 
+	///
 	/// Returns `Ok(None)` (and logs a warning) on recoverable error.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `msg` - A WebSocketMessage polled from Signal's websocket API (wss://textsecure-service.whispersystems.org/v1/websocket/).
 	/// This is the "WebSocketMessage" protocol buffer struct as defined in websocket.proto
-	pub async fn receive_and_acknowledge(&mut self, msg: &auxin_protos::WebSocketMessage) -> std::result::Result<Option<MessageIn>, ReceiveError> {
-		info!("Start of receive_and_acknowledge() at {}", generate_timestamp());
+	pub async fn receive_and_acknowledge(
+		&mut self,
+		msg: &auxin_protos::WebSocketMessage,
+	) -> std::result::Result<Option<MessageIn>, ReceiveError> {
+		info!(
+			"Start of receive_and_acknowledge() at {}",
+			generate_timestamp()
+		);
 		let msg_maybe = self.receive_decode(msg).await?;
 
-		// See if we need to send a receipt. 
-		if let Some(msg_ok) = &msg_maybe { 
+		// See if we need to send a receipt.
+		if let Some(msg_ok) = &msg_maybe {
 			if msg_ok.needs_receipt() {
 				let receipt = msg_ok.generate_receipt(auxin_protos::ReceiptMessage_Type::DELIVERY);
 				self.send_message(&msg_ok.remote_address.address, receipt)
@@ -1246,22 +1286,28 @@ where
 					.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
 			}
 		}
-		info!("End of receive_and_acknowledge() at {}", generate_timestamp());
+		info!(
+			"End of receive_and_acknowledge() at {}",
+			generate_timestamp()
+		);
 		Ok(msg_maybe)
 	}
 
-	/// Handle an incoming message, process it from a Signal-protocol websocket message. 
-	/// Updates ratchet key state accordingly. 
-	/// 
+	/// Handle an incoming message, process it from a Signal-protocol websocket message.
+	/// Updates ratchet key state accordingly.
+	///
 	/// Returns the decoded message.
-	/// 
+	///
 	/// Returns `Ok(None)` (and logs a warning) on recoverable error.
 	///
 	/// # Arguments
-	/// 
+	///
 	/// * `msg` - A WebSocketMessage polled from Signal's websocket API (wss://textsecure-service.whispersystems.org/v1/websocket/).
 	/// This is the "WebSocketMessage" protocol buffer struct as defined in websocket.proto
-	pub async fn receive_decode(&mut self, msg: &auxin_protos::WebSocketMessage) -> std::result::Result<Option<MessageIn>, ReceiveError> {
+	pub async fn receive_decode(
+		&mut self,
+		msg: &auxin_protos::WebSocketMessage,
+	) -> std::result::Result<Option<MessageIn>, ReceiveError> {
 		trace!("Receive_decode on {:?}", msg);
 		match msg.get_field_type() {
 			auxin_protos::WebSocketMessage_Type::UNKNOWN => Err(ReceiveError::UnknownWebsocketTy),
@@ -1330,7 +1376,10 @@ where
 				Err(HandleEnvelopeError::UnknownEnvelopeType(envelope))
 			}
 			auxin_protos::Envelope_Type::CIPHERTEXT => Ok(Some({
-				info!("Start of decrypting a standard ciphertext message at {}", generate_timestamp());
+				info!(
+					"Start of decrypting a standard ciphertext message at {}",
+					generate_timestamp()
+				);
 				let result =
 					MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng)
 						.await?;
@@ -1344,13 +1393,19 @@ where
 						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
-				info!("End of decrypting a standard ciphertext message at {}", generate_timestamp());
+				info!(
+					"End of decrypting a standard ciphertext message at {}",
+					generate_timestamp()
+				);
 				//Return
 				result
 			})),
 			auxin_protos::Envelope_Type::KEY_EXCHANGE => todo!(),
 			auxin_protos::Envelope_Type::PREKEY_BUNDLE => {
-				info!("Start of decrypting a prekey bundle message at {}", generate_timestamp());
+				info!(
+					"Start of decrypting a prekey bundle message at {}",
+					generate_timestamp()
+				);
 				if !(envelope.has_sourceUuid() || envelope.has_sourceE164()) {
 					return Err(HandleEnvelopeError::PreKeyNoAddress);
 				}
@@ -1431,7 +1486,7 @@ where
 					&remote_address.address,
 					&mut self.context,
 				)?;
-				
+
 				let result = MessageIn {
 					content: MessageContent::try_from(content)?,
 					remote_address,
@@ -1449,21 +1504,33 @@ where
 						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
-				info!("End of decrypting a prekey bundle message at {}", generate_timestamp());
+				info!(
+					"End of decrypting a prekey bundle message at {}",
+					generate_timestamp()
+				);
 				Ok(Some(result))
 			}
 			auxin_protos::Envelope_Type::RECEIPT => Ok(Some({
-				info!("Start of decoding a receipt message at {}", generate_timestamp());
+				info!(
+					"Start of decoding a receipt message at {}",
+					generate_timestamp()
+				);
 				let result = MessageIn::from_receipt(envelope, &mut self.context).await?;
 
 				//Receipts cannot be end-session messages.
 				self.record_ids_from_message(&result).await.unwrap();
-				info!("End of decoding a receipt message at {}", generate_timestamp());
+				info!(
+					"End of decoding a receipt message at {}",
+					generate_timestamp()
+				);
 
 				result
 			})),
 			auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => Ok(Some({
-				info!("Start of decrypting a sealed-sender message at {}", generate_timestamp());
+				info!(
+					"Start of decrypting a sealed-sender message at {}",
+					generate_timestamp()
+				);
 				let result = MessageIn::from_sealed_sender(envelope, &mut self.context).await?;
 
 				self.record_ids_from_message(&result).await.unwrap();
@@ -1475,7 +1542,10 @@ where
 						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
-				info!("End of decrypting a sealed-sender message at {}", generate_timestamp());
+				info!(
+					"End of decrypting a sealed-sender message at {}",
+					generate_timestamp()
+				);
 				//Return
 				result
 			})),
@@ -1549,8 +1619,13 @@ where
 	}
 
 	/// Upload the provided ProfileSetRequest (as generated by build_set_profile_request()) to Signal's web API
-	pub async fn upload_profile(&mut self, base_url: &str, parameters: ProfileConfig) -> crate::Result<http::Response<String>> { 
-		let profile_ciphertext = build_set_profile_request(parameters, &self.context.identity, &mut self.rng)?; 
+	pub async fn upload_profile(
+		&mut self,
+		base_url: &str,
+		parameters: ProfileConfig,
+	) -> crate::Result<http::Response<String>> {
+		let profile_ciphertext =
+			build_set_profile_request(parameters, &self.context.identity, &mut self.rng)?;
 
 		let path = format!("{}/v1/profile", base_url);
 
@@ -1566,17 +1641,19 @@ where
 		debug!("Sending request to update profile: {:?}", &req);
 
 		let res = self.http_client.request(req).await?;
-		let (parts, body) = res.into_parts(); 
+		let (parts, body) = res.into_parts();
 		let body_string = match String::from_utf8(body.clone()) {
 			Ok(st) => st,
 			Err(_) => hex::encode(&body),
 		};
 		let resulting_response = http::Response::from_parts(parts, body_string);
 
-		if !resulting_response.status().is_success() { 
-			return Err(Box::new(SetProfileError::NonSuccessResponse(resulting_response)));
+		if !resulting_response.status().is_success() {
+			return Err(Box::new(SetProfileError::NonSuccessResponse(
+				resulting_response,
+			)));
 		}
-		
+
 		// TODO: Avatar handling - grab avatar URL from http response.
 
 		Ok(resulting_response)

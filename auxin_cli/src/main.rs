@@ -8,7 +8,12 @@
 
 //Auxin dependencies
 
-use auxin::{AuxinApp, AuxinConfig, ReceiveError, Result, address::AuxinAddress, message::{MessageContent, MessageOut}, state::AuxinStateManager};
+use auxin::{
+	address::AuxinAddress,
+	message::{MessageContent, MessageOut},
+	state::AuxinStateManager,
+	AuxinApp, AuxinConfig, ReceiveError, Result,
+};
 
 //External dependencies
 
@@ -19,7 +24,7 @@ use log::{debug, error, trace, warn};
 
 use rand::rngs::OsRng;
 
-use std::{convert::TryFrom};
+use std::convert::TryFrom;
 
 use structopt::StructOpt;
 
@@ -42,7 +47,7 @@ pub mod repl_wrapper;
 pub mod state;
 
 use crate::net::AuxinTungsteniteConnection;
-// Dependencies from this crate. 
+// Dependencies from this crate.
 pub use crate::{attachment::*, commands::*};
 use net::load_root_tls_cert;
 pub type Context = auxin::AuxinContext;
@@ -181,12 +186,13 @@ pub async fn main() -> Result<()> {
 		}
 		AuxinCommand::ReceiveLoop => {
 			let exit = false;
-			let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?; 
+			let mut receiver =
+				AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
 			while !exit {
 				while let Some(Ok(wsmessage)) = receiver.next().await {
 					let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
 
-					if let Some(msg) = msg_maybe { 
+					if let Some(msg) = msg_maybe {
 						let msg_json = serde_json::to_string(&msg).unwrap();
 						println!("{}", msg_json);
 					}
@@ -216,29 +222,28 @@ pub async fn main() -> Result<()> {
 		// A simple echo server for demonstration purposes. Loops until killed.
 		AuxinCommand::Echoserver => {
 			let exit = false;
-			let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?; 
+			let mut receiver =
+				AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
 			while !exit {
 				while let Some(msg) = receiver.next().await {
 					let wsmessage = msg.unwrap();
 					let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
 
-					if let Some(msg) = msg_maybe { 
-
+					if let Some(msg) = msg_maybe {
 						let msg_json = serde_json::to_string(&msg).unwrap();
 						println!("{}", msg_json);
-	
+
 						if msg.content.receipt_message.is_none() {
 							if let Some(st) = msg.content.text_message {
 								info!("Message received with text \"{}\", replying...", st);
-								app
-									.send_message(
-										&msg.remote_address.address,
-										MessageOut {
-											content: MessageContent::default().with_text(st.clone()),
-										},
-									)
-									.await
-									.unwrap();
+								app.send_message(
+									&msg.remote_address.address,
+									MessageOut {
+										content: MessageContent::default().with_text(st.clone()),
+									},
+								)
+								.await
+								.unwrap();
 							}
 						}
 					}
@@ -267,7 +272,7 @@ pub async fn main() -> Result<()> {
 			let reader = tokio::io::BufReader::new(stdin);
 			let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
 
-			// --- SET UP OUR STDIN READER TASK  
+			// --- SET UP OUR STDIN READER TASK
 
 			//How many lines can we receive in one pass?
 			const LINE_BUF_COUNT: usize = 4096;
@@ -281,25 +286,26 @@ pub async fn main() -> Result<()> {
 				// Poll stdin
 				let maybe_input = block_on(lines.next_line());
 				// What did we get back from stdin?
-				match maybe_input { 
-					Ok(Some(input)) => { 
-						//Pass along a valid string. 
-						block_on(line_sender.send(Ok(input)))
-					.expect(format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str());
-					}, 
+				match maybe_input {
+					Ok(Some(input)) => {
+						//Pass along a valid string.
+						block_on(line_sender.send(Ok(input))).expect(
+							format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str(),
+						);
+					}
 					Err(e) => {
 						// Write a debug string of the error before the sender takes ownership of it.
-						let err_string = format!("{:?}", &e); 
+						let err_string = format!("{:?}", &e);
 						block_on(line_sender.send(std::result::Result::Err(e))) 
 							.expect(format!("Exceeded input buffer of {} lines, while attempting to return error: {:?}", 
 							LINE_BUF_COUNT, err_string).as_str());
-					},
-					// Ignore a None value, continuing to loop on this thread waiting for input. 
-					Ok(None) => {},
+					}
+					// Ignore a None value, continuing to loop on this thread waiting for input.
+					Ok(None) => {}
 				}
 			});
 
-			// ---- SET UP OUR MAGIC MESSAGE RECEIVER 
+			// ---- SET UP OUR MAGIC MESSAGE RECEIVER
 
 			let receiver_credentials = app.context.identity.clone();
 
@@ -311,7 +317,8 @@ pub async fn main() -> Result<()> {
 			) = mpsc::channel(MESSAGE_BUF_COUNT);
 
 			tokio::task::spawn_blocking(move || {
-				let mut receiver = block_on(AuxinTungsteniteConnection::new(receiver_credentials)).unwrap();
+				let mut receiver =
+					block_on(AuxinTungsteniteConnection::new(receiver_credentials)).unwrap();
 
 				loop {
 					while let Some(msg) = block_on(receiver.next()) {
@@ -321,18 +328,17 @@ pub async fn main() -> Result<()> {
 					trace!("Entering sleep...");
 					let sleep_time = Duration::from_millis(100);
 					block_on(tokio::time::sleep(sleep_time));
-	
+
 					if let Err(e) = block_on(receiver.refresh()) {
 						log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-						block_on(receiver
-							.reconnect())
+						block_on(receiver.reconnect())
 							.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 							.unwrap();
 					}
 				}
 			});
 
-			let mut exit = false; 
+			let mut exit = false;
 
 			// Infinite loop
 			while !exit {
@@ -340,9 +346,9 @@ pub async fn main() -> Result<()> {
 				tokio::select! {
 					biased;
 					wsmessage_maybe = msg_receiver.recv() => {
-						if let Some(wsmessage_result) = wsmessage_maybe { 
-							match wsmessage_result { 
-								Ok(wsmessage) => { 
+						if let Some(wsmessage_result) = wsmessage_maybe {
+							match wsmessage_result {
+								Ok(wsmessage) => {
 									let message_maybe = app.receive_and_acknowledge(&wsmessage).await;
 									match message_maybe {
 										// If we actually got any messages this time we checked out mailbox, print them.
@@ -355,7 +361,7 @@ pub async fn main() -> Result<()> {
 											};
 											//Perform some cleanup
 											let message_value = serde_json::to_value(&notification)?;
-											let cleaned_value = clean_json(&message_value)?; 
+											let cleaned_value = clean_json(&message_value)?;
 											//Actually print our output!
 											let message_json = serde_json::to_string(&cleaned_value)?;
 											println!("{}", message_json);
@@ -364,25 +370,25 @@ pub async fn main() -> Result<()> {
 											//Notify them of the error.
 											let json_error = JsonRpcErrorResponse::from(e);
 											let err_value = serde_json::to_value(&json_error)?;
-											let cleaned_value = clean_json(&err_value)?; 
+											let cleaned_value = clean_json(&err_value)?;
 											let resulting_error_json = serde_json::to_string(&cleaned_value)?;
 											println!("{}", resulting_error_json);
 										},
 										Ok(None) => warn!("Recoverable error ignored in websocket message {:?}", &wsmessage),
 									}
-								}, 
-								Err(e) => { 
+								},
+								Err(e) => {
 									let json_error = JsonRpcErrorResponse::from(e);
 									let err_value = serde_json::to_value(&json_error)?;
-									let cleaned_value = clean_json(&err_value)?; 
+									let cleaned_value = clean_json(&err_value)?;
 									let resulting_error_json = serde_json::to_string(&cleaned_value)?;
 									println!("{}", resulting_error_json);
 								}
 							}
 						}
-						else { 
+						else {
 							error!("Message-receiver channel closed unexpectedly. Closing application.");
-							exit = true; 
+							exit = true;
 						}
 					}
 					maybe_input = line_receiver.recv() => {
@@ -400,21 +406,21 @@ pub async fn main() -> Result<()> {
 									}?;
 									// Clean up our json structure for API compatibility with signal-cli.
 									let cleaned_val = clean_json(&result_val)?;
-									// Is this not just a null or an empty list? 
-									if let Some(inner_val) = cleaned_val { 
+									// Is this not just a null or an empty list?
+									if let Some(inner_val) = cleaned_val {
 										// Print it.
 										let result_str = serde_json::to_string(&inner_val)?;
 										println!("{}", result_str);
 									}
 									else {
-										// Entire structure was empty. 
+										// Entire structure was empty.
 										warn!("process_jsonrpc_input() produced an all-empty or all-null output, ignoring it. This was in response to: {}", &input);
 									}
 								}
 							},
-							None => { 
+							None => {
 								error!("Stdin line receiver channel closed unexpectedly. Closing application.");
-								exit = true; 
+								exit = true;
 							},
 						}
 					}
@@ -434,9 +440,12 @@ pub async fn main() -> Result<()> {
 			let payaddr_json = serde_json::to_string(&payment_address).unwrap();
 			println!("{}", payaddr_json);
 		}
-    	AuxinCommand::SetProfile(cmd) => {
+		AuxinCommand::SetProfile(cmd) => {
 			let resp = handle_set_profile_command(cmd, &mut app).await?;
-			println!("Successfully updated Signal user profile! Http response was {:?}", resp); 
+			println!(
+				"Successfully updated Signal user profile! Http response was {:?}",
+				resp
+			);
 		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();

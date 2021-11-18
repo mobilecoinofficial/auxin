@@ -1,6 +1,11 @@
 //Internal dependencies
 
-use auxin::{ReceiveError, Result, address::AuxinAddress, generate_timestamp, message::{MessageContent, MessageIn, MessageOut}};
+use auxin::{
+	address::AuxinAddress,
+	generate_timestamp,
+	message::{MessageContent, MessageIn, MessageOut},
+	ReceiveError, Result,
+};
 
 //External dependencies
 
@@ -71,8 +76,8 @@ pub enum AuxinCommand {
 	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
 	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 	Repl,
-	/// Update one or more fields on your user profile via SIgnal's web API. 
-	SetProfile(SetProfileCommand), 
+	/// Update one or more fields on your user profile via SIgnal's web API.
+	SetProfile(SetProfileCommand),
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -136,9 +141,9 @@ pub struct GetPayAddrCommand {
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
-pub struct SetProfileCommand { 
+pub struct SetProfileCommand {
 	/// Sets the address identifying the peer whose payment address we are retrieving.
-	/// Pass as a string on the command line, or as a json object in jsonrpc. 
+	/// Pass as a string on the command line, or as a json object in jsonrpc.
 	pub profile_fields: serde_json::Value,
 }
 
@@ -251,60 +256,60 @@ pub enum JsonRpcResponse {
 }
 
 impl From<ReceiveError> for JsonRpcErrorResponse {
-    fn from(err_in: ReceiveError) -> Self {
-        let resulting_err = match err_in {
-            ReceiveError::NetSpecific(e) => JsonRpcError {
-                code: -32001,
-                message: String::from("Network Errror"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::SendErr(e) => JsonRpcError {
-                code: -32002,
-                message: String::from("Message Acknowledgement Error"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::InError(e) => JsonRpcError {
-                code: -32003,
-                message: String::from("Incoming Message Decoding Error"),
-                data: Some(serde_json::Value::String(format!("{:?}", e))),
-            },
-            ReceiveError::HandlerError(e) => JsonRpcError {
-                code: -32004,
-                message: String::from("Signal Envelope Handler Error"),
-                data: Some(serde_json::Value::String(format!("{:?}", e))),
-            },
-            ReceiveError::StoreStateError(e) => JsonRpcError {
-                code: -32005,
-                message: String::from("Session-state Error"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::ReconnectErr(e) => JsonRpcError {
-                code: -32006,
-                message: String::from("Unable To Reconnect"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::AttachmentErr(e) => JsonRpcError {
-                code: -32007,
-                message: String::from("Attachment Error"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::DeserializeErr(e) => JsonRpcError {
-                code: -32008,
-                message: String::from("Incoming Message Could Not Be Deserialized"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::UnknownWebsocketTy => JsonRpcError {
-                code: -32009,
-                message: String::from("Invalid Websocket Message Type"),
-                data: None,
-            },
-        };
-		JsonRpcErrorResponse { 
-			jsonrpc: JSONRPC_VER.to_string(), 
+	fn from(err_in: ReceiveError) -> Self {
+		let resulting_err = match err_in {
+			ReceiveError::NetSpecific(e) => JsonRpcError {
+				code: -32001,
+				message: String::from("Network Errror"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::SendErr(e) => JsonRpcError {
+				code: -32002,
+				message: String::from("Message Acknowledgement Error"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::InError(e) => JsonRpcError {
+				code: -32003,
+				message: String::from("Incoming Message Decoding Error"),
+				data: Some(serde_json::Value::String(format!("{:?}", e))),
+			},
+			ReceiveError::HandlerError(e) => JsonRpcError {
+				code: -32004,
+				message: String::from("Signal Envelope Handler Error"),
+				data: Some(serde_json::Value::String(format!("{:?}", e))),
+			},
+			ReceiveError::StoreStateError(e) => JsonRpcError {
+				code: -32005,
+				message: String::from("Session-state Error"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::ReconnectErr(e) => JsonRpcError {
+				code: -32006,
+				message: String::from("Unable To Reconnect"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::AttachmentErr(e) => JsonRpcError {
+				code: -32007,
+				message: String::from("Attachment Error"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::DeserializeErr(e) => JsonRpcError {
+				code: -32008,
+				message: String::from("Incoming Message Could Not Be Deserialized"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::UnknownWebsocketTy => JsonRpcError {
+				code: -32009,
+				message: String::from("Invalid Websocket Message Type"),
+				data: None,
+			},
+		};
+		JsonRpcErrorResponse {
+			jsonrpc: JSONRPC_VER.to_string(),
 			error: resulting_err,
 			id: None,
 		}
-    }
+	}
 }
 
 pub async fn process_jsonrpc_input(
@@ -739,10 +744,10 @@ pub async fn handle_receive_command(
 	let mut messages: Vec<MessageIn> = Vec::default();
 	let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
 	while let Some(wsmessage_maybe) = receiver.next().await {
-		let wsmessage = wsmessage_maybe?; 
+		let wsmessage = wsmessage_maybe?;
 		// Decode/decrypt.
 		let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
-		if let Some(msg) = msg_maybe { 
+		if let Some(msg) = msg_maybe {
 			attachments_to_download.extend_from_slice(&msg.content.attachments);
 			messages.push(msg);
 		}
@@ -764,133 +769,124 @@ pub async fn handle_receive_command(
 	Ok(messages)
 }
 
-
 pub async fn handle_set_profile_command(
 	cmd: SetProfileCommand,
 	app: &mut crate::app::App,
 ) -> Result<http::Response<String>> {
 	let params = serde_json::from_value(cmd.profile_fields)?;
 	//TODO: Service configuration to select base URL.
-	Ok(app.upload_profile("https://textsecure-service.whispersystems.org", params).await?)
+	Ok(app
+		.upload_profile("https://textsecure-service.whispersystems.org", params)
+		.await?)
 }
 
 #[allow(unused_assignments)]
-pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::Value>> { 
+pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::Value>> {
 	use serde_json::Value;
-	let mut output = None; 
+	let mut output = None;
 	match val {
-
 		// Silence nulls
 		Value::Null => output = None,
 
-		// Is this an array of bytes? 
+		// Is this an array of bytes?
 		Value::Array(array) => {
-			// Skip empty arrays. 
-			if array.len() == 0 { 
+			// Skip empty arrays.
+			if array.len() == 0 {
 				output = None;
-			} 
-			else { 
+			} else {
 				// Let's see if this is an array of bytes which needs to turn into a base-64 string.
-				let mut assume_bytes = true; 
+				let mut assume_bytes = true;
 				let mut bytes: Vec<u8> = Vec::default();
-				// Non-empty array 
-				for elem in array.iter() { 
-					let mut byte_value: u8 = 0; 
+				// Non-empty array
+				for elem in array.iter() {
+					let mut byte_value: u8 = 0;
 					// If there is a single non-number type in the array, don't treat it as bytes.
 					// Bytes are also *never* serialized to floating-point numbers.
-					if ( !elem.is_number() ) || elem.is_f64() {
-						//Non-integer. Do not base-64 this. 
+					if (!elem.is_number()) || elem.is_f64() {
+						//Non-integer. Do not base-64 this.
 						assume_bytes = false;
 						break;
 					}
-					// We reached this codepath because elem is a number. 
+					// We reached this codepath because elem is a number.
 					// Vec<u8>s get serialized very naively. So, all numbers should be 0 <= x < 255
-					else if elem.is_i64() { 
+					else if elem.is_i64() {
 						let num = elem.as_i64().unwrap();
-						if num < 0 || num > 255 { 
-							//Out of range. Do not base-64 this. 
+						if num < 0 || num > 255 {
+							//Out of range. Do not base-64 this.
 							assume_bytes = false;
 							break;
-						}
-						else { 
+						} else {
 							byte_value = num as u8;
 						}
-					}
-					else if elem.is_u64() { 
+					} else if elem.is_u64() {
 						let num = elem.as_u64().unwrap();
-						if num > 255 { 
-							//Out of range. Do not base-64 this. 
+						if num > 255 {
+							//Out of range. Do not base-64 this.
 							assume_bytes = false;
 							break;
-						}
-						else { 
+						} else {
 							byte_value = num as u8;
 						}
-					}
-					else { 
-						//Should be unreachable. 
+					} else {
+						//Should be unreachable.
 						unreachable!("Serde_json value was not a number (!elem.is_number() block did not get evaluated), but also did not match any serde_json number type.")
 					}
-	
-					if assume_bytes { 
-						// If we got this far and that boolean is still true, push our byte to the byte buffer. 
+
+					if assume_bytes {
+						// If we got this far and that boolean is still true, push our byte to the byte buffer.
 						bytes.push(byte_value);
 					}
 				}
-				if assume_bytes { 
-					// This is a byte buffer, encode it! 
+				if assume_bytes {
+					// This is a byte buffer, encode it!
 					let base64_string = base64::encode(&bytes);
 					output = Some(Value::String(base64_string));
-				}
-				else {
+				} else {
 					let mut result_array_value = Vec::default();
-					//Recurse on child structures. 
-					for elem in array.iter() { 
-						if let Some(val) = clean_json(elem)? { 
+					//Recurse on child structures.
+					for elem in array.iter() {
+						if let Some(val) = clean_json(elem)? {
 							result_array_value.push(val);
 						}
-						// else { 
-							//skip nulls
+						// else {
+						//skip nulls
 						// }
 					}
 					// Now let's look at what we just made.
 					if result_array_value.len() > 0 {
-						//Make an actual serde_json Value that wraps this. 
+						//Make an actual serde_json Value that wraps this.
 						output = Some(Value::Array(result_array_value));
-					}
-					else { 
+					} else {
 						// Silence empty arrays - zero-length array doesn't get written.
 						output = None;
 					}
 				}
 			}
-		},
+		}
 		// Recursion on object's children
-		Value::Object(obj) => { 
+		Value::Object(obj) => {
 			let mut new_map = serde_json::Map::default();
 			for (name, val) in obj.iter() {
 				if let Some(new_val) = clean_json(val)? {
 					new_map.insert(name.clone(), new_val);
 				}
 			}
-			if new_map.len() > 0 { 
+			if new_map.len() > 0 {
 				output = Some(Value::Object(new_map));
-			}
-			else {
-				//Do not include nulls or empties. 
+			} else {
+				//Do not include nulls or empties.
 				output = None;
 			}
-		},
+		}
 		// Check to see if a string is just ""
-		Value::String(s) => { 
-			if s.is_empty() || s.eq_ignore_ascii_case("") { 
-				output = None; 
-			}
-			else { 
+		Value::String(s) => {
+			if s.is_empty() || s.eq_ignore_ascii_case("") {
+				output = None;
+			} else {
 				output = Some(Value::String(s.clone()));
 			}
-		},
-		// In the case of booleans and numbers, leave the structure alone. 
+		}
+		// In the case of booleans and numbers, leave the structure alone.
 		_ => output = Some(val.clone()),
 	}
 	Ok(output)
