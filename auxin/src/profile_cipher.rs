@@ -203,8 +203,8 @@ impl ProfileCipher {
 		let length_tag = (bytes.len() as i32).to_le_bytes();
 		// length_tag.len() will always be 4 because it is an i32
 		let mut new_bytes = Vec::with_capacity(4 + bytes.len());
-		new_bytes[0..4].copy_from_slice(&length_tag);
-		new_bytes[4..].copy_from_slice(&bytes);
+		new_bytes.extend_from_slice(&length_tag);
+		new_bytes.extend_from_slice(&bytes);
 
 		self.pad_and_encrypt(new_bytes, padding_brackets)
 	}
