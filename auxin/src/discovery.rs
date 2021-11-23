@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use crate::{
 	address::{phone_number_to_long, E164},
 	Result, IAS_TRUST_ANCHOR,

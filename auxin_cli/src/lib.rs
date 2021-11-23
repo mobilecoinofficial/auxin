@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 #![feature(async_closure)]
 #![deny(bare_trait_objects)]
 

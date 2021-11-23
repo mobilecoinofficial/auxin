@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use std::{
 	fs::{read_dir, File, OpenOptions},
 	io::{Read, Write},

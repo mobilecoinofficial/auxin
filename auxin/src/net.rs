@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use std::{fmt::Debug, pin::Pin};
 
 use crate::Result;
