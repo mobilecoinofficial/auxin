@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use crate::app::App;
 use async_global_executor::block_on;
 use auxin::{

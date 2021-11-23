@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use rand::{CryptoRng, Rng};
 use crate::LocalIdentity;
 

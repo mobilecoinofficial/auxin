@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
 	Nonce,

@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use std::{convert::TryFrom, error::Error, str::FromStr};
 
 use crate::Result;
