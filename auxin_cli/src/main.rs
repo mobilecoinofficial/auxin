@@ -18,13 +18,14 @@ use auxin::{
 //External dependencies
 
 use auxin_protos::WebSocketMessage;
+
 use futures::executor::block_on;
 
 use log::{debug, error, trace, warn};
 
 use rand::rngs::OsRng;
 
-use std::convert::TryFrom;
+use std::{convert::TryFrom, path::PathBuf};
 
 use structopt::StructOpt;
 
@@ -54,6 +55,12 @@ pub type Context = auxin::AuxinContext;
 
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
+
+use auxin_protos::AttachmentPointer;
+
+use serde::{Deserialize, Serialize};
+
+use crate::initiate_attachment_downloads;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
@@ -339,13 +346,13 @@ pub async fn main() -> Result<()> {
 			});
 
 			let mut exit = false;
-
 			// Infinite loop
 			while !exit {
 				//Receive first, attempting to ensure messagss are read in the order they are sent.
 				tokio::select! {
 					biased;
 					wsmessage_maybe = msg_receiver.recv() => {
+						let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
 						if let Some(wsmessage_result) = wsmessage_maybe {
 							match wsmessage_result {
 								Ok(wsmessage) => {
@@ -353,6 +360,7 @@ pub async fn main() -> Result<()> {
 									match message_maybe {
 										// If we actually got any messages this time we checked out mailbox, print them.
 										Ok(Some(message)) => {
+											attachments_to_download.extend_from_slice(&message.content.attachments);
 											//Format our output as a JsonRPC notification.
 											let notification = JsonRpcNotification {
 												jsonrpc: String::from(commands::JSONRPC_VER),
@@ -365,6 +373,15 @@ pub async fn main() -> Result<()> {
 											//Actually print our output!
 											let message_json = serde_json::to_string(&cleaned_value)?;
 											println!("{}", message_json);
+											if !(attachments_to_download.is_empty()) {
+											let pending_downloads = initiate_attachment_downloads(
+												attachments_to_download,
+												arguments.download_path.to_str().unwrap().to_string(),
+												app.get_http_client(),
+												Some(ATTACHMENT_TIMEOUT_DURATION),
+											);
+											futures::future::try_join_all(pending_downloads.into_iter()).await?;
+											};
 										},
 										Err(e) => {
 											//Notify them of the error.
