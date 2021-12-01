@@ -18,23 +18,21 @@ use auxin::{
 //External dependencies
 
 use auxin_protos::WebSocketMessage;
+
 use futures::executor::block_on;
 
 use log::{debug, error, trace, warn};
 
 use rand::rngs::OsRng;
 
-use std::convert::TryFrom;
+use std::{convert::TryFrom};
 
 use structopt::StructOpt;
 
-use tokio::{
-	sync::{
+use tokio::{sync::{
 		mpsc,
 		mpsc::{Receiver, Sender},
-	},
-	time::{Duration, Instant},
-};
+	}, task::JoinHandle, time::{Duration, Instant}};
 use tracing::{info, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
@@ -54,6 +52,10 @@ pub type Context = auxin::AuxinContext;
 
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
+
+use auxin_protos::AttachmentPointer;
+
+use crate::initiate_attachment_downloads;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
@@ -338,14 +340,18 @@ pub async fn main() -> Result<()> {
 				}
 			});
 
-			let mut exit = false;
+			// Prepare to (potentially) download attachments
+			//let mut pending_downloads: Vec<attachment::PendingDownload> = Vec::default();
+			let mut download_task_handles: Vec<JoinHandle<std::result::Result<(), AttachmentPipelineError>>> = Vec::default();
 
+			let mut exit = false;
 			// Infinite loop
 			while !exit {
 				//Receive first, attempting to ensure messagss are read in the order they are sent.
 				tokio::select! {
 					biased;
 					wsmessage_maybe = msg_receiver.recv() => {
+						let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
 						if let Some(wsmessage_result) = wsmessage_maybe {
 							match wsmessage_result {
 								Ok(wsmessage) => {
@@ -353,6 +359,7 @@ pub async fn main() -> Result<()> {
 									match message_maybe {
 										// If we actually got any messages this time we checked out mailbox, print them.
 										Ok(Some(message)) => {
+											attachments_to_download.extend_from_slice(&message.content.attachments);
 											//Format our output as a JsonRPC notification.
 											let notification = JsonRpcNotification {
 												jsonrpc: String::from(commands::JSONRPC_VER),
@@ -365,6 +372,22 @@ pub async fn main() -> Result<()> {
 											//Actually print our output!
 											let message_json = serde_json::to_string(&cleaned_value)?;
 											println!("{}", message_json);
+											if !(attachments_to_download.is_empty()) {
+												let message_downloads = initiate_attachment_downloads(
+													attachments_to_download,
+													arguments.download_path.to_str().unwrap().to_string(),
+													app.get_http_client(),
+													Some(ATTACHMENT_TIMEOUT_DURATION),
+												);
+												// Start our downloads.
+												let handle = tokio::spawn(async move {
+													// Transform Result<Vec<()>, E> to Result<(), E> 
+													futures::future::try_join_all(message_downloads.into_iter()).await.map(| _ | { () }) 
+												});
+												// Make sure we do not forget the download - put the task on a list of tasks to 
+												// ensure we complete before exiting. 
+												download_task_handles.push(handle);
+											};
 										},
 										Err(e) => {
 											//Notify them of the error.
@@ -425,6 +448,10 @@ pub async fn main() -> Result<()> {
 						}
 					}
 				}
+			}
+			for handle in download_task_handles { 
+				//Ensure all downloads are completed.
+				handle.await??;
 			}
 		}
 		// Launches a read-evaluate-print loop, for experimentation in a development environment.
