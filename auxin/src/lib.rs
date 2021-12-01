@@ -4,7 +4,7 @@
 
 //! Developer (and bot) friendly wrapper around the Signal protocol.
 
-use address::{AddressError, AuxinAddress, AuxinDeviceAddress, E164};
+use address::{AuxinAddress, AuxinDeviceAddress, E164};
 use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
 	Aes256Gcm, Nonce,
@@ -168,16 +168,60 @@ impl std::fmt::Display for SendMessageError {
 impl std::error::Error for SendMessageError {}
 
 // An error encountered while trying to retrieve another Signal user's payment address (MobileCoin public address)
-custom_error! { pub PaymentAddressRetrievalError
-	NoProfileKey{peer: AuxinAddress} = "Couldn't retrieve payment address for peer {peer} because we do not have a profile key on file for this user.",
-	NoPeer{peer: AuxinAddress} = "Cannot retrieve payment address for peer {peer} because we have no record on this user!",
-	NoPaymentAddressForUser{peer: AuxinAddress} = "Got profile information for {peer}, but no payment address was included.",
-	EncodingError{peer: AuxinAddress, msg: String} = "Error encoding profile/payment-address request for {peer}: {msg}",
-	DecodingError{peer: AuxinAddress, msg: String} = "Error decoding profile/payment-address response for {peer}: {msg}",
-	DecryptingError{peer: AuxinAddress, msg: String} = "Error decrypting profile/payment-address response for {peer}: {msg}",
-	UnidentifiedAccess{peer: AuxinAddress, msg: String} = "Error getting unidentified access for {peer}: {msg}",
-	NoUuid{peer: AuxinAddress, err: AddressError} = "No Uuid for {peer}: {err}",
-	ErrPeer{peer: AuxinAddress, err: String} = "Error loading peer {peer}: {err}",
+#[derive(Debug, Clone)]
+pub enum PaymentAddressRetrievalError {
+	CouldntGetProfile(ProfileRetrievalError),
+	NoPaymentAddressForUser(AuxinAddress),
+	EncodingError(AuxinAddress, String),
+	DecodingError(AuxinAddress, String),
+	DecryptingError(AuxinAddress, String),
+}
+
+impl std::fmt::Display for PaymentAddressRetrievalError {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match &self {
+			PaymentAddressRetrievalError::CouldntGetProfile(err) => write!(f, "Unable to retrieve a user profile for the purpose of getting a mobilecoin address: {:?}", err),
+			PaymentAddressRetrievalError::NoPaymentAddressForUser(peer) => write!(f, "Attempted to get a payment address for user {:?}, but this user has not set a payment address.", peer),
+			PaymentAddressRetrievalError::EncodingError(peer, msg) => write!(f, "Error encoding profile request for {:?}: {}", peer, msg),
+			PaymentAddressRetrievalError::DecodingError(peer, msg) => write!(f, "Error decoding profile response for {:?}: {}", peer, msg),
+			PaymentAddressRetrievalError::DecryptingError(peer, msg) => write!(f, "Error decrypting profile response for {:?}: {}", peer, msg),
+		}
+	}
+}
+impl std::error::Error for PaymentAddressRetrievalError {}
+
+#[derive(Debug, Clone)]
+pub enum ProfileRetrievalError {	
+	NoProfileKey(AuxinAddress),
+	NoPeer(AuxinAddress),
+	EncodingError(AuxinAddress, String),
+	DecodingError(AuxinAddress, String),
+	DecryptingError(AuxinAddress, String),
+	UnidentifiedAccess(AuxinAddress, String),
+	NoUuid(AuxinAddress, String),
+	ErrPeer(AuxinAddress, String),
+}
+
+impl std::fmt::Display for ProfileRetrievalError {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match &self {
+			ProfileRetrievalError::NoProfileKey(peer) => write!(f, "Couldn't retrieve payment address for peer {:?} because we do not have a profile key on file for this user.", peer),
+			ProfileRetrievalError::NoPeer(peer) => write!(f, "Cannot retrieve payment address for peer {:?} because we have no record on this user!", peer),
+			ProfileRetrievalError::EncodingError(peer, msg) => write!(f, "Error encoding profile request for {:?}: {}", peer, msg),
+			ProfileRetrievalError::DecodingError(peer, msg) => write!(f, "Error decoding profile response for {:?}: {}", peer, msg),
+			ProfileRetrievalError::DecryptingError(peer, msg) => write!(f, "Error decrypting profile response for {:?}: {}", peer, msg),
+			ProfileRetrievalError::UnidentifiedAccess(peer, msg) => write!(f, "Error getting unidentified access for {:?}: {}", peer, msg),
+			ProfileRetrievalError::NoUuid(peer, err) => write!(f, "No Uuid for {:?}: {}", peer, err),
+			ProfileRetrievalError::ErrPeer(peer, err) => write!(f, "Error loading peer {:?}: {}", peer, err),
+		}
+	}
+}
+impl std::error::Error for ProfileRetrievalError {}
+
+impl From<ProfileRetrievalError> for PaymentAddressRetrievalError {
+	fn from(val: ProfileRetrievalError) -> Self {
+		PaymentAddressRetrievalError::CouldntGetProfile(val)
+	}
 }
 
 /// An error encountered when an AuxinApp is attemping to handle an incoming envelope.
@@ -943,24 +987,24 @@ where
 		Ok(uuid)
 	}
 
-	/// Attempts to get a SignalPay aaddres / MobileCoin public address.
+	/// Attempts to get a peer's profile information (without decrypting) from Signal's web API.
 	///
 	/// # Arguments
 	///
-	/// * `recipient` - The address of the peer we're attempting to get a payment address for.
-	pub async fn retrieve_payment_address(
+	/// * `recipient` - The address of the peer we're attempting to get an encrypted profile for.
+	pub async fn retrieve_profile(
 		&mut self,
 		recipient_addr: &AuxinAddress,
-	) -> std::result::Result<auxin_protos::PaymentAddress, PaymentAddressRetrievalError> {
+	) -> std::result::Result<ProfileResponse, ProfileRetrievalError> {
 		info!(
-			"Start of retrieve_payment_address() at {}",
+			"Start of retrieve_profile() at {}",
 			generate_timestamp()
 		);
 		self.ensure_peer_loaded(recipient_addr).await.map_err(|e| {
-			PaymentAddressRetrievalError::ErrPeer {
-				peer: recipient_addr.clone(),
-				err: format!("{:?}", e),
-			}
+			ProfileRetrievalError::ErrPeer (
+				recipient_addr.clone(),
+				format!("{:?}", e)
+			)
 		})?;
 		//We may have just grabbed the UUID in ensure_peer_loaded() above, make sure we have a usable address.
 		let recipient = self
@@ -973,20 +1017,20 @@ where
 			if let Some(profile_key) = &peer.profile_key {
 				let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
 				let temp_bytes = base64::decode(profile_key).map_err(|e| {
-					PaymentAddressRetrievalError::EncodingError {
-						peer: recipient.clone(),
-						msg: format!("{:?}", e),
-					}
+					ProfileRetrievalError::EncodingError (
+						recipient.clone(),
+						format!("{:?}", e),
+					)
 				})?;
 				profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
 
 				let uuid =
 					recipient
 						.get_uuid()
-						.map_err(|e| PaymentAddressRetrievalError::NoUuid {
-							peer: recipient.clone(),
-							err: e,
-						})?;
+						.map_err(|e| ProfileRetrievalError::NoUuid (
+							recipient.clone(),
+							format!("{:?}", e),
+						))?;
 
 				let randomness: [u8; 32] = self.rng.gen();
 				let server_secret_params = zkgroup::api::ServerSecretParams::generate(randomness);
@@ -1004,10 +1048,10 @@ where
 				let encoded_request = hex::encode(&bincode::serialize(&request).unwrap());
 
 				let version_bytes = bincode::serialize(&version).map_err(|e| {
-					PaymentAddressRetrievalError::EncodingError {
-						peer: recipient.clone(),
-						msg: format!("{:?}", e),
-					}
+					ProfileRetrievalError::EncodingError (
+						recipient.clone(),
+						format!("{:?}", e),
+					)
 				})?;
 				let version_string = String::from_utf8_lossy(&version_bytes);
 
@@ -1021,130 +1065,186 @@ where
 				let unidentified_access = self
 					.context
 					.get_unidentified_access_for(&recipient, &mut self.rng)
-					.map_err(|e| PaymentAddressRetrievalError::UnidentifiedAccess {
-						peer: recipient.clone(),
-						msg: format!("{:?}", e),
-					})?;
+					.map_err(|e| ProfileRetrievalError::UnidentifiedAccess (
+						recipient.clone(),
+						format!("{:?}", e),
+					))?;
 				let unidentified_access = base64::encode(unidentified_access);
 				let req = common_http_headers(
 					http::Method::GET,
 					&get_path,
 					&self.context.identity.make_auth_header(),
 				)
-				.map_err(|e| PaymentAddressRetrievalError::EncodingError {
-					peer: recipient.clone(),
-					msg: format!("{:?}", e),
-				})?
+				.map_err(|e| ProfileRetrievalError::EncodingError (
+					recipient.clone(),
+					format!("{:?}", e),
+				))?
 				.header("Unidentified-Access-Key", unidentified_access)
 				.body(Vec::default())
-				.map_err(|e| PaymentAddressRetrievalError::EncodingError {
-					peer: recipient.clone(),
-					msg: format!("{:?}", e),
-				})?;
+				.map_err(|e| ProfileRetrievalError::EncodingError (
+					recipient.clone(),
+					format!("{:?}", e),
+				))?;
 				debug!("Requesitng profile key credential with {:?}", req);
 				let response = self.http_client.request(req).await.map_err(|e| {
-					PaymentAddressRetrievalError::EncodingError {
-						peer: recipient.clone(),
-						msg: format!("{:?}", e),
-					}
+					ProfileRetrievalError::EncodingError (
+						recipient.clone(),
+						format!("{:?}", e),
+					)
 				})?;
 
 				let response_str = String::from_utf8(response.body().to_vec()).map_err(|e| {
-					PaymentAddressRetrievalError::DecodingError {
-						peer: recipient.clone(),
-						msg: format!("{:?}", e),
-					}
+					ProfileRetrievalError::DecodingError (
+						recipient.clone(),
+						format!("{:?}", e),
+					)
 				})?;
 
-				let response_structure: ProfileResponse = serde_json::from_str(&response_str)
-					.map_err(|e| PaymentAddressRetrievalError::DecodingError {
-						peer: recipient.clone(),
-						msg: format!("{:?}", e),
-					})?;
+				let profile_response = serde_json::from_str(&response_str)
+					.map_err(|e| ProfileRetrievalError::DecodingError (
+						recipient.clone(),
+						format!("{:?}", e),
+					))?;
+				
+				info!(
+					"End of retrieve_profile() at {}",
+					generate_timestamp()
+				);
 
-				if let Some(address_b64) = &response_structure.payment_address {
-					let key = aes_gcm::Key::from_slice(&profile_key_bytes);
-					let cipher = Aes256Gcm::new(key);
+				return Ok(profile_response);
 
-					let payment_address_bytes = base64::decode(&address_b64).map_err(|e| {
-						PaymentAddressRetrievalError::DecodingError {
-							peer: recipient.clone(),
-							msg: format!("{:?}", e),
-						}
-					})?;
-
-					//                              Nonce + content + ????
-					assert!(payment_address_bytes.len() > 12 + 16);
-
-					let mut nonce_bytes: [u8; 12] = [0; 12];
-					nonce_bytes.copy_from_slice(&payment_address_bytes[0..12]);
-
-					let nonce = Nonce::from_slice(&nonce_bytes);
-
-					let content_len = payment_address_bytes.len() - nonce_bytes.len();
-
-					let mut content_bytes: Vec<u8> = vec![0; content_len];
-
-					// Reminder that slicing [num..] in Rust gives you from index num to the end of the container.
-					content_bytes.copy_from_slice(&payment_address_bytes[nonce_bytes.len()..]);
-					let payload = Payload {
-						msg: &content_bytes,
-						aad: b"",
-					};
-					let decryption_result = cipher.decrypt(nonce, payload).map_err(|e| {
-						PaymentAddressRetrievalError::DecryptingError {
-							peer: recipient.clone(),
-							msg: format!("{:?}", e),
-						}
-					})?;
-
-					// 4 bits len - - 32 bit (signed?) integer describing buffer length.
-					let max_length = (decryption_result.len() - 4) as i32;
-					let mut tag_bytes: [u8; 4] = [0; 4];
-					tag_bytes.copy_from_slice(&decryption_result[0..4]);
-					let length = i32::from_le_bytes(tag_bytes);
-					assert!(length < max_length);
-					assert!(length > 0);
-
-					let length = length as usize;
-					let mut content_bytes: Vec<u8> = vec![0; length];
-
-					// 4 bytes for length - offset by that. Get "length" bytes affter the length tag itself.
-					// The rest is padding.
-					content_bytes.copy_from_slice(&decryption_result[4..(length + 4)]);
-
-					let fixed_buf = fix_protobuf_buf(&content_bytes).map_err(|e| {
-						PaymentAddressRetrievalError::DecodingError {
-							peer: recipient.clone(),
-							msg: format!("{:?}", e),
-						}
-					})?;
-					let mut reader = protobuf::CodedInputStream::from_bytes(&fixed_buf);
-					let payment_address: auxin_protos::PaymentAddress = reader
-						.read_message()
-						.map_err(|e| PaymentAddressRetrievalError::DecodingError {
-							peer: recipient.clone(),
-							msg: format!("{:?}", e),
-						})?;
-					info!(
-						"End of retrieve_payment_address() at {}",
-						generate_timestamp()
-					);
-					return Ok(payment_address);
-				};
-				Err(PaymentAddressRetrievalError::NoPaymentAddressForUser {
-					peer: recipient.clone(),
-				})
 			} else {
-				Err(PaymentAddressRetrievalError::NoProfileKey {
-					peer: recipient.clone(),
-				})
+				Err(ProfileRetrievalError::NoProfileKey(
+					recipient.clone(),
+				))
 			}
 		} else {
-			Err(PaymentAddressRetrievalError::NoPeer {
-				peer: recipient.clone(),
-			})
+			Err(ProfileRetrievalError::NoPeer (
+				recipient.clone(),
+			))
 		}
+	}
+
+	/// Attempts to get a SignalPay aaddres / MobileCoin public address.
+	///
+	/// # Arguments
+	///
+	/// * `recipient` - The address of the peer we're attempting to get a payment address for.
+	pub async fn retrieve_payment_address(
+		&mut self,
+		recipient_addr: &AuxinAddress,
+	) -> std::result::Result<auxin_protos::PaymentAddress, PaymentAddressRetrievalError> {
+		info!(
+			"Start of retrieve_payment_address() at {}",
+			generate_timestamp()
+		);
+		let response_structure = self.retrieve_profile(recipient_addr).await?;
+
+		//We may have just grabbed the UUID in ensure_peer_loaded() inside retrieve_profile(), make sure we have a usable address.
+		let recipient = self
+			.context
+			.peer_cache
+			.complete_address(recipient_addr)
+			.unwrap_or(recipient_addr.clone());
+
+		if let Some(address_b64) = &response_structure.payment_address {
+			// Retrieve profile key 
+			let profile_key = self.context.peer_cache.get(&recipient)
+				.ok_or(
+					PaymentAddressRetrievalError::CouldntGetProfile(
+						ProfileRetrievalError::NoPeer(
+							recipient.clone()
+						)
+				))?.profile_key.as_ref()
+				.ok_or(
+					PaymentAddressRetrievalError::CouldntGetProfile(
+						ProfileRetrievalError::NoProfileKey(
+							recipient.clone()
+						)
+				))?;
+			// Decode it 
+			let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
+			let temp_bytes = base64::decode(profile_key).map_err(|e| {
+				ProfileRetrievalError::EncodingError (
+					recipient.clone(),
+					format!("{:?}", e),
+				)
+			})?;
+			profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
+			
+			//Put it in an actually usable struct. 
+			let key = aes_gcm::Key::from_slice(&profile_key_bytes);
+			let cipher = Aes256Gcm::new(key);
+
+			let payment_address_bytes = base64::decode(&address_b64).map_err(|e| {
+				PaymentAddressRetrievalError::DecodingError(
+					recipient.clone(),
+					format!("{:?}", e),
+				)
+			})?;
+
+			//                              Nonce + content + ????
+			assert!(payment_address_bytes.len() > 12 + 16);
+
+			let mut nonce_bytes: [u8; 12] = [0; 12];
+			nonce_bytes.copy_from_slice(&payment_address_bytes[0..12]);
+
+			let nonce = Nonce::from_slice(&nonce_bytes);
+
+			let content_len = payment_address_bytes.len() - nonce_bytes.len();
+
+			let mut content_bytes: Vec<u8> = vec![0; content_len];
+
+			// Reminder that slicing [num..] in Rust gives you from index num to the end of the container.
+			content_bytes.copy_from_slice(&payment_address_bytes[nonce_bytes.len()..]);
+			let payload = Payload {
+				msg: &content_bytes,
+				aad: b"",
+			};
+			let decryption_result = cipher.decrypt(nonce, payload).map_err(|e| {
+				PaymentAddressRetrievalError::DecryptingError (
+					recipient.clone(),
+					format!("{:?}", e),
+				)
+			})?;
+
+			// 4 bits len - - 32 bit (signed?) integer describing buffer length.
+			let max_length = (decryption_result.len() - 4) as i32;
+			let mut tag_bytes: [u8; 4] = [0; 4];
+			tag_bytes.copy_from_slice(&decryption_result[0..4]);
+			let length = i32::from_le_bytes(tag_bytes);
+			assert!(length < max_length);
+			assert!(length > 0);
+
+			let length = length as usize;
+			let mut content_bytes: Vec<u8> = vec![0; length];
+
+			// 4 bytes for length - offset by that. Get "length" bytes affter the length tag itself.
+			// The rest is padding.
+			content_bytes.copy_from_slice(&decryption_result[4..(length + 4)]);
+
+			let fixed_buf = fix_protobuf_buf(&content_bytes).map_err(|e| {
+				PaymentAddressRetrievalError::DecodingError (
+					recipient.clone(),
+					format!("{:?}", e),
+				)
+			})?;
+			let mut reader = protobuf::CodedInputStream::from_bytes(&fixed_buf);
+			let payment_address: auxin_protos::PaymentAddress = reader
+				.read_message()
+				.map_err(|e| PaymentAddressRetrievalError::DecodingError (
+					recipient.clone(),
+					format!("{:?}", e),
+				))?;
+			info!(
+				"End of retrieve_payment_address() at {}",
+				generate_timestamp()
+			);
+			return Ok(payment_address);
+		};
+		Err(PaymentAddressRetrievalError::NoPaymentAddressForUser (
+			recipient.clone(),
+		))
 	}
 
 	/// Download an attachment from Signal's CDN.
