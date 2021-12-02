@@ -76,7 +76,7 @@ pub enum AuxinCommand {
 	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
 	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 	Repl,
-	/// Update one or more fields on your user profile via SIgnal's web API.
+	/// Update one or more fields on your user profile via Signal's web API.
 	SetProfile(SetProfileCommand),
 }
 
