@@ -122,7 +122,7 @@ where
 	/// This could be a filesystem, call out to a database - so long as it can load and store state for the application.
 	pub state_manager: S,
 	/// The AuxinContext, holds sessions, public keys of other users, and our public and private key, among other things.
-	/// This contains all of the keys and session state required to send and receive SIgnal messages.
+	/// This contains all of the keys and session state required to send and receive Signal messages.
 	pub context: AuxinContext,
 	/// A random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
 	pub rng: R,
