@@ -28,4 +28,4 @@ upload/
 secrets
 
 #Code generated from protocol buffers
-auxin_protos/src/protos/
+# auxin_protos/src/protos/
