@@ -5,17 +5,19 @@ use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
 	Nonce,
 };
-use rand::{CryptoRng, Rng, RngCore};
-use libsignal_protocol::{
-	IdentityKeyPair,
-	InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore, InMemSessionStore,
-	InMemSignedPreKeyStore, SenderCertificate,
-};
 use custom_error::custom_error;
+use libsignal_protocol::{
+	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore,
+	InMemSessionStore, InMemSignedPreKeyStore, SenderCertificate,
+};
 use log::debug;
+use rand::{CryptoRng, Rng, RngCore};
 use uuid::Uuid;
 
-use crate::{address::*, state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode}};
+use crate::{
+	address::*,
+	state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode},
+};
 
 pub const PROFILE_KEY_LEN: usize = 32;
 pub type ProfileKey = [u8; PROFILE_KEY_LEN];
@@ -25,7 +27,7 @@ pub struct AuxinConfig {}
 
 /// Basic signal protocol information and key secrets for the local signal node.
 /// This is not intended to be used to represent peers - instead, this is your user account,
-/// the identity with which interacting with the SIgnal Protocol.
+/// the identity with which interacting with the Signal Protocol.
 /// Primarily includes credentials and identifying information
 #[derive(Clone)]
 pub struct LocalIdentity {
@@ -91,7 +93,7 @@ unsafe impl Send for SignalCtx {}
 
 /// An AuxinContext holds all critical Signal protocol data.
 /// It holds sessions, public keys of other users, and our public and private key, among other things.
-/// This contains all of the keys and session state required to send and receive SIgnal messages.
+/// This contains all of the keys and session state required to send and receive Signal messages.
 #[allow(unused)] // TODO: Remove this after we can send/remove a message.
 				 // This is the structure that an AuxinStateHandler builds and saves.
 pub struct AuxinContext {

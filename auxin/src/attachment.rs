@@ -409,7 +409,10 @@ pub mod upload {
 
 	use serde::{Deserialize, Serialize};
 
-	use crate::{generate_timestamp, net::{AuxinHttpsConnection, MultipartEntry}};
+	use crate::{
+		generate_timestamp,
+		net::{AuxinHttpsConnection, MultipartEntry},
+	};
 
 	use super::AttachmentCipher;
 
@@ -591,7 +594,10 @@ pub mod upload {
 		auth: (&str, &str),
 		http_client: H,
 	) -> std::result::Result<PreUploadToken, AttachmentUploadError> {
-		info!("Start of request_attachment_token() at {}", generate_timestamp());
+		info!(
+			"Start of request_attachment_token() at {}",
+			generate_timestamp()
+		);
 		let req_addr = super::ATTACHMENT_UPLOAD_START_PATH.to_string();
 
 		let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
@@ -614,7 +620,10 @@ pub mod upload {
 		let result: PreUploadToken = serde_json::from_str(&body).map_err(|e| {
 			AttachmentUploadError::CantDeserializePreUploadToken(format!("{:?}", e))
 		})?;
-		info!("End of request_attachment_token() at {}", generate_timestamp());
+		info!(
+			"End of request_attachment_token() at {}",
+			generate_timestamp()
+		);
 		Ok(result)
 	}
 

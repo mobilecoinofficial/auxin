@@ -3,7 +3,12 @@
 
 //Internal dependencies
 
-use auxin::{ReceiveError, Result, address::AuxinAddress, generate_timestamp, message::{MessageContent, MessageIn, MessageOut}};
+use auxin::{
+	address::AuxinAddress,
+	generate_timestamp,
+	message::{MessageContent, MessageIn, MessageOut},
+	ReceiveError, Result, state::{PeerProfile}, ProfileRetrievalError,
+};
 
 //External dependencies
 
@@ -12,6 +17,7 @@ use auxin_protos::AttachmentPointer;
 use log::debug;
 
 use rand::rngs::OsRng;
+use serde_json::json;
 
 use std::{convert::TryFrom, path::PathBuf};
 use structopt::StructOpt;
@@ -74,6 +80,10 @@ pub enum AuxinCommand {
 	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
 	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 	Repl,
+	/// Update one or more fields on your user profile via Signal's web API.
+	SetProfile(SetProfileCommand),
+	/// Retrieve Signal service profile information about a peer
+	GetProfile(GetProfileCommand),
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -134,6 +144,19 @@ pub struct ReceiveCommand {
 pub struct GetPayAddrCommand {
 	/// Sets the address identifying the peer whose payment address we are retrieving.
 	pub peer_name: String,
+}
+
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct GetProfileCommand {
+	/// Sets the address identifying the peer whose payment address we are retrieving.
+	pub peer_name: String,
+}
+
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct SetProfileCommand {
+	/// Sets the address identifying the peer whose payment address we are retrieving.
+	/// Pass as a string on the command line, or as a json object in jsonrpc.
+	pub profile_fields: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -245,60 +268,159 @@ pub enum JsonRpcResponse {
 }
 
 impl From<ReceiveError> for JsonRpcErrorResponse {
-    fn from(err_in: ReceiveError) -> Self {
-        let resulting_err = match err_in {
-            ReceiveError::NetSpecific(e) => JsonRpcError {
-                code: -32001,
-                message: String::from("Network Errror"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::SendErr(e) => JsonRpcError {
-                code: -32002,
-                message: String::from("Message Acknowledgement Error"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::InError(e) => JsonRpcError {
-                code: -32003,
-                message: String::from("Incoming Message Decoding Error"),
-                data: Some(serde_json::Value::String(format!("{:?}", e))),
-            },
-            ReceiveError::HandlerError(e) => JsonRpcError {
-                code: -32004,
-                message: String::from("Signal Envelope Handler Error"),
-                data: Some(serde_json::Value::String(format!("{:?}", e))),
-            },
-            ReceiveError::StoreStateError(e) => JsonRpcError {
-                code: -32005,
-                message: String::from("Session-state Error"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::ReconnectErr(e) => JsonRpcError {
-                code: -32006,
-                message: String::from("Unable To Reconnect"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::AttachmentErr(e) => JsonRpcError {
-                code: -32007,
-                message: String::from("Attachment Error"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::DeserializeErr(e) => JsonRpcError {
-                code: -32008,
-                message: String::from("Incoming Message Could Not Be Deserialized"),
-                data: Some(serde_json::Value::String(e)),
-            },
-            ReceiveError::UnknownWebsocketTy => JsonRpcError {
-                code: -32009,
-                message: String::from("Invalid Websocket Message Type"),
-                data: None,
-            },
-        };
-		JsonRpcErrorResponse { 
-			jsonrpc: JSONRPC_VER.to_string(), 
+	fn from(err_in: ReceiveError) -> Self {
+		let resulting_err = match err_in {
+			ReceiveError::NetSpecific(e) => JsonRpcError {
+				code: -32001,
+				message: String::from("Network Errror"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::SendErr(e) => JsonRpcError {
+				code: -32002,
+				message: String::from("Message Acknowledgement Error"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::InError(e) => JsonRpcError {
+				code: -32003,
+				message: String::from("Incoming Message Decoding Error"),
+				data: Some(serde_json::Value::String(format!("{:?}", e))),
+			},
+			ReceiveError::HandlerError(e) => JsonRpcError {
+				code: -32004,
+				message: String::from("Signal Envelope Handler Error"),
+				data: Some(serde_json::Value::String(format!("{:?}", e))),
+			},
+			ReceiveError::StoreStateError(e) => JsonRpcError {
+				code: -32005,
+				message: String::from("Session-state Error"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::ReconnectErr(e) => JsonRpcError {
+				code: -32006,
+				message: String::from("Unable To Reconnect"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::AttachmentErr(e) => JsonRpcError {
+				code: -32007,
+				message: String::from("Attachment Error"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::DeserializeErr(e) => JsonRpcError {
+				code: -32008,
+				message: String::from("Incoming Message Could Not Be Deserialized"),
+				data: Some(serde_json::Value::String(e)),
+			},
+			ReceiveError::UnknownWebsocketTy => JsonRpcError {
+				code: -32009,
+				message: String::from("Invalid Websocket Message Type"),
+				data: None,
+			},
+		};
+		JsonRpcErrorResponse {
+			jsonrpc: JSONRPC_VER.to_string(),
 			error: resulting_err,
 			id: None,
 		}
-    }
+	}
+}
+
+
+impl From<ProfileRetrievalError> for JsonRpcErrorResponse {
+	fn from(err_in: ProfileRetrievalError) -> Self {
+		let resulting_err = match err_in {
+			ProfileRetrievalError::NoProfileKey(peer) => JsonRpcError {
+				code: -32032,
+				message: String::from("No Profile Key"),
+				data: Some(
+					json!({
+						"description": "Attempted to retrieve a profile for a peer whose profile key we do not have.",
+						"peer": serde_json::to_value(&peer).unwrap(),
+					})
+				),
+			},
+			ProfileRetrievalError::NoPeer(tried_peer) => JsonRpcError {
+				code: -32033,
+				message: String::from("No Peer"),
+				data: Some(
+					json!({
+						"description": format!("Tried to get peer profile for {:?} but this peer is unknown to us.", &tried_peer),
+						"peer": serde_json::to_value(&tried_peer).unwrap(),
+					})
+				),
+			},
+			ProfileRetrievalError::EncodingError(peer, msg) => JsonRpcError {
+				code: -32034,
+				message: String::from("Encoding Error"),
+				data: Some(
+					json!({
+						"description": format!("Encoding issue while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::DecodingError(peer, msg) => JsonRpcError {
+				code: -32035,
+				message: String::from("Decoding Error"),
+				data: Some(
+					json!({
+						"description": format!("Decoding issue while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::DecryptingError(peer, msg) => JsonRpcError {
+				code: -32036,
+				message: String::from("Decrypting Error"),
+				data: Some(
+					json!({
+						"description": format!("Decrypting issue while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::UnidentifiedAccess(peer, msg) => JsonRpcError {
+				code: -32037,
+				message: String::from("Unidentified Access Error"),
+				data: Some(
+					json!({
+						"description": format!("Problem with unidentified access while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::NoUuid(peer, msg) => JsonRpcError {
+				code: -32038,
+				message: String::from("No UUID"),
+				data: Some(
+					json!({
+						"description": format!("We do not have (and cannot get) the UUID for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::ErrPeer(peer, msg) => JsonRpcError {
+				code: -32039,
+				message: String::from("Unable to save peer"),
+				data: Some(
+					json!({
+						"description": format!("Could not save cached peer information {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			}
+		};
+		JsonRpcErrorResponse {
+			jsonrpc: JSONRPC_VER.to_string(),
+			error: resulting_err,
+			id: None,
+		}
+	}
 }
 
 pub async fn process_jsonrpc_input(
@@ -538,6 +660,69 @@ pub async fn process_jsonrpc_input(
 					}),
 				}
 			},
+			"set-profile" | "setprofile" => { 
+				match serde_json::from_value::<SetProfileCommand>(req.params) {
+					// Is this a valid parameter? 
+					Ok(cmd) => {
+						match handle_set_profile_command(cmd, app).await {
+							Ok(response) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
+								jsonrpc: JSONRPC_VER.to_string(),
+								// send_output shouldn't be possible to error while encoding to json. 
+								result: serde_json::to_value(response).unwrap(),
+								id: req.id.clone(),
+							}),
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+								jsonrpc: JSONRPC_VER.to_string(),
+								error: JsonRpcError {
+									code: -32099,
+									message: String::from("Couldn't set profile."),
+									data: Some(serde_json::Value::String(format!("{:?}", e))),
+								},
+								id: req.id.clone(),
+							}),
+						}
+					}, 
+					// Could not decode params
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+						jsonrpc: JSONRPC_VER.to_string(),
+						error: JsonRpcError {
+							code: -32602,
+							message: String::from("Invalid method parameter(s) for \"set-profile\"."),
+							data: Some(serde_json::Value::String(format!("{:?}", e))),
+						},
+						id: req.id.clone(),
+					}),
+				}
+			},
+			"get-profile" | "getprofile" => { 
+				match serde_json::from_value::<GetProfileCommand>(req.params) {
+					// Is this a valid parameter? 
+					Ok(cmd) => {
+						match handle_get_profile_command(cmd, app).await {
+							Ok(profile) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
+								jsonrpc: JSONRPC_VER.to_string(),
+								result: serde_json::to_value(profile).unwrap(),
+								id: req.id.clone(),
+							}),
+							Err(e) => {
+								let mut err = JsonRpcErrorResponse::from(e);
+								err.id = req.id.clone(); 
+								JsonRpcResponse::Err(err)
+							},
+						}
+					}, 
+					// Could not decode params
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+						jsonrpc: JSONRPC_VER.to_string(),
+						error: JsonRpcError {
+							code: -32602,
+							message: String::from("Invalid method parameter(s) for \"set-profile\"."),
+							data: Some(serde_json::Value::String(format!("{:?}", e))),
+						},
+						id: req.id.clone(),
+					}),
+				}
+			},
 			// Not a valid command! 
 			_ => JsonRpcResponse::Err(JsonRpcErrorResponse { 
 				jsonrpc: JSONRPC_VER.to_string(),
@@ -699,10 +884,10 @@ pub async fn handle_receive_command(
 	let mut messages: Vec<MessageIn> = Vec::default();
 	let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
 	while let Some(wsmessage_maybe) = receiver.next().await {
-		let wsmessage = wsmessage_maybe?; 
+		let wsmessage = wsmessage_maybe?;
 		// Decode/decrypt.
 		let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
-		if let Some(msg) = msg_maybe { 
+		if let Some(msg) = msg_maybe {
 			attachments_to_download.extend_from_slice(&msg.content.attachments);
 			messages.push(msg);
 		}
@@ -724,123 +909,145 @@ pub async fn handle_receive_command(
 	Ok(messages)
 }
 
-#[allow(unused_assignments)]
-pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::Value>> { 
-	use serde_json::Value;
-	let mut output = None; 
-	match val {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetProfileResponse { 
+	/// HTTP status code. 
+	pub status: u16,
+}
 
+pub async fn handle_set_profile_command(
+	cmd: SetProfileCommand,
+	app: &mut crate::app::App,
+) -> Result<SetProfileResponse> {
+	let params = serde_json::from_value(cmd.profile_fields)?;
+	//TODO: Service configuration to select base URL.
+	Ok(app
+		.upload_profile("https://textsecure-service.whispersystems.org", params)
+		.await.map(|res| {
+			SetProfileResponse {
+				status: res.status().as_u16()
+			}
+		})?)
+}
+
+
+pub async fn handle_get_profile_command(
+	cmd: GetProfileCommand,
+	app: &mut crate::app::App,
+) -> std::result::Result<PeerProfile, ProfileRetrievalError> {
+	let peer = AuxinAddress::try_from(cmd.peer_name.as_str()).unwrap();	
+	let profile = app.get_and_decrypt_profile(&peer).await?;
+
+	Ok(profile)
+}
+
+#[allow(unused_assignments)]
+pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::Value>> {
+	use serde_json::Value;
+	let mut output = None;
+	match val {
 		// Silence nulls
 		Value::Null => output = None,
 
-		// Is this an array of bytes? 
+		// Is this an array of bytes?
 		Value::Array(array) => {
-			// Skip empty arrays. 
-			if array.len() == 0 { 
+			// Skip empty arrays.
+			if array.len() == 0 {
 				output = None;
-			} 
-			else { 
+			} else {
 				// Let's see if this is an array of bytes which needs to turn into a base-64 string.
-				let mut assume_bytes = true; 
+				let mut assume_bytes = true;
 				let mut bytes: Vec<u8> = Vec::default();
-				// Non-empty array 
-				for elem in array.iter() { 
-					let mut byte_value: u8 = 0; 
+				// Non-empty array
+				for elem in array.iter() {
+					let mut byte_value: u8 = 0;
 					// If there is a single non-number type in the array, don't treat it as bytes.
 					// Bytes are also *never* serialized to floating-point numbers.
-					if ( !elem.is_number() ) || elem.is_f64() {
-						//Non-integer. Do not base-64 this. 
+					if (!elem.is_number()) || elem.is_f64() {
+						//Non-integer. Do not base-64 this.
 						assume_bytes = false;
 						break;
 					}
-					// We reached this codepath because elem is a number. 
+					// We reached this codepath because elem is a number.
 					// Vec<u8>s get serialized very naively. So, all numbers should be 0 <= x < 255
-					else if elem.is_i64() { 
+					else if elem.is_i64() {
 						let num = elem.as_i64().unwrap();
-						if num < 0 || num > 255 { 
-							//Out of range. Do not base-64 this. 
+						if num < 0 || num > 255 {
+							//Out of range. Do not base-64 this.
 							assume_bytes = false;
 							break;
-						}
-						else { 
+						} else {
 							byte_value = num as u8;
 						}
-					}
-					else if elem.is_u64() { 
+					} else if elem.is_u64() {
 						let num = elem.as_u64().unwrap();
-						if num > 255 { 
-							//Out of range. Do not base-64 this. 
+						if num > 255 {
+							//Out of range. Do not base-64 this.
 							assume_bytes = false;
 							break;
-						}
-						else { 
+						} else {
 							byte_value = num as u8;
 						}
-					}
-					else { 
-						//Should be unreachable. 
+					} else {
+						//Should be unreachable.
 						unreachable!("Serde_json value was not a number (!elem.is_number() block did not get evaluated), but also did not match any serde_json number type.")
 					}
-	
-					if assume_bytes { 
-						// If we got this far and that boolean is still true, push our byte to the byte buffer. 
+
+					if assume_bytes {
+						// If we got this far and that boolean is still true, push our byte to the byte buffer.
 						bytes.push(byte_value);
 					}
 				}
-				if assume_bytes { 
-					// This is a byte buffer, encode it! 
+				if assume_bytes {
+					// This is a byte buffer, encode it!
 					let base64_string = base64::encode(&bytes);
 					output = Some(Value::String(base64_string));
-				}
-				else {
+				} else {
 					let mut result_array_value = Vec::default();
-					//Recurse on child structures. 
-					for elem in array.iter() { 
-						if let Some(val) = clean_json(elem)? { 
+					//Recurse on child structures.
+					for elem in array.iter() {
+						if let Some(val) = clean_json(elem)? {
 							result_array_value.push(val);
 						}
-						// else { 
-							//skip nulls
+						// else {
+						//skip nulls
 						// }
 					}
 					// Now let's look at what we just made.
 					if result_array_value.len() > 0 {
-						//Make an actual serde_json Value that wraps this. 
+						//Make an actual serde_json Value that wraps this.
 						output = Some(Value::Array(result_array_value));
-					}
-					else { 
+					} else {
 						// Silence empty arrays - zero-length array doesn't get written.
 						output = None;
 					}
 				}
 			}
-		},
+		}
 		// Recursion on object's children
-		Value::Object(obj) => { 
+		Value::Object(obj) => {
 			let mut new_map = serde_json::Map::default();
 			for (name, val) in obj.iter() {
 				if let Some(new_val) = clean_json(val)? {
 					new_map.insert(name.clone(), new_val);
 				}
 			}
-			if new_map.len() > 0 { 
+			if new_map.len() > 0 {
 				output = Some(Value::Object(new_map));
-			}
-			else {
-				//Do not include nulls or empties. 
+			} else {
+				//Do not include nulls or empties.
 				output = None;
 			}
-		},
+		}
 		// Check to see if a string is just ""
-		Value::String(s) => { 
-			if s.is_empty() || s.eq_ignore_ascii_case("") { 
-				output = None; 
-			}
-			else { 
+		Value::String(s) => {
+			if s.is_empty() || s.eq_ignore_ascii_case("") {
+				output = None;
+			} else {
 				output = Some(Value::String(s.clone()));
 			}
-		},
-		// In the case of booleans and numbers, leave the structure alone. 
+		}
+		// In the case of booleans and numbers, leave the structure alone.
 		_ => output = Some(val.clone()),
 	}
 	Ok(output)

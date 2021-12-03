@@ -860,7 +860,7 @@ pub struct MessageIn {
 	pub remote_address: AuxinDeviceAddress,
 	/// The timestamp the sender built into this message - their Message Id, essentially.
 	/// This is very close to a "timestamp_sent" but it'd be more accurate to call it
-	/// the timestamp representing when the message was encoded. 
+	/// the timestamp representing when the message was encoded.
 	pub timestamp: u64,
 	/// Timestamp for when we got this message. Technically this is when it was *decoded*, not *received,* but it should be close enough for any metric we're worried about.
 	pub timestamp_received: u64,
@@ -904,7 +904,6 @@ impl MessageIn {
 			.complete_address(remote_address)
 			.unwrap_or(remote_address.clone());
 
-		
 		if content.has_dataMessage() && content.get_dataMessage().has_profileKey() {
 			let mut pk: ProfileKey = ProfileKey::default();
 			let pk_slice = content.get_dataMessage().get_profileKey();
@@ -922,7 +921,7 @@ impl MessageIn {
 	}
 
 	/// Checks to see if the remote address passed in from a newly-arrived envelope has
-	/// either a phone number for a contact we only had a UUID for previously, or 
+	/// either a phone number for a contact we only had a UUID for previously, or
 	/// has a UUID for a contact we only had a phone number for previously.
 	///
 	/// # Arguments
@@ -940,7 +939,7 @@ impl MessageIn {
 
 		let peer = context.peer_cache.get_mut(&remote_address);
 		if let Some(peer) = peer {
-			if let Ok(number) = remote_address.get_phone_number() { 
+			if let Ok(number) = remote_address.get_phone_number() {
 				//Set phone number
 				peer.number = Some(number.clone());
 			}
@@ -1100,8 +1099,10 @@ pub(crate) fn address_from_envelope(envelope: &Envelope) -> Option<AuxinDeviceAd
 			let source_device = envelope.get_sourceDevice();
 			if envelope.has_sourceUuid() && envelope.has_sourceE164() {
 				Some(AuxinDeviceAddress {
-					address: AuxinAddress::Both(envelope.get_sourceE164().into(), 
-						Uuid::from_str(envelope.get_sourceUuid()).unwrap()),
+					address: AuxinAddress::Both(
+						envelope.get_sourceE164().into(),
+						Uuid::from_str(envelope.get_sourceUuid()).unwrap(),
+					),
 					device_id: source_device,
 				})
 			} else if envelope.has_sourceUuid() {

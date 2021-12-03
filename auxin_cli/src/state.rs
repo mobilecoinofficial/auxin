@@ -8,7 +8,12 @@ use std::{
 	str::FromStr,
 };
 
-use auxin::{AuxinConfig, AuxinContext, LocalIdentity, PROFILE_KEY_LEN, Result, SignalCtx, address::{AuxinAddress, AuxinDeviceAddress, E164}, generate_timestamp, state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore}};
+use auxin::{
+	address::{AuxinAddress, AuxinDeviceAddress, E164},
+	generate_timestamp,
+	state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore},
+	AuxinConfig, AuxinContext, LocalIdentity, Result, SignalCtx, PROFILE_KEY_LEN,
+};
 
 use custom_error::custom_error;
 use futures::executor::block_on;
@@ -642,7 +647,10 @@ impl AuxinStateManager for StateManager {
 		peer: &AuxinAddress,
 		context: &AuxinContext,
 	) -> crate::Result<()> {
-		info!("Start of auxin_cli's save_peer_sessions() at {}", generate_timestamp());
+		info!(
+			"Start of auxin_cli's save_peer_sessions() at {}",
+			generate_timestamp()
+		);
 		let peer = &context
 			.peer_cache
 			.complete_address(peer)
@@ -717,12 +725,18 @@ impl AuxinStateManager for StateManager {
 				);
 			}
 		}
-		info!("End of auxin_cli's save_peer_sessions() at {}", generate_timestamp());
+		info!(
+			"End of auxin_cli's save_peer_sessions() at {}",
+			generate_timestamp()
+		);
 		Ok(())
 	}
 	/// Save peer record info from all peers.
 	fn save_all_peer_records(&mut self, context: &AuxinContext) -> crate::Result<()> {
-		info!("Start of auxin_cli's save_all_peer_records() at {}", generate_timestamp());
+		info!(
+			"Start of auxin_cli's save_all_peer_records() at {}",
+			generate_timestamp()
+		);
 		let our_path = self.get_protocol_store_path(context);
 
 		let mut recipients_path = our_path.clone();
@@ -772,7 +786,10 @@ impl AuxinStateManager for StateManager {
 			}
 		}
 
-		info!("End of auxin_cli's save_all_peer_records() at {}", generate_timestamp());
+		info!(
+			"End of auxin_cli's save_all_peer_records() at {}",
+			generate_timestamp()
+		);
 		Ok(())
 	}
 	#[allow(dead_code, unused_variables)]

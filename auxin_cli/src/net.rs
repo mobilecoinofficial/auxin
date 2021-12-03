@@ -25,9 +25,9 @@ use tokio_tungstenite::WebSocketStream;
 use auxin_protos::{
 	WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage,
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::{rngs::OsRng, RngCore};
 
-use auxin::{ReceiveError, net::{AuxinNetManager}};
+use auxin::{net::AuxinNetManager, ReceiveError};
 
 pub fn load_root_tls_cert() -> std::result::Result<Certificate, EstablishConnectionError> {
 	trace!("Loading Signal's self-signed certificate.");
@@ -344,10 +344,13 @@ impl AuxinNetManager for NetManager {
 }
 
 impl AuxinTungsteniteConnection {
-	pub async fn connect(credentials: &LocalIdentity) -> std::result::Result<WsStream, EstablishConnectionError> {
+	pub async fn connect(
+		credentials: &LocalIdentity,
+	) -> std::result::Result<WsStream, EstablishConnectionError> {
 		let cert = load_root_tls_cert()?;
 		let tls_stream = connect_tls_for_websocket(cert).await?;
-		let (websocket_client, connect_response) = connect_websocket(credentials, tls_stream).await?;
+		let (websocket_client, connect_response) =
+			connect_websocket(credentials, tls_stream).await?;
 		//It's successful... or is it?
 		// Check to make sure our status code is success.
 		if !((connect_response.status().as_u16() == 200)
@@ -373,8 +376,9 @@ impl AuxinTungsteniteConnection {
 	/// # Arguments
 	///
 	/// * `credentials` - The user identity from which we will be connecting to websocket.
-	pub async fn new(credentials: LocalIdentity) -> std::result::Result<Self, EstablishConnectionError> {
-
+	pub async fn new(
+		credentials: LocalIdentity,
+	) -> std::result::Result<Self, EstablishConnectionError> {
 		let client = Self::connect(&credentials).await?;
 		Ok(AuxinTungsteniteConnection {
 			credentials,
@@ -382,18 +386,20 @@ impl AuxinTungsteniteConnection {
 		})
 	}
 
-	pub async fn send_message(&mut self, msg: auxin_protos::WebSocketMessage) -> std::result::Result<(), tungstenite::Error> { 
+	pub async fn send_message(
+		&mut self,
+		msg: auxin_protos::WebSocketMessage,
+	) -> std::result::Result<(), tungstenite::Error> {
 		let mut buf: Vec<u8> = Vec::default();
 		let mut out_gen = CodedOutputStream::new(&mut buf);
 		let _ = msg.compute_size();
-		msg.write_to_with_cached_sizes(&mut out_gen).expect("Could not write websocket message.");
+		msg.write_to_with_cached_sizes(&mut out_gen)
+			.expect("Could not write websocket message.");
 		out_gen.flush().expect("Could not write websocket message.");
 		drop(out_gen);
 		let msg = tungstenite::Message::Binary(buf);
 
-		self.client
-			.send(msg)
-			.await?;
+		self.client.send(msg).await?;
 
 		self.client.flush().await?;
 
@@ -401,9 +407,9 @@ impl AuxinTungsteniteConnection {
 	}
 
 	/// Notify the server that we have received a message.
-	/// 
-	/// Note that thsi only sends the WebSocket acknowledgement. 
-	/// AuxinApp::receive_and_acknowledge() sends the Signal protocol "receipt" message. 
+	///
+	/// Note that thsi only sends the WebSocket acknowledgement.
+	/// AuxinApp::receive_and_acknowledge() sends the Signal protocol "receipt" message.
 	///
 	/// # Arguments
 	///
@@ -423,7 +429,8 @@ impl AuxinTungsteniteConnection {
 		res_m.set_response(res);
 		res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
 
-		self.send_message(res_m).await
+		self.send_message(res_m)
+			.await
 			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
 
 		self.client
@@ -443,25 +450,21 @@ impl AuxinTungsteniteConnection {
 			None => {
 				trace!("self.client.next() is a None");
 				None
-			},
+			}
 			Some(Ok(tungstenite::Message::Text(_msg))) => todo!(), // From json maybe?
 			Some(Ok(tungstenite::Message::Binary(buf))) => {
 				trace!("Some(Ok(tungstenite::Message::Binary(buf)))");
-				Some(
-					Ok(
-						match read_wsmessage(&buf) {
-							Ok(msg) => msg, 
-							Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))), 
-						}
-					)
-				)
-			},
+				Some(Ok(match read_wsmessage(&buf) {
+					Ok(msg) => msg,
+					Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))),
+				}))
+			}
 			Some(Ok(tungstenite::Message::Ping(_))) => None,
 			Some(Ok(tungstenite::Message::Pong(_))) => None,
 			Some(Ok(tungstenite::Message::Close(frame))) => {
 				trace!("Some(Ok(tungstenite::Message::Close(frame)))");
 				Some(Err(WebsocketError::StreamClosed(frame)))
-			},
+			}
 			_ => None,
 		};
 
@@ -505,16 +508,14 @@ impl AuxinTungsteniteConnection {
 					// Ack it. We will not double-ack because the acknowledgement above
 					// directly returns from that  if req.get_path().contains("/api/v1/queue/empty") block
 					let res = self.acknowledge_message(&req).await;
-					
-					if let Err(e) = res { 
+
+					if let Err(e) = res {
 						return Some(Err(e));
-					}
-					else {
+					} else {
 						trace!("request-shaped Some(Ok(wsmessage))");
 						return Some(Ok(wsmessage));
 					}
-				}
-				else {
+				} else {
 					trace!("non-request Some(Ok(wsmessage))");
 					return Some(Ok(wsmessage));
 				}
@@ -528,7 +529,7 @@ impl AuxinTungsteniteConnection {
 		let mut req = WebSocketRequestMessage::default();
 
 		let mut rng = OsRng::default();
-		// Only invocation of "self.app" in this method. Replace? 
+		// Only invocation of "self.app" in this method. Replace?
 		req.set_id(rng.next_u64());
 		req.set_verb("GET".to_string());
 		req.set_path("/v1/messages/".to_string());
@@ -555,9 +556,8 @@ impl AuxinTungsteniteConnection {
 			.close()
 			.await
 			.map_err(|e| ReceiveError::ReconnectErr(format!("Could not close: {:?}", e)))?;
-		// Better way to do this... 
-		let client = Self::connect(&self.credentials)
-			.await?;
+		// Better way to do this...
+		let client = Self::connect(&self.credentials).await?;
 
 		self.client = Box::pin(client);
 
