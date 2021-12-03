@@ -4,7 +4,7 @@ use auxin::{
 	address::AuxinAddress,
 	generate_timestamp,
 	message::{MessageContent, MessageIn, MessageOut},
-	ReceiveError, Result,
+	ReceiveError, Result, state::{PeerProfile}, ProfileRetrievalError,
 };
 
 //External dependencies
@@ -14,6 +14,7 @@ use auxin_protos::AttachmentPointer;
 use log::debug;
 
 use rand::rngs::OsRng;
+use serde_json::json;
 
 use std::{convert::TryFrom, path::PathBuf};
 use structopt::StructOpt;
@@ -78,6 +79,8 @@ pub enum AuxinCommand {
 	Repl,
 	/// Update one or more fields on your user profile via Signal's web API.
 	SetProfile(SetProfileCommand),
+	/// Retrieve Signal service profile information about a peer
+	GetProfile(GetProfileCommand),
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -136,6 +139,12 @@ pub struct ReceiveCommand {
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct GetPayAddrCommand {
+	/// Sets the address identifying the peer whose payment address we are retrieving.
+	pub peer_name: String,
+}
+
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct GetProfileCommand {
 	/// Sets the address identifying the peer whose payment address we are retrieving.
 	pub peer_name: String,
 }
@@ -303,6 +312,105 @@ impl From<ReceiveError> for JsonRpcErrorResponse {
 				message: String::from("Invalid Websocket Message Type"),
 				data: None,
 			},
+		};
+		JsonRpcErrorResponse {
+			jsonrpc: JSONRPC_VER.to_string(),
+			error: resulting_err,
+			id: None,
+		}
+	}
+}
+
+
+impl From<ProfileRetrievalError> for JsonRpcErrorResponse {
+	fn from(err_in: ProfileRetrievalError) -> Self {
+		let resulting_err = match err_in {
+			ProfileRetrievalError::NoProfileKey(peer) => JsonRpcError {
+				code: -32032,
+				message: String::from("No Profile Key"),
+				data: Some(
+					json!({
+						"description": "Attempted to retrieve a profile for a peer whose profile key we do not have.",
+						"peer": serde_json::to_value(&peer).unwrap(),
+					})
+				),
+			},
+			ProfileRetrievalError::NoPeer(tried_peer) => JsonRpcError {
+				code: -32033,
+				message: String::from("No Peer"),
+				data: Some(
+					json!({
+						"description": format!("Tried to get peer profile for {:?} but this peer is unknown to us.", &tried_peer),
+						"peer": serde_json::to_value(&tried_peer).unwrap(),
+					})
+				),
+			},
+			ProfileRetrievalError::EncodingError(peer, msg) => JsonRpcError {
+				code: -32034,
+				message: String::from("Encoding Error"),
+				data: Some(
+					json!({
+						"description": format!("Encoding issue while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::DecodingError(peer, msg) => JsonRpcError {
+				code: -32035,
+				message: String::from("Decoding Error"),
+				data: Some(
+					json!({
+						"description": format!("Decoding issue while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::DecryptingError(peer, msg) => JsonRpcError {
+				code: -32036,
+				message: String::from("Decrypting Error"),
+				data: Some(
+					json!({
+						"description": format!("Decrypting issue while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::UnidentifiedAccess(peer, msg) => JsonRpcError {
+				code: -32037,
+				message: String::from("Unidentified Access Error"),
+				data: Some(
+					json!({
+						"description": format!("Problem with unidentified access while trying to retrieve profile for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::NoUuid(peer, msg) => JsonRpcError {
+				code: -32038,
+				message: String::from("No UUID"),
+				data: Some(
+					json!({
+						"description": format!("We do not have (and cannot get) the UUID for {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			},
+			ProfileRetrievalError::ErrPeer(peer, msg) => JsonRpcError {
+				code: -32039,
+				message: String::from("Unable to save peer"),
+				data: Some(
+					json!({
+						"description": format!("Could not save cached peer information {}", &peer),
+						"peer": serde_json::to_value(&peer).unwrap(),
+						"sourceErr": msg,
+					})
+				),
+			}
 		};
 		JsonRpcErrorResponse {
 			jsonrpc: JSONRPC_VER.to_string(),
@@ -557,7 +665,7 @@ pub async fn process_jsonrpc_input(
 							Ok(response) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
 								// send_output shouldn't be possible to error while encoding to json. 
-								result: serde_json::Value::String(format!("{:?}", response)),
+								result: serde_json::to_value(response).unwrap(),
 								id: req.id.clone(),
 							}),
 							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
@@ -569,6 +677,35 @@ pub async fn process_jsonrpc_input(
 								},
 								id: req.id.clone(),
 							}),
+						}
+					}, 
+					// Could not decode params
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+						jsonrpc: JSONRPC_VER.to_string(),
+						error: JsonRpcError {
+							code: -32602,
+							message: String::from("Invalid method parameter(s) for \"set-profile\"."),
+							data: Some(serde_json::Value::String(format!("{:?}", e))),
+						},
+						id: req.id.clone(),
+					}),
+				}
+			},
+			"get-profile" | "getprofile" => { 
+				match serde_json::from_value::<GetProfileCommand>(req.params) {
+					// Is this a valid parameter? 
+					Ok(cmd) => {
+						match handle_get_profile_command(cmd, app).await {
+							Ok(profile) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
+								jsonrpc: JSONRPC_VER.to_string(),
+								result: serde_json::to_value(profile).unwrap(),
+								id: req.id.clone(),
+							}),
+							Err(e) => {
+								let mut err = JsonRpcErrorResponse::from(e);
+								err.id = req.id.clone(); 
+								JsonRpcResponse::Err(err)
+							},
 						}
 					}, 
 					// Could not decode params
@@ -769,15 +906,36 @@ pub async fn handle_receive_command(
 	Ok(messages)
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetProfileResponse { 
+	/// HTTP status code. 
+	pub status: u16,
+}
+
 pub async fn handle_set_profile_command(
 	cmd: SetProfileCommand,
 	app: &mut crate::app::App,
-) -> Result<http::Response<String>> {
+) -> Result<SetProfileResponse> {
 	let params = serde_json::from_value(cmd.profile_fields)?;
 	//TODO: Service configuration to select base URL.
 	Ok(app
 		.upload_profile("https://textsecure-service.whispersystems.org", params)
-		.await?)
+		.await.map(|res| {
+			SetProfileResponse {
+				status: res.status().as_u16()
+			}
+		})?)
+}
+
+
+pub async fn handle_get_profile_command(
+	cmd: GetProfileCommand,
+	app: &mut crate::app::App,
+) -> std::result::Result<PeerProfile, ProfileRetrievalError> {
+	let peer = AuxinAddress::try_from(cmd.peer_name.as_str()).unwrap();	
+	let profile = app.get_and_decrypt_profile(&peer).await?;
+
+	Ok(profile)
 }
 
 #[allow(unused_assignments)]

@@ -474,6 +474,15 @@ pub async fn main() -> Result<()> {
 				resp
 			);
 		}
+		AuxinCommand::GetProfile(cmd) => {
+			let peername = cmd.peer_name.clone();
+			let profile = handle_get_profile_command(cmd, &mut app).await?;
+			let profile_json = serde_json::to_string(&profile)?;
+			println!("Retrieved profile for peer at address {}. Profile is: {}",
+				peername,
+				profile_json,			
+			)
+		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	Ok(())

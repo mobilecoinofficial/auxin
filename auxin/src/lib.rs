@@ -71,8 +71,8 @@ use crate::{
 		MessageContent, MessageSendMode,
 	},
 	net::common_http_headers,
-	profile::build_set_profile_request,
-	state::{try_excavate_registration_id, ForeignPeerProfile, ProfileResponse},
+	profile::{build_set_profile_request, ProfileResponse},
+	state::{try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode}, profile_cipher::ProfileCipher,
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -1100,6 +1100,8 @@ where
 					)
 				})?;
 
+				debug!("Provided profile response string was: {}", &response_str);
+
 				let profile_response = serde_json::from_str(&response_str)
 					.map_err(|e| ProfileRetrievalError::DecodingError (
 						recipient.clone(),
@@ -1123,6 +1125,174 @@ where
 				recipient.clone(),
 			))
 		}
+	}
+
+
+	/// Get Signal profile information for the specified known peer. This peer must have a profile key known
+	/// to us already (i.e. messages already received). Unlike retrieve_profile() (which this method calls
+	/// internally), this message should decrypt the profile and also cache the profile when appropriate.
+	///
+	/// # Arguments
+	///
+	/// * `peer_address` - The address of the peer we're attempting to get Signal profile data for.
+	pub async fn get_and_decrypt_profile(
+		&mut self,
+		peer_address: &AuxinAddress,
+	) -> std::result::Result<PeerProfile, ProfileRetrievalError> {
+		info!(
+			"Start of get_and_decrypt_profile() at {}",
+			generate_timestamp()
+		);
+		let response = self.retrieve_profile(peer_address).await?;
+
+		//We may have just grabbed the UUID in ensure_peer_loaded() inside retrieve_profile(), make sure we have a usable address.
+		let peer_address = self
+			.context
+			.peer_cache
+			.complete_address(peer_address)
+			.unwrap_or(peer_address.clone());
+
+		//Set up cipher
+		let profile_key = self.context.peer_cache.get(&peer_address)
+			.ok_or(
+				ProfileRetrievalError::NoPeer(
+						peer_address.clone()
+					)
+			)?.profile_key.as_ref()
+			.ok_or(
+					ProfileRetrievalError::NoProfileKey(
+						peer_address.clone()
+					)
+			)?;
+			
+		let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
+		let temp_bytes = base64::decode(profile_key).map_err(|e| {
+			ProfileRetrievalError::EncodingError (
+				peer_address.clone(),
+				format!("{:?}", e),
+			)
+		})?;
+		profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
+
+		let profile_key = zkgroup::profiles::ProfileKey::create(profile_key_bytes);
+		let profile_cipher = ProfileCipher::from(profile_key);
+
+		// Start decrypting fields 
+
+		let (given_name, family_name) = match response.name { 
+			Some(b64_name) => { 
+				let namebytes = base64::decode(b64_name)
+					.map_err(|e| {
+						ProfileRetrievalError::DecodingError(
+							peer_address.clone(),
+							format!("{:?}", e),
+						)
+					})?;
+				let decrypted_name = profile_cipher.decrypt_name(&namebytes)
+					.map_err(|e| {
+						ProfileRetrievalError::DecryptingError (
+							peer_address.clone(),
+							format!("{:?}", e),
+						)
+					})?;
+				match decrypted_name {
+					Some(name) => (Some(name.given_name), name.family_name),
+					None => (None, None),
+				}
+			},
+			None => (None, None),
+		};
+
+		let about = match response.about {
+			Some(b64_about) => {
+				let about_bytes = base64::decode(b64_about)
+					.map_err(|e| {
+						ProfileRetrievalError::DecodingError(
+							peer_address.clone(),
+							format!("{:?}", e),
+						)
+					})?;
+				let decrypted_about = profile_cipher.decrypt_about(about_bytes)
+					.map_err(|e| {
+						ProfileRetrievalError::DecryptingError (
+							peer_address.clone(),
+							format!("{:?}", e),
+						)
+					})?;
+				Some(decrypted_about)
+			},
+			None => None,
+		};
+
+		let	about_emoji = match response.about_emoji {
+			Some(b64_emoji) => {
+				let emoji_bytes = base64::decode(b64_emoji)
+					.map_err(|e| {
+						ProfileRetrievalError::DecodingError(
+							peer_address.clone(),
+							format!("{:?}", e),
+						)
+					})?;
+				let decrypted = profile_cipher.decrypt_about(emoji_bytes)
+					.map_err(|e| {
+						ProfileRetrievalError::DecryptingError (
+							peer_address.clone(),
+							format!("{:?}", e),
+						)
+					})?;
+				Some(decrypted)
+			},
+			None => None,
+		};
+
+		// No decrypting needed here but let's take a look at the unidentified access mode and the capabilities. 
+
+		let unidentified_access_mode = match (response.unrestricted_unidentified_access, response.unidentified_access.is_some()) {
+			(true, _) => UnidentifiedAccessMode::UNRESTRICTED,
+			(false, true) => UnidentifiedAccessMode::ENABLED,
+			(false, false) => UnidentifiedAccessMode::DISABLED,
+		};
+
+		let mut capabilities: Vec<String> = Vec::default();
+		if response.capabilities.gv1_migration {
+			capabilities.push("gv1-migration".to_string());
+		}
+		if response.capabilities.gv2 {
+			capabilities.push("gv2".to_string());
+		}
+		if response.capabilities.announcement_group {
+			capabilities.push("announcementGroup".to_string());
+		}
+		if response.capabilities.sender_key {
+			capabilities.push("senderKey".to_string());
+		}
+	
+		//TODO: Code to support Signal's new (beta) "username" feature will be needed here. 
+
+		// Structure profile so we can both store it and return it. 
+		let result = PeerProfile {
+			last_update_timestamp: generate_timestamp(),
+			given_name,
+			family_name,
+			about,
+			about_emoji,
+			unidentified_access_mode,
+			capabilities,
+		};
+
+		debug!("Saving newly-received profile for {:?} with last updated timestamp {}",
+			&peer_address,
+			result.last_update_timestamp,
+		);
+		// self.retrieve_profile() *necessarily* ensured we have a peer profile made for this peer. 
+		// Assume one is present and update accordingly. 
+		self.context.peer_cache.get_mut(&peer_address).unwrap().profile = Some(result.clone());
+
+		info!(
+			"End of get_and_decrypt_profile() at {}",
+			generate_timestamp()
+		);
+		Ok(result)
 	}
 
 	/// Attempts to get a SignalPay aaddres / MobileCoin public address.
