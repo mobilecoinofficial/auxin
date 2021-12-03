@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress},
 	generate_timestamp, sealed_sender_trust_root,

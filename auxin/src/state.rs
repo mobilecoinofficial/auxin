@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use core::fmt;
 use std::{
 	cmp::Ordering,

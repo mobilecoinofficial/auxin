@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 use crate::LocalIdentity;
 use libsignal_protocol::IdentityKeyPair;
 use log::debug;

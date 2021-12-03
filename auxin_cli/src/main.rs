@@ -1,3 +1,6 @@
+// Copyright (c) 2021 MobileCoin Inc.
+// Copyright (c) 2021 Emily Cultip
+
 // Copyright (c) 2021 The MobileCoin Foundation
 // Emily "Gyro" Cutlip / The Forest team
 
