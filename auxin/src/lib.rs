@@ -1590,6 +1590,7 @@ where
 				let envelope = read_envelope_from_bin(req.get_body())
 					.map_err(|e| ReceiveError::DeserializeErr(format!("{:?}", e)))?;
 
+				let maybe_address = address_from_envelope(&envelope);
 				let maybe_a_message = self.handle_inbound_envelope(envelope).await;
 
 				// Done this way to ensure invalid messages are still acknowledged, to clear them from the queue.
@@ -1597,20 +1598,21 @@ where
 					Err(HandleEnvelopeError::MessageDecodingErr(
 						MessageInError::ProtocolError(e),
 					)) => {
-						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+						warn!("Message from address {:?} failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", maybe_address, e);
 						None
 					}
 					Err(HandleEnvelopeError::ProtocolErr(e)) => {
-						warn!("Message failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+						warn!("Message from address {:?} failed to decrypt - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", maybe_address, e);
 						None
 					}
 					Err(HandleEnvelopeError::MessageDecodingErr(
 						MessageInError::DecodingProblem(e),
 					)) => {
-						warn!("Message failed to decode (bad envelope?) - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", e);
+						warn!("Message from address {:?} failed to decode (bad envelope?) - ignoring error and continuing to receive messages to clear out prior bad state. Error was: {:?}", maybe_address, e);
 						None
 					}
 					Err(e) => {
+						error!("Error encountered in receive_decode() on a message from address {:?}", maybe_address);
 						return Err(e.into());
 					}
 					Ok(m) => m,
