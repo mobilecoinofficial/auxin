@@ -7,7 +7,7 @@ use auxin::{
 	address::AuxinAddress,
 	generate_timestamp,
 	message::{MessageContent, MessageIn, MessageOut},
-	ReceiveError, Result, state::{PeerProfile}, ProfileRetrievalError,
+	ReceiveError, Result, state::{PeerProfile}, ProfileRetrievalError, profile::ProfileConfig,
 };
 
 //External dependencies
@@ -156,6 +156,7 @@ pub struct GetProfileCommand {
 pub struct SetProfileCommand {
 	/// Sets the address identifying the peer whose payment address we are retrieving.
 	/// Pass as a string on the command line, or as a json object in jsonrpc.
+	#[serde(flatten)]
 	pub profile_fields: serde_json::Value,
 }
 
@@ -775,7 +776,7 @@ pub async fn handle_send_command(
 	if let Some(to_attach) = cmd.attachments {
 		//Iterate over each attachment.
 		for att in to_attach.into_iter() {
-			let upload_attributes = app.request_upload_id().await?;
+			let upload_attributes = app.request_attachment_upload_id().await?;
 			let file_path_str = att;
 			let file_path = std::path::Path::new(&file_path_str);
 			let file_name = file_path.file_name().unwrap().to_str().unwrap();
@@ -853,7 +854,7 @@ pub async fn handle_upload_command(
 	let mut attachments: Vec<AttachmentPointer> = Vec::default();
 	for path in cmd.file_path.iter() {
 		let mut rng = OsRng::default();
-		let upload_attributes = app.request_upload_id().await?;
+		let upload_attributes = app.request_attachment_upload_id().await?;
 
 		let data = std::fs::read(path)?;
 
@@ -919,7 +920,13 @@ pub async fn handle_set_profile_command(
 	cmd: SetProfileCommand,
 	app: &mut crate::app::App,
 ) -> Result<SetProfileResponse> {
-	let params = serde_json::from_value(cmd.profile_fields)?;
+	let params: ProfileConfig = serde_json::from_value(cmd.profile_fields)?;
+	// Figure out if we need to do an avatar upload.
+	let avatar_buf = if let Some(file_name) = &params.avatar_file {
+		Some(std::fs::read(file_name)?)
+	} else {
+		None
+	};
 	//TODO: Service configuration to select base URL.
 	Ok(app
 		.upload_profile("https://textsecure-service.whispersystems.org", params)

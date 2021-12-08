@@ -14,7 +14,7 @@ use aes_gcm::{
 };
 use attachment::{
 	download::{self, AttachmentDownloadError},
-	upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment},
+	upload::{AttachmentUploadError, AttachmentUploadToken, PreparedAttachment, PreUploadToken},
 };
 use auxin_protos::{AttachmentPointer, Envelope};
 
@@ -928,7 +928,7 @@ where
 				}
 			})
 			.collect();
-		println!("{:?}", cookies);
+		//println!("{:?}", cookies);
 
 		let mut filtered_cookies: Vec<String> = Vec::default();
 		for cookie in cookies {
@@ -951,7 +951,7 @@ where
 				}
 			}
 		}
-		println!("{:?}", resulting_cookie_string);
+		//println!("{:?}", resulting_cookie_string);
 
 		let discovery_path = format!(
 			"https://api.directory.signal.org/v1/discovery/{}",
@@ -1437,11 +1437,25 @@ where
 	/// Retrieve a pre-upload token that you can use to upload an attachment to Signal's CDN.
 	/// Note that no information about what we're going to upload is required - this just generates
 	/// an ID that we can then turn around and use for an upload
-	pub async fn request_upload_id(
+	pub async fn request_attachment_upload_id(
+		&self,
+	) -> std::result::Result<AttachmentUploadToken, AttachmentUploadError> {
+		let auth = self.context.identity.make_auth_header();
+		attachment::upload::request_attachment_token(
+			("Authorization", auth.as_str()),
+			self.http_client.clone(),
+		)
+		.await
+	}
+
+	/// Retrieve a pre-upload token that you can use to upload an avatar to Signal's CDN.
+	/// Note that no information about what we're going to upload is required - this just generates
+	/// an ID that we can then turn around and use for an upload
+	pub async fn request_avatar_upload_id(
 		&self,
 	) -> std::result::Result<PreUploadToken, AttachmentUploadError> {
 		let auth = self.context.identity.make_auth_header();
-		attachment::upload::request_attachment_token(
+		attachment::upload::request_avatar_upload_token(
 			("Authorization", auth.as_str()),
 			self.http_client.clone(),
 		)
@@ -1452,11 +1466,11 @@ where
 	///
 	/// # Arguments
 	///
-	/// * `upload_attributes` - The pre-upload token retrieved via request_upload_id().
+	/// * `upload_attributes` - The pre-upload token retrieved via request_attachment_upload_id().
 	/// * `attachment` - An attachment which has been encrypted by auxin::attachment::upload::encrypt_attachment()
 	pub async fn upload_attachment(
 		&self,
-		upload_attributes: &PreUploadToken,
+		upload_attributes: &AttachmentUploadToken,
 		attachment: &PreparedAttachment,
 	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
 		let auth = self.context.identity.make_auth_header();
