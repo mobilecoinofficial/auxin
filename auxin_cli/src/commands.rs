@@ -929,7 +929,10 @@ pub async fn handle_set_profile_command(
 	};
 	//TODO: Service configuration to select base URL.
 	Ok(app
-		.upload_profile("https://textsecure-service.whispersystems.org", params)
+		.upload_profile("https://textsecure-service.whispersystems.org", 
+		auxin::net::api_paths::SIGNAL_CDN,
+			params, 
+			avatar_buf)
 		.await.map(|res| {
 			SetProfileResponse {
 				status: res.status().as_u16()
