@@ -12,7 +12,7 @@ use auxin::{
 
 //External dependencies
 
-use auxin_cli::net::AuxinTungsteniteConnection;
+use auxin_cli::{net::AuxinTungsteniteConnection};
 use auxin_protos::AttachmentPointer;
 use log::debug;
 
@@ -24,7 +24,7 @@ use structopt::StructOpt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{initiate_attachment_downloads, ATTACHMENT_TIMEOUT_DURATION};
+use crate::{initiate_attachment_downloads, ATTACHMENT_TIMEOUT_DURATION, AttachmentPipelineError};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
 pub const VERSION_STR: &str = "0.1.3";
@@ -84,6 +84,8 @@ pub enum AuxinCommand {
 	SetProfile(SetProfileCommand),
 	/// Retrieve Signal service profile information about a peer
 	GetProfile(GetProfileCommand),
+	/// Download the specified Signal-protocol attachment pointer 
+	Download(DownloadAttachmentCommand),
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -158,6 +160,14 @@ pub struct SetProfileCommand {
 	/// Pass as a string on the command line, or as a json object in jsonrpc.
 	#[serde(flatten)]
 	pub profile_fields: serde_json::Value,
+}
+
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct DownloadAttachmentCommand {
+	/// Specifies a list of attachments to download.
+	/// Pass as a string on the command line, or as a json object in jsonrpc.
+	#[serde(flatten)]
+	pub attachments: Vec<serde_json::Value>,
 }
 
 #[derive(Debug)]
@@ -949,6 +959,33 @@ pub async fn handle_get_profile_command(
 	let profile = app.get_and_decrypt_profile(&peer).await?;
 
 	Ok(profile)
+}
+
+/// Returns a vector of filenames retrieved.
+pub async fn handle_download_command(
+	cmd: DownloadAttachmentCommand, 
+	download_path: &PathBuf,
+	app: &mut crate::app::App,
+) -> std::result::Result<(), AttachmentPipelineError> { 
+
+	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default(); 
+	for att in cmd.attachments.into_iter() { 
+		let pointer = match serde_json::from_value(att.clone()) { 
+			Ok(v) => v,
+			Err(e) => return Err(AttachmentPipelineError::Parse(att.clone(), e)),
+		};
+		attachments_to_download.push(pointer);
+	}
+	
+	let pending_downloads = initiate_attachment_downloads(
+		attachments_to_download,
+		download_path.to_str().unwrap().to_string(),
+		app.get_http_client(),
+		Some(ATTACHMENT_TIMEOUT_DURATION),
+	);
+
+	//Force all downloads to complete.
+	futures::future::try_join_all(pending_downloads.into_iter()).await.map( |_none_vec| () /* <- a simpler nothing */ )
 }
 
 #[allow(unused_assignments)]

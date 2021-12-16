@@ -486,6 +486,10 @@ pub async fn main() -> Result<()> {
 				profile_json,			
 			)
 		}
+		AuxinCommand::Download(cmd ) => {
+			handle_download_command(cmd, &arguments.download_path, &mut app).await?;
+			println!("Attachment download to directory {:?} completed.", &arguments.download_path);
+		},
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	Ok(())

@@ -64,7 +64,7 @@ use rand::{CryptoRng, Rng, RngCore};
 use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerStore};
 
 use crate::{
-	attachment::download::EncryptedAttachment,
+	attachment::{download::EncryptedAttachment, upload::{content_type_from_filename}},
 	discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
@@ -1963,11 +1963,14 @@ where
 
 		debug!("In response to our attempt to set our profile, the server sent: {:?}", &resulting_response);
 
+		//Error out if we got a non-success response code.
 		if !resulting_response.status().is_success() {
 			return Err(Box::new(SetProfileError::NonSuccessResponse(
 				resulting_response,
 			)));
 		}
+
+		//Now do avatar-related behavior. 
 		if has_avatar { 
 			//Now do the avatar 
 			let body_string= resulting_response.body();
@@ -1990,17 +1993,29 @@ where
 			};
 			
 			let attachment = avatar_buf.unwrap();
-			// if has_avatar is true, avatar_buf is Some(T), so we can unwrap here.
-			let prepared_attachment = attachment::upload::encrypt_attachment(filename.as_str(), &attachment, &mut self.rng)
-				.map_err(|e| {
-					SetProfileError::CouldNotEncryptAvatar(e)
-				})?;
-
+			debug!("Attempting to upload {}-byte avatar with file name {}.", attachment.len(), &filename);
+			
+			let profile_key = zkgroup::profiles::ProfileKey::create(self.context.identity.profile_key.clone());
+			// Encrypt with profile key
+			let profile_cipher = ProfileCipher::from(profile_key);
+			let encrypted_avatar_bytes = profile_cipher.encrypt_avatar(attachment).unwrap();
+			debug!("Produced avatar ciphertext which is {:?} bytes long.", encrypted_avatar_bytes.len());
+			
+			//Figure out a mime type 	
+			let mime_name = content_type_from_filename(&filename);
+			//If this doesn't end in a / for some reason, make sure it does now. 
+			let mut url = cdn_url.to_string();
+			if !cdn_url.ends_with("/") {
+				url.push_str("/");
+			}
+			let cdn_url = url.as_str();
+			debug!("Guessed file type as {} and upload address as {}", &mime_name, &cdn_url);
 			//Actually upload the avatar
 			let auth = self.context.identity.make_auth_header();
 			let res = attachment::upload::upload_to_cdn(
 				&upload_token, 
-				&prepared_attachment,
+				encrypted_avatar_bytes,
+				mime_name.as_str(),
 				("Authorization", auth.as_str()),
 				self.http_client.clone(),
 				cdn_url
@@ -2017,6 +2032,9 @@ where
 			};
 			let avatar_response = http::Response::from_parts(parts, body_string);
 			debug!("Our attempt to upload avatar file {} yielded the response {:?}", filename, avatar_response);
+			
+			//let attachment_identifier = AttachmentId::cdnKey(upload_token.key.clone());
+			//let attachment_pointer = make_attachment_pointer(&attachment_identifier, &prepared_attachment).await?;
 		}
 		Ok(resulting_response)
 	}

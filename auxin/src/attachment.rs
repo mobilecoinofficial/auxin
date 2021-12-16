@@ -401,7 +401,9 @@ pub mod download {
 }
 
 pub mod upload {
-	use auxin_protos::AttachmentPointer;
+	use std::path::Path;
+
+use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identifier};
 	use block_modes::BlockMode;
 	use log::{debug, info};
 	use rand::{CryptoRng, Rng, RngCore};
@@ -700,7 +702,8 @@ pub mod upload {
 	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
 	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
 	pub(crate) async fn upload_to_cdn<H: AuxinHttpsConnection>(token: &PreUploadToken,
-		attachment: &PreparedAttachment,
+		data: Vec<u8>,
+		content_type: &str, 
 		auth: (&str, &str),
 		http_client: H,
 		uri: &str) -> std::result::Result<http::Response<Vec<u8>>, AttachmentUploadError> { 
@@ -721,7 +724,7 @@ pub mod upload {
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "Content-Type".to_string(),
-			value: "application/octet-stream".to_string(),
+			value: content_type.to_string(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "x-amz-algorithm".to_string(),
@@ -740,10 +743,12 @@ pub mod upload {
 			value: token.signature.clone(),
 		});
 
+		debug!("Making request to {}, multipart form (minus file data) is: {:?}", uri, multipart_form);
+		
 		multipart_form.push(MultipartEntry::File {
 			field_name: "file".to_string(),
 			file_name: "file".to_string(),
-			file: attachment.data.clone(),
+			file: data,
 		});
 
 		let req_builder = http::request::Request::post(uri)
@@ -757,38 +762,30 @@ pub mod upload {
 			.map_err(|e| AttachmentUploadError::CouldNotUpload(format!("{:?}", e)))
 	}
 
-	/// Upload an attachment we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+	pub type AttachmentId = AttachmentPointer_oneof_attachment_identifier;
+
+	/// Generates an attachment pointer from an attachment.
 	///
 	/// # Arguments
 	///
 	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers, giving us an ID we can use for this attachment.
+	/// * `attachment_identifier` - The primary key we use to retrieve this attachment.
 	/// * `attachment` - The encrypted attachment we are sending.
-	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
-	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
-	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
-	pub async fn upload_attachment<H: AuxinHttpsConnection>(
-		upload_attributes: &AttachmentUploadToken,
+	pub(crate) async fn make_attachment_pointer(
+		attachment_identifier: &AttachmentId,
 		attachment: &PreparedAttachment,
-		auth: (&str, &str),
-		http_client: H,
-		cdn_address: &str,
 	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
-		info!("Start of upload_attachment() at {}", generate_timestamp());
-		let upload_address = format!("{}/attachments/", cdn_address);
-
-		let response = upload_to_cdn(&upload_attributes.token, &attachment, auth, http_client.clone(), upload_address.as_str()).await?;
-
-		debug!(
-			"Got response to attempt to upload attachment {}: {:?}",
-			&attachment.filename, response
-		);
-
+		info!("Start of make_attachment_pointer() at {}", generate_timestamp());
 		//Build our digest - separate from the mac, actually hashes the mac and the whole data buffer.
 		let digest = ring::digest::digest(&SHA256, &attachment.data);
 
 		let mut attachment_pointer = AttachmentPointer::default();
 
-		attachment_pointer.set_cdnId(upload_attributes.attachment_id);
+		match attachment_identifier {
+			AttachmentId::cdnId(id) => attachment_pointer.set_cdnId(id.clone()),
+			AttachmentId::cdnKey(key) => attachment_pointer.set_cdnKey(key.clone()),
+		}
+
 		//TODO: Figure out if alternative CDN numbers are ever needed. SignalServiceMessageSender hard-codes 0, though, so it's probably fine.
 		//See https://github.com/signalapp/Signal-Android/blob/6e00920c95499cc214609a29c96c4f0b6919076a/libsignal/service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java#L594
 		attachment_pointer.set_cdnNumber(0);
@@ -810,11 +807,53 @@ pub mod upload {
 			attachment.data.len()
 		);
 
-		let mime_type_guess = mime_guess::from_path(&attachment.filename);
-		let mime = mime_type_guess.first_or_octet_stream();
-		let mime_name = mime.essence_str();
+		let mime_name = content_type_from_filename(&attachment.filename);
 
 		attachment_pointer.set_contentType(mime_name.to_string());
+
+		debug!("Guessed MIME type {}", mime_name);
+
+		info!("End of make_attachment_pointer() at {}", generate_timestamp());
+		Ok(attachment_pointer)
+	}
+
+	pub fn content_type_from_filename<T: AsRef<Path>>(file_name: T) -> String { 
+		let mime_type_guess = mime_guess::from_path(file_name);
+		let mime = mime_type_guess.first_or_octet_stream();
+		mime.essence_str().to_string()
+	}
+
+	/// Upload an attachment we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+	///
+	/// # Arguments
+	///
+	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers, giving us an ID we can use for this attachment.
+	/// * `attachment` - The encrypted attachment we are sending.
+	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
+	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
+	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
+	pub async fn upload_attachment<H: AuxinHttpsConnection>(
+		upload_attributes: &AttachmentUploadToken,
+		attachment: &PreparedAttachment,
+		auth: (&str, &str),
+		http_client: H,
+		cdn_address: &str,
+	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
+		info!("Start of upload_attachment() at {}", generate_timestamp());
+		let upload_address = format!("{}/attachments/", cdn_address);
+
+		let response = upload_to_cdn(&upload_attributes.token, attachment.data.clone(), "application/octet-stream", auth, http_client.clone(), upload_address.as_str()).await?;
+		let (parts, body_vec) = response.into_parts();
+		let body_str = String::from_utf8_lossy(&body_vec.as_slice());
+
+		let response_converted = http::response::Response::from_parts(parts, body_str.to_string());
+		debug!(
+			"Got response to attempt to upload attachment {}: {:?}",
+			&attachment.filename, response_converted
+		);
+
+		let attachment_identifier = AttachmentId::cdnId(upload_attributes.attachment_id);
+		let attachment_pointer = make_attachment_pointer(&attachment_identifier, &attachment).await?; 
 
 		info!("End of upload_attachment() at {}", generate_timestamp());
 		Ok(attachment_pointer)
