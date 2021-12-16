@@ -109,7 +109,7 @@ pub struct PeerProfile {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ForeignPeerProfile {
 	pub identity_key: String,
-	pub name: String,
+	pub name: Option<String>,
 	pub about: Option<String>,
 	pub about_emoji: Option<String>,
 	pub avatar: Option<String>,
