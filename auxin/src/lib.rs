@@ -28,7 +28,7 @@ use libsignal_protocol::{
 use log::{debug, error, info, trace, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
-use net::{api_paths::SIGNAL_CDN, AuxinHttpsConnection, AuxinNetManager};
+use net::{api_paths::{SIGNAL_CDN, SIGNAL_CDN_2}, AuxinHttpsConnection, AuxinNetManager};
 use profile::ProfileConfig;
 use protobuf::CodedInputStream;
 use serde_json::json;
@@ -1435,8 +1435,10 @@ where
 		&self,
 		attachment: &AttachmentPointer,
 	) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
-		//TODO: Test to see if there is any time when we need to use a different CDN address.
-		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), SIGNAL_CDN)
+		let mut cdn_addresses = HashMap::default();
+		cdn_addresses.insert(0, SIGNAL_CDN.to_string());
+		cdn_addresses.insert(2, SIGNAL_CDN_2.to_string());
+		download::retrieve_attachment(attachment.clone(), self.http_client.clone(), cdn_addresses)
 			.await
 	}
 

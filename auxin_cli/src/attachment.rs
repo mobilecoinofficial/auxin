@@ -3,11 +3,11 @@
 
 use auxin::{
 	attachment::download::{retrieve_attachment, AttachmentDecryptError, AttachmentDownloadError},
-	net::api_paths::SIGNAL_CDN,
+	net::api_paths::{SIGNAL_CDN, SIGNAL_CDN_2},
 };
 use auxin_protos::AttachmentPointer;
 use futures::{Future, FutureExt, TryFutureExt};
-use std::{io::Write, pin::Pin};
+use std::{io::Write, pin::Pin, collections::HashMap};
 use tokio::time::Duration;
 
 #[derive(Debug)]
@@ -94,10 +94,15 @@ pub fn initiate_attachment_downloads(
 
 	for att in attachments.iter() {
 		let download_path_name = download_path_name.clone();
+
+		let mut cdn_addresses = HashMap::default();
+		cdn_addresses.insert(0, SIGNAL_CDN.to_string());
+		cdn_addresses.insert(2, SIGNAL_CDN_2.to_string());
+		
 		let first_handle = Box::pin(retrieve_attachment(
 			att.clone(),
 			http_client.clone(),
-			SIGNAL_CDN,
+			cdn_addresses,
 		))
 		//Decryption step.
 		.map_ok(|downloaded| {
