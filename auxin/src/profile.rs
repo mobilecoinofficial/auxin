@@ -89,6 +89,9 @@ pub struct ProfileSetRequest {
 	about_emoji: Vec<u8>,
 	#[serde(with = "serde_optional_base64")]
 	payment_address: Option<Vec<u8>>,
+	/// Avatar is a boolean here because, if avatar is True, we get a PreUploadToken for an avatar here. 
+	/// Due to the way I/O responsibility is supposed to live outside of Auxin and in something like
+	/// auxin_cli, avatar uploading cannot be fully handled inline with build_set_profile_request()
 	avatar: bool,
 	#[serde(with = "serde_base64")]
 	commitment: Vec<u8>,
@@ -114,12 +117,6 @@ pub fn build_set_profile_request<R: CryptoRng + Rng>(
 
 	let about = profile_cipher.encrypt_about(about)?;
 	let about_emoji = profile_cipher.encrypt_emoji(about_emoji)?;
-
-	// If Signal is expecting an attachment pointer for this, that will be easy to implement.
-	// If they're expecting something else, that'll be a bit trickier.
-	if let Some(_avatar) = parameters.avatar_file {
-		todo!("Setting avatar is currently not yet implemented.")
-	}
 
 	// Payment address encrpytion.
 	let payment_address: Option<Vec<u8>> = match &parameters.mobilecoin_address {

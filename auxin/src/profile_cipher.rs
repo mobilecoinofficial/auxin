@@ -277,6 +277,25 @@ impl ProfileCipher {
 		// XXX This re-allocates.
 		Ok(std::str::from_utf8(&plaintext)?.into())
 	}
+
+	/// No padding is used when encrypting an avatar
+	pub fn encrypt_avatar(
+		&self,
+		mut bytes: Vec<u8>,
+	) -> Result<Vec<u8>, ProfileCipherError> {
+		let cipher = Aes256Gcm::new(&self.get_key());
+		let nonce: [u8; 12] = rand::thread_rng().gen();
+		let nonce = GenericArray::from_slice(&nonce);
+
+		cipher
+			.encrypt_in_place(nonce, b"", &mut bytes)
+			.map_err(|_| ProfileCipherError::EncryptionError)?;
+
+		let mut concat = Vec::with_capacity(nonce.len() + bytes.len());
+		concat.extend_from_slice(nonce);
+		concat.extend_from_slice(&bytes);
+		Ok(concat)
+	}
 }
 
 #[cfg(test)]

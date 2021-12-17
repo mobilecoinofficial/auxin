@@ -16,6 +16,7 @@ pub enum AttachmentPipelineError {
 	Decrypt(AttachmentDecryptError),
 	Save(std::io::Error),
 	Timeout(tokio::time::error::Elapsed),
+	Parse(serde_json::Value, serde_json::Error),
 }
 
 impl std::fmt::Display for AttachmentPipelineError {
@@ -31,6 +32,12 @@ impl std::fmt::Display for AttachmentPipelineError {
 			AttachmentPipelineError::Timeout(e) => write!(
 				f,
 				"Timeout while attempting to download attachment: {:?}",
+				e
+			),
+			AttachmentPipelineError::Parse(v, e) => write!(
+				f,
+				"Could not parse json structure {:?} into an AttachmentPointer. Error: {:?}",
+				v,
 				e
 			),
 		}

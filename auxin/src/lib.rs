@@ -14,7 +14,7 @@ use aes_gcm::{
 };
 use attachment::{
 	download::{self, AttachmentDownloadError},
-	upload::{AttachmentUploadError, PreUploadToken, PreparedAttachment},
+	upload::{AttachmentUploadError, AttachmentUploadToken, PreparedAttachment, PreUploadToken, AttachmentEncryptError},
 };
 use auxin_protos::{AttachmentPointer, Envelope};
 
@@ -64,7 +64,7 @@ use rand::{CryptoRng, Rng, RngCore};
 use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerStore};
 
 use crate::{
-	attachment::download::EncryptedAttachment,
+	attachment::{download::EncryptedAttachment, upload::{content_type_from_filename}},
 	discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
@@ -329,12 +329,18 @@ impl From<HandleEnvelopeError> for ReceiveError {
 #[derive(Debug)]
 pub enum SetProfileError {
 	NonSuccessResponse(http::Response<String>),
+	AvatarTokenError(String),
+	CouldNotEncryptAvatar(AttachmentEncryptError),
+	UploadAvatarFailed(AttachmentUploadError),
 }
 
 impl std::fmt::Display for SetProfileError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match &self {
 			SetProfileError::NonSuccessResponse(e) => write!(f, "Got a failure code in response to our set-profile request. The response was: {:?}.", e),
+			SetProfileError::AvatarTokenError(e) => write!(f, "Unable to deserialize avatar upload token: {}.", e),
+			SetProfileError::CouldNotEncryptAvatar(e) => write!(f, "Failed to encrypt avatar for upload: {:?}.", e),
+			SetProfileError::UploadAvatarFailed(e) => write!(f, "Failed to upload avatar: {:?}.", e),
 		}
 	}
 }
@@ -928,7 +934,7 @@ where
 				}
 			})
 			.collect();
-		println!("{:?}", cookies);
+		//println!("{:?}", cookies);
 
 		let mut filtered_cookies: Vec<String> = Vec::default();
 		for cookie in cookies {
@@ -951,7 +957,7 @@ where
 				}
 			}
 		}
-		println!("{:?}", resulting_cookie_string);
+		//println!("{:?}", resulting_cookie_string);
 
 		let discovery_path = format!(
 			"https://api.directory.signal.org/v1/discovery/{}",
@@ -1437,11 +1443,25 @@ where
 	/// Retrieve a pre-upload token that you can use to upload an attachment to Signal's CDN.
 	/// Note that no information about what we're going to upload is required - this just generates
 	/// an ID that we can then turn around and use for an upload
-	pub async fn request_upload_id(
+	pub async fn request_attachment_upload_id(
+		&self,
+	) -> std::result::Result<AttachmentUploadToken, AttachmentUploadError> {
+		let auth = self.context.identity.make_auth_header();
+		attachment::upload::request_attachment_token(
+			("Authorization", auth.as_str()),
+			self.http_client.clone(),
+		)
+		.await
+	}
+
+	/// Retrieve a pre-upload token that you can use to upload an avatar to Signal's CDN.
+	/// Note that no information about what we're going to upload is required - this just generates
+	/// an ID that we can then turn around and use for an upload
+	pub async fn request_avatar_upload_id(
 		&self,
 	) -> std::result::Result<PreUploadToken, AttachmentUploadError> {
 		let auth = self.context.identity.make_auth_header();
-		attachment::upload::request_attachment_token(
+		attachment::upload::request_avatar_upload_token(
 			("Authorization", auth.as_str()),
 			self.http_client.clone(),
 		)
@@ -1452,11 +1472,11 @@ where
 	///
 	/// # Arguments
 	///
-	/// * `upload_attributes` - The pre-upload token retrieved via request_upload_id().
+	/// * `upload_attributes` - The pre-upload token retrieved via request_attachment_upload_id().
 	/// * `attachment` - An attachment which has been encrypted by auxin::attachment::upload::encrypt_attachment()
 	pub async fn upload_attachment(
 		&self,
-		upload_attributes: &PreUploadToken,
+		upload_attributes: &AttachmentUploadToken,
 		attachment: &PreparedAttachment,
 	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
 		let auth = self.context.identity.make_auth_header();
@@ -1897,8 +1917,26 @@ where
 	pub async fn upload_profile(
 		&mut self,
 		base_url: &str,
-		parameters: ProfileConfig,
+		cdn_url: &str,
+		mut parameters: ProfileConfig,
+		avatar_buf: Option<Vec<u8>>,
 	) -> crate::Result<http::Response<String>> {
+
+		let has_avatar: bool = if avatar_buf.is_none() { 
+			//Make sure we don't tell the server "Hey I'm going to upload an avatar"
+			//when there is no avatar to upload.
+			parameters.avatar_file = None;
+			false
+		}
+		else if parameters.avatar_file.is_none() { 
+			false
+		} 
+		else {
+			true
+		};
+
+		let maybe_avatar_filename = parameters.avatar_file.clone();
+
 		let profile_ciphertext =
 			build_set_profile_request(parameters, &self.context.identity, &mut self.rng)?;
 
@@ -1923,14 +1961,81 @@ where
 		};
 		let resulting_response = http::Response::from_parts(parts, body_string);
 
+		debug!("In response to our attempt to set our profile, the server sent: {:?}", &resulting_response);
+
+		//Error out if we got a non-success response code.
 		if !resulting_response.status().is_success() {
 			return Err(Box::new(SetProfileError::NonSuccessResponse(
 				resulting_response,
 			)));
 		}
 
-		// TODO: Avatar handling - grab avatar URL from http response.
+		//Now do avatar-related behavior. 
+		if has_avatar { 
+			//Now do the avatar 
+			let body_string= resulting_response.body();
+	
+			let upload_token: PreUploadToken = serde_json::from_str(body_string)
+				.map_err(|e| {
+					SetProfileError::AvatarTokenError(format!("{:?}", e))
+				})?;
+			// if has_avatar is true, there is a parameters.avatar_file, so we can unwrap here.
+			let raw_path = maybe_avatar_filename.unwrap();
+			//Make sure we have a specific file and not a path here. 
+			let filename = if raw_path.contains("/") {
+				//Cannot use std::Path here as that will break on wasm. 
+				let resl = raw_path.rsplit_once("/").unwrap().1;
 
+				sanitize_filename::sanitize(resl)
+			}
+			else {
+				sanitize_filename::sanitize(raw_path)
+			};
+			
+			let attachment = avatar_buf.unwrap();
+			debug!("Attempting to upload {}-byte avatar with file name {}.", attachment.len(), &filename);
+			
+			let profile_key = zkgroup::profiles::ProfileKey::create(self.context.identity.profile_key.clone());
+			// Encrypt with profile key
+			let profile_cipher = ProfileCipher::from(profile_key);
+			let encrypted_avatar_bytes = profile_cipher.encrypt_avatar(attachment).unwrap();
+			debug!("Produced avatar ciphertext which is {:?} bytes long.", encrypted_avatar_bytes.len());
+			
+			//Figure out a mime type 	
+			let mime_name = content_type_from_filename(&filename);
+			//If this doesn't end in a / for some reason, make sure it does now. 
+			let mut url = cdn_url.to_string();
+			if !cdn_url.ends_with("/") {
+				url.push_str("/");
+			}
+			let cdn_url = url.as_str();
+			debug!("Guessed file type as {} and upload address as {}", &mime_name, &cdn_url);
+			//Actually upload the avatar
+			let auth = self.context.identity.make_auth_header();
+			let res = attachment::upload::upload_to_cdn(
+				&upload_token, 
+				encrypted_avatar_bytes,
+				mime_name.as_str(),
+				("Authorization", auth.as_str()),
+				self.http_client.clone(),
+				cdn_url
+				).await
+				.map_err(|e| { 
+					SetProfileError::UploadAvatarFailed(e)
+				})?;
+
+			//We should be all done, now just try to make some legible log output
+			let (parts, body) = res.into_parts();
+			let body_string = match String::from_utf8(body.clone()) {
+				Ok(st) => st,
+				Err(_) => hex::encode(&body),
+			};
+			let avatar_response = http::Response::from_parts(parts, body_string);
+			debug!("Our attempt to upload avatar file {} yielded the response {:?}", filename, avatar_response);
+			
+			//let attachment_identifier = AttachmentId::cdnKey(upload_token.key.clone());
+			//let attachment_pointer = make_attachment_pointer(&attachment_identifier, &prepared_attachment).await?;
+		}
 		Ok(resulting_response)
 	}
 }

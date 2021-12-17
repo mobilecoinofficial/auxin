@@ -13,7 +13,10 @@ use block_padding::Pkcs7;
 pub const UNNAMED_ATTACHMENT_PREFIX: &str = "unnamed_attachment_";
 
 pub const ATTACHMENT_UPLOAD_START_PATH: &str =
-	"https://textsecure-service.whispersystems.org/v2/attachments/form/upload";
+"https://textsecure-service.whispersystems.org/v2/attachments/form/upload";
+// /v1/profile/form/avatar
+pub const AVATAR_UPLOAD_START_PATH: &str =
+	"https://textsecure-service.whispersystems.org/v2/profile/form/avatar";
 
 type AttachmentCipher = Cbc<Aes256, Pkcs7>;
 
@@ -398,7 +401,9 @@ pub mod download {
 }
 
 pub mod upload {
-	use auxin_protos::AttachmentPointer;
+	use std::path::Path;
+
+use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identifier};
 	use block_modes::BlockMode;
 	use log::{debug, info};
 	use rand::{CryptoRng, Rng, RngCore};
@@ -562,8 +567,9 @@ pub mod upload {
 		})
 	}
 
-	/// A ticket received in response to a GET request to https://textsecure-service.whispersystems.org/v2/attachments/form/upload
-	/// This will include everyting you need to send the cdn an attachment which it won't reject.
+	/// A ticket received in response to a request to start an upload to Signal's CDN. 
+	/// This is shared across regular attachment uploads and avatar/profile-pic uploads,
+	/// through the magic of #\[serde(flatten)\]
 	#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 	#[serde(rename_all = "camelCase")]
 	pub struct PreUploadToken {
@@ -579,6 +585,19 @@ pub mod upload {
 		pub policy: String,
 		//Also alphanumerics, but lowercase-only for me
 		pub signature: String,
+	}
+
+	/// A ticket received in response to a GET request to https://textsecure-service.whispersystems.org/v2/attachments/form/upload
+	/// This will include everyting you need to send the cdn an attachment which it won't reject.
+	#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+	#[serde(rename_all = "camelCase")]
+	pub struct AttachmentUploadToken {
+		/// serde(flatten) here will treat all of the fields of PreUploadToken as if they were fields of AttachmentUploadToken. 
+		/// So, key, credential, acl, etc. are all in the same json object as attachment_id and attachment_id_string, and
+		/// do not need to be nested.  
+		#[serde(flatten)]
+		pub token: PreUploadToken,
+
 		pub attachment_id: u64,
 		pub attachment_id_string: String,
 	}
@@ -593,7 +612,7 @@ pub mod upload {
 	pub async fn request_attachment_token<H: AuxinHttpsConnection>(
 		auth: (&str, &str),
 		http_client: H,
-	) -> std::result::Result<PreUploadToken, AttachmentUploadError> {
+	) -> std::result::Result<AttachmentUploadToken, AttachmentUploadError> {
 		info!(
 			"Start of request_attachment_token() at {}",
 			generate_timestamp()
@@ -617,7 +636,7 @@ pub mod upload {
 
 		let body = String::from_utf8_lossy(&body);
 
-		let result: PreUploadToken = serde_json::from_str(&body).map_err(|e| {
+		let result: AttachmentUploadToken = serde_json::from_str(&body).map_err(|e| {
 			AttachmentUploadError::CantDeserializePreUploadToken(format!("{:?}", e))
 		})?;
 		info!(
@@ -627,86 +646,146 @@ pub mod upload {
 		Ok(result)
 	}
 
-	/// Upload an attachment we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+	// "Reserve an ID for me, I am going to start an upload" with a reply of "Okay, here's your ID," basically.
+	/// Ask the server for a set of pre-avatar-upload information that will be used to upload an avatar
 	///
 	/// # Arguments
 	///
-	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers, giving us an ID we can use for this attachment.
+	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
+	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
+	pub async fn request_avatar_upload_token<H: AuxinHttpsConnection>(
+		auth: (&str, &str),
+		http_client: H,
+	) -> std::result::Result<PreUploadToken, AttachmentUploadError> {
+		info!(
+			"Start of request_avatar_upload_token() at {}",
+			generate_timestamp()
+		);
+		//"/v1/profile/form/avatar")
+		// TODO: Factor this out for other non-attachment types of uploads, maybe?  
+		let req_addr = super::AVATAR_UPLOAD_START_PATH.to_string();
+
+		let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
+			.header(auth.0, auth.1)
+			.header("X-Signal-Agent", crate::net::X_SIGNAL_AGENT)
+			.header("User-Agent", crate::net::USER_AGENT)
+			.body(Vec::default())
+			.map_err(|e| {
+				AttachmentUploadError::CantConstructRequest(req_addr.clone(), format!("{:?}", e))
+			})?;
+		let response = http_client
+			.request(request)
+			.await
+			.map_err(|e| AttachmentUploadError::AttachmentIdNetworkErr(format!("{:?}", e)))?;
+
+		let (_parts, body) = response.into_parts();
+
+		let body = String::from_utf8_lossy(&body);
+
+		let result: PreUploadToken = serde_json::from_str(&body).map_err(|e| {
+			AttachmentUploadError::CantDeserializePreUploadToken(format!("{:?}", e))
+		})?;
+		info!(
+			"End of request_avatar_upload_token() at {}",
+			generate_timestamp()
+		);
+		Ok(result)
+	}
+
+	/// Upload a blob (attachment, avatar, etc) we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+	/// 
+	/// # Arguments
+	///
+	/// * `token` - The pre-upload token retrieved from Signal's servers.
 	/// * `attachment` - The encrypted attachment we are sending.
 	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
 	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
 	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
-	pub async fn upload_attachment<H: AuxinHttpsConnection>(
-		upload_attributes: &PreUploadToken,
-		attachment: &PreparedAttachment,
+	pub(crate) async fn upload_to_cdn<H: AuxinHttpsConnection>(token: &PreUploadToken,
+		data: Vec<u8>,
+		content_type: &str, 
 		auth: (&str, &str),
 		http_client: H,
-		cdn_address: &str,
-	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
-		info!("Start of upload_attachment() at {}", generate_timestamp());
-		let upload_address = format!("{}/attachments/", cdn_address);
+		uri: &str) -> std::result::Result<http::Response<Vec<u8>>, AttachmentUploadError> { 
 
 		let mut multipart_form = Vec::default();
 
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "acl".to_string(),
-			value: upload_attributes.acl.clone(),
+			value: token.acl.clone(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "key".to_string(),
-			value: upload_attributes.key.clone(),
+			value: token.key.clone(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "policy".to_string(),
-			value: upload_attributes.policy.clone(),
+			value: token.policy.clone(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "Content-Type".to_string(),
-			value: "application/octet-stream".to_string(),
+			value: content_type.to_string(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "x-amz-algorithm".to_string(),
-			value: upload_attributes.algorithm.clone(),
+			value: token.algorithm.clone(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "x-amz-credential".to_string(),
-			value: upload_attributes.credential.clone(),
+			value: token.credential.clone(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "x-amz-date".to_string(),
-			value: upload_attributes.date.clone(),
+			value: token.date.clone(),
 		});
 		multipart_form.push(MultipartEntry::Text {
 			field_name: "x-amz-signature".to_string(),
-			value: upload_attributes.signature.clone(),
+			value: token.signature.clone(),
 		});
 
+		debug!("Making request to {}, multipart form (minus file data) is: {:?}", uri, multipart_form);
+		
 		multipart_form.push(MultipartEntry::File {
 			field_name: "file".to_string(),
 			file_name: "file".to_string(),
-			file: attachment.data.clone(),
+			file: data,
 		});
 
-		let req_builder = http::request::Request::post(&upload_address)
+		let req_builder = http::request::Request::post(uri)
 			.header(auth.0, auth.1)
 			.header("X-Signal-Agent", crate::net::X_SIGNAL_AGENT)
 			.header("User-Agent", crate::net::USER_AGENT);
 
-		let response = http_client
+		http_client
 			.multipart_request(multipart_form, req_builder)
 			.await
-			.map_err(|e| AttachmentUploadError::CouldNotUpload(format!("{:?}", e)))?;
-		debug!(
-			"Got response to attempt to upload attachment {}: {:?}",
-			&attachment.filename, response
-		);
+			.map_err(|e| AttachmentUploadError::CouldNotUpload(format!("{:?}", e)))
+	}
 
+	pub type AttachmentId = AttachmentPointer_oneof_attachment_identifier;
+
+	/// Generates an attachment pointer from an attachment.
+	///
+	/// # Arguments
+	///
+	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers, giving us an ID we can use for this attachment.
+	/// * `attachment_identifier` - The primary key we use to retrieve this attachment.
+	/// * `attachment` - The encrypted attachment we are sending.
+	pub(crate) async fn make_attachment_pointer(
+		attachment_identifier: &AttachmentId,
+		attachment: &PreparedAttachment,
+	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
+		info!("Start of make_attachment_pointer() at {}", generate_timestamp());
 		//Build our digest - separate from the mac, actually hashes the mac and the whole data buffer.
 		let digest = ring::digest::digest(&SHA256, &attachment.data);
 
 		let mut attachment_pointer = AttachmentPointer::default();
 
-		attachment_pointer.set_cdnId(upload_attributes.attachment_id);
+		match attachment_identifier {
+			AttachmentId::cdnId(id) => attachment_pointer.set_cdnId(id.clone()),
+			AttachmentId::cdnKey(key) => attachment_pointer.set_cdnKey(key.clone()),
+		}
+
 		//TODO: Figure out if alternative CDN numbers are ever needed. SignalServiceMessageSender hard-codes 0, though, so it's probably fine.
 		//See https://github.com/signalapp/Signal-Android/blob/6e00920c95499cc214609a29c96c4f0b6919076a/libsignal/service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java#L594
 		attachment_pointer.set_cdnNumber(0);
@@ -728,11 +807,53 @@ pub mod upload {
 			attachment.data.len()
 		);
 
-		let mime_type_guess = mime_guess::from_path(&attachment.filename);
-		let mime = mime_type_guess.first_or_octet_stream();
-		let mime_name = mime.essence_str();
+		let mime_name = content_type_from_filename(&attachment.filename);
 
 		attachment_pointer.set_contentType(mime_name.to_string());
+
+		debug!("Guessed MIME type {}", mime_name);
+
+		info!("End of make_attachment_pointer() at {}", generate_timestamp());
+		Ok(attachment_pointer)
+	}
+
+	pub fn content_type_from_filename<T: AsRef<Path>>(file_name: T) -> String { 
+		let mime_type_guess = mime_guess::from_path(file_name);
+		let mime = mime_type_guess.first_or_octet_stream();
+		mime.essence_str().to_string()
+	}
+
+	/// Upload an attachment we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+	///
+	/// # Arguments
+	///
+	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers, giving us an ID we can use for this attachment.
+	/// * `attachment` - The encrypted attachment we are sending.
+	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
+	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
+	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
+	pub async fn upload_attachment<H: AuxinHttpsConnection>(
+		upload_attributes: &AttachmentUploadToken,
+		attachment: &PreparedAttachment,
+		auth: (&str, &str),
+		http_client: H,
+		cdn_address: &str,
+	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
+		info!("Start of upload_attachment() at {}", generate_timestamp());
+		let upload_address = format!("{}/attachments/", cdn_address);
+
+		let response = upload_to_cdn(&upload_attributes.token, attachment.data.clone(), "application/octet-stream", auth, http_client.clone(), upload_address.as_str()).await?;
+		let (parts, body_vec) = response.into_parts();
+		let body_str = String::from_utf8_lossy(&body_vec.as_slice());
+
+		let response_converted = http::response::Response::from_parts(parts, body_str.to_string());
+		debug!(
+			"Got response to attempt to upload attachment {}: {:?}",
+			&attachment.filename, response_converted
+		);
+
+		let attachment_identifier = AttachmentId::cdnId(upload_attributes.attachment_id);
+		let attachment_pointer = make_attachment_pointer(&attachment_identifier, &attachment).await?; 
 
 		info!("End of upload_attachment() at {}", generate_timestamp());
 		Ok(attachment_pointer)
