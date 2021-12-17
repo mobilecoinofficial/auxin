@@ -23,7 +23,7 @@ type AttachmentCipher = Cbc<Aes256, Pkcs7>;
 pub mod download {
 	use super::AttachmentCipher;
 
-	use std::convert::TryFrom;
+	use std::{convert::TryFrom, collections::HashMap};
 
 	use auxin_protos::protos::signalservice::AttachmentPointer;
 	use log::{debug, info, warn};
@@ -57,7 +57,7 @@ pub mod download {
 		pub caption: Option<String>,
 		pub blur_hash: Option<String>,
 		pub upload_timestamp: Option<u64>,
-		pub cdn_number: Option<u32>,
+		pub cdn_number: u32,
 		pub download_start_timestamp: Option<u64>,
 		pub download_done_timestamp: Option<u64>,
 	}
@@ -168,6 +168,14 @@ pub mod download {
 					return Err(AttachmentMetaError::NoSize(attachment_ident));
 				}
 			};
+			let cdn_number = {
+				if value.has_cdnNumber() {
+					value.get_cdnNumber()
+				} else {
+					//Default assume 0 for back-compatibility
+					0
+				}
+			};
 
 			//All of the mandatory fields have been filled.
 			let mut result = AttachmentMetadata {
@@ -184,7 +192,7 @@ pub mod download {
 				caption: None,
 				blur_hash: None,
 				upload_timestamp: None,
-				cdn_number: None,
+				cdn_number,
 				download_start_timestamp: None,
 				download_done_timestamp: None,
 			};
@@ -215,9 +223,6 @@ pub mod download {
 			}
 			if value.has_uploadTimestamp() {
 				result.upload_timestamp = Some(value.get_uploadTimestamp());
-			}
-			if value.has_cdnNumber() {
-				result.cdn_number = Some(value.get_cdnNumber());
 			}
 
 			Ok(result)
@@ -328,6 +333,7 @@ pub mod download {
 		Meta(AttachmentMetaError),
 		CantBuildRequest(String),
 		NetworkError(String),
+		UnrecognizedCdnNumber(String, u32, HashMap<u32, String>),
 	}
 
 	impl std::fmt::Display for AttachmentDownloadError {
@@ -336,6 +342,7 @@ pub mod download {
 				AttachmentDownloadError::Meta(m) => write!(f, "Downloading attachment failed because sanity-checks on attachment metadata failed: {:?}", m),
 				AttachmentDownloadError::CantBuildRequest(e) => write!(f, "Could not build a request to download an attachment: {}", e),
 				AttachmentDownloadError::NetworkError(e) => write!(f, "Could not download an attachment: {}", e),
+				AttachmentDownloadError::UnrecognizedCdnNumber(filename, num, map) => write!(f, "Attempted to download attachment {} from cdn number {}, which is not recognized by Auxin. Set of valid CDN addresses is: {:?}.", filename, num, map)
 			}
 		}
 	}
@@ -357,15 +364,19 @@ pub mod download {
 	///
 	/// * `attachment` - The attachment pointer, containing the ID and other information used to find the address of the attachment on the CDN.
 	/// * `http_client` - The HTTP client which will send our HTTP request.
-	/// * `cdn_address` - The base address of the CDN from which we'll retrieve this file. "/attachments/{attachment_id}" will be appended to this to get our URI.
+	/// * `cdn_address_config` - A set of mappings of CDN id to CDN URL, for the CDN from which we'll retrieve this file. "/attachments/{attachment_id}" will be appended to this to get our URI.
 	pub async fn retrieve_attachment<H: AuxinHttpsConnection>(
 		attachment: AttachmentPointer,
 		http_client: H,
-		cdn_address: &str,
+		cdn_address_config: HashMap<u32, String>,
 	) -> std::result::Result<EncryptedAttachment, AttachmentDownloadError> {
 		info!("Start of retrieve_attachment() at {}", generate_timestamp());
 		let meta =
 			AttachmentMetadata::try_from(&attachment).map_err(AttachmentDownloadError::Meta)?;
+		let cdn_address = match cdn_address_config.get(&meta.cdn_number) {
+			Some(addr) => addr,
+			None => return Err(AttachmentDownloadError::UnrecognizedCdnNumber(meta.get_or_generate_filename(), meta.cdn_number, cdn_address_config.clone())),
+		};
 		let download_path = match &meta.attachment_identifier {
 			AttachmentIdentifier::CdnId(id) => format!("{}/attachments/{}", cdn_address, id),
 			//TODO: Test this second path. I have an intuitive sense I'm missing something here, but I'm not sure why.
