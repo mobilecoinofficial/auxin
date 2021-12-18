@@ -94,7 +94,7 @@ pub mod download {
 					};
 
 					format!(
-						"{}{}{}",
+						"{}{}.{}",
 						super::UNNAMED_ATTACHMENT_PREFIX,
 						timestamp,
 						file_ext
