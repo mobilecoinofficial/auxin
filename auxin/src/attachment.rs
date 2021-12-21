@@ -13,7 +13,7 @@ use block_padding::Pkcs7;
 pub const UNNAMED_ATTACHMENT_PREFIX: &str = "unnamed_attachment_";
 
 pub const ATTACHMENT_UPLOAD_START_PATH: &str =
-"https://textsecure-service.whispersystems.org/v2/attachments/form/upload";
+	"https://textsecure-service.whispersystems.org/v2/attachments/form/upload";
 // /v1/profile/form/avatar
 pub const AVATAR_UPLOAD_START_PATH: &str =
 	"https://textsecure-service.whispersystems.org/v2/profile/form/avatar";
@@ -23,7 +23,7 @@ type AttachmentCipher = Cbc<Aes256, Pkcs7>;
 pub mod download {
 	use super::AttachmentCipher;
 
-	use std::{convert::TryFrom, collections::HashMap};
+	use std::{collections::HashMap, convert::TryFrom};
 
 	use auxin_protos::protos::signalservice::AttachmentPointer;
 	use log::{debug, info, warn};
@@ -375,7 +375,13 @@ pub mod download {
 			AttachmentMetadata::try_from(&attachment).map_err(AttachmentDownloadError::Meta)?;
 		let cdn_address = match cdn_address_config.get(&meta.cdn_number) {
 			Some(addr) => addr,
-			None => return Err(AttachmentDownloadError::UnrecognizedCdnNumber(meta.get_or_generate_filename(), meta.cdn_number, cdn_address_config.clone())),
+			None => {
+				return Err(AttachmentDownloadError::UnrecognizedCdnNumber(
+					meta.get_or_generate_filename(),
+					meta.cdn_number,
+					cdn_address_config.clone(),
+				))
+			}
 		};
 		let download_path = match &meta.attachment_identifier {
 			AttachmentIdentifier::CdnId(id) => format!("{}/attachments/{}", cdn_address, id),
@@ -414,7 +420,7 @@ pub mod download {
 pub mod upload {
 	use std::path::Path;
 
-use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identifier};
+	use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identifier};
 	use block_modes::BlockMode;
 	use log::{debug, info};
 	use rand::{CryptoRng, Rng, RngCore};
@@ -578,7 +584,7 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 		})
 	}
 
-	/// A ticket received in response to a request to start an upload to Signal's CDN. 
+	/// A ticket received in response to a request to start an upload to Signal's CDN.
 	/// This is shared across regular attachment uploads and avatar/profile-pic uploads,
 	/// through the magic of #\[serde(flatten)\]
 	#[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -603,9 +609,9 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 	#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 	#[serde(rename_all = "camelCase")]
 	pub struct AttachmentUploadToken {
-		/// serde(flatten) here will treat all of the fields of PreUploadToken as if they were fields of AttachmentUploadToken. 
+		/// serde(flatten) here will treat all of the fields of PreUploadToken as if they were fields of AttachmentUploadToken.
 		/// So, key, credential, acl, etc. are all in the same json object as attachment_id and attachment_id_string, and
-		/// do not need to be nested.  
+		/// do not need to be nested.
 		#[serde(flatten)]
 		pub token: PreUploadToken,
 
@@ -673,7 +679,7 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 			generate_timestamp()
 		);
 		//"/v1/profile/form/avatar")
-		// TODO: Factor this out for other non-attachment types of uploads, maybe?  
+		// TODO: Factor this out for other non-attachment types of uploads, maybe?
 		let req_addr = super::AVATAR_UPLOAD_START_PATH.to_string();
 
 		let request: http::Request<Vec<u8>> = http::request::Request::get(&req_addr)
@@ -704,7 +710,7 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 	}
 
 	/// Upload a blob (attachment, avatar, etc) we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
-	/// 
+	///
 	/// # Arguments
 	///
 	/// * `token` - The pre-upload token retrieved from Signal's servers.
@@ -712,13 +718,14 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
 	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
 	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
-	pub(crate) async fn upload_to_cdn<H: AuxinHttpsConnection>(token: &PreUploadToken,
+	pub(crate) async fn upload_to_cdn<H: AuxinHttpsConnection>(
+		token: &PreUploadToken,
 		data: Vec<u8>,
-		content_type: &str, 
+		content_type: &str,
 		auth: (&str, &str),
 		http_client: H,
-		uri: &str) -> std::result::Result<http::Response<Vec<u8>>, AttachmentUploadError> { 
-
+		uri: &str,
+	) -> std::result::Result<http::Response<Vec<u8>>, AttachmentUploadError> {
 		let mut multipart_form = Vec::default();
 
 		multipart_form.push(MultipartEntry::Text {
@@ -754,8 +761,11 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 			value: token.signature.clone(),
 		});
 
-		debug!("Making request to {}, multipart form (minus file data) is: {:?}", uri, multipart_form);
-		
+		debug!(
+			"Making request to {}, multipart form (minus file data) is: {:?}",
+			uri, multipart_form
+		);
+
 		multipart_form.push(MultipartEntry::File {
 			field_name: "file".to_string(),
 			file_name: "file".to_string(),
@@ -786,7 +796,10 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 		attachment_identifier: &AttachmentId,
 		attachment: &PreparedAttachment,
 	) -> std::result::Result<AttachmentPointer, AttachmentUploadError> {
-		info!("Start of make_attachment_pointer() at {}", generate_timestamp());
+		info!(
+			"Start of make_attachment_pointer() at {}",
+			generate_timestamp()
+		);
 		//Build our digest - separate from the mac, actually hashes the mac and the whole data buffer.
 		let digest = ring::digest::digest(&SHA256, &attachment.data);
 
@@ -824,11 +837,14 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 
 		debug!("Guessed MIME type {}", mime_name);
 
-		info!("End of make_attachment_pointer() at {}", generate_timestamp());
+		info!(
+			"End of make_attachment_pointer() at {}",
+			generate_timestamp()
+		);
 		Ok(attachment_pointer)
 	}
 
-	pub fn content_type_from_filename<T: AsRef<Path>>(file_name: T) -> String { 
+	pub fn content_type_from_filename<T: AsRef<Path>>(file_name: T) -> String {
 		let mime_type_guess = mime_guess::from_path(file_name);
 		let mime = mime_type_guess.first_or_octet_stream();
 		mime.essence_str().to_string()
@@ -853,7 +869,15 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 		info!("Start of upload_attachment() at {}", generate_timestamp());
 		let upload_address = format!("{}/attachments/", cdn_address);
 
-		let response = upload_to_cdn(&upload_attributes.token, attachment.data.clone(), "application/octet-stream", auth, http_client.clone(), upload_address.as_str()).await?;
+		let response = upload_to_cdn(
+			&upload_attributes.token,
+			attachment.data.clone(),
+			"application/octet-stream",
+			auth,
+			http_client.clone(),
+			upload_address.as_str(),
+		)
+		.await?;
 		let (parts, body_vec) = response.into_parts();
 		let body_str = String::from_utf8_lossy(&body_vec.as_slice());
 
@@ -864,7 +888,8 @@ use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identif
 		);
 
 		let attachment_identifier = AttachmentId::cdnId(upload_attributes.attachment_id);
-		let attachment_pointer = make_attachment_pointer(&attachment_identifier, &attachment).await?; 
+		let attachment_pointer =
+			make_attachment_pointer(&attachment_identifier, &attachment).await?;
 
 		info!("End of upload_attachment() at {}", generate_timestamp());
 		Ok(attachment_pointer)
