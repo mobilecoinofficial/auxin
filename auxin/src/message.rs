@@ -1016,7 +1016,7 @@ impl MessageIn {
 		let (content, sender) = decrypt_unidentified_sender(&envelope, context).await?;
 
 		Ok(MessageIn {
-			content: MessageContent::try_from(content)?,
+			content,
 			remote_address: sender,
 			timestamp: envelope.get_timestamp(),
 			timestamp_received: generate_timestamp(), //Keep track of when we got it.

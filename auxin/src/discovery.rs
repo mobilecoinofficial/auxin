@@ -128,10 +128,8 @@ impl AttestationResponse {
 		// ----- Verify signature on response.
 		let cert = *chain.first().unwrap();
 		//Figure out a verification algorithm, which requires both a key algorithm and a signature algorithm.
-		let key_algorithm =
-			x509_certificate::KeyAlgorithm::try_from(cert.key_algorithm().unwrap())?;
-		let signature_algorithm =
-			x509_certificate::SignatureAlgorithm::try_from(cert.signature_algorithm().unwrap())?;
+		let key_algorithm = cert.key_algorithm().unwrap();
+		let signature_algorithm = cert.signature_algorithm().unwrap();
 		let verify_algorithm = signature_algorithm.resolve_verification_algorithm(key_algorithm)?;
 
 		let cipher =

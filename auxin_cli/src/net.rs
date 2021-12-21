@@ -481,7 +481,7 @@ impl AuxinTungsteniteConnection {
 			}
 			Some(Ok(m)) => {
 				trace!("Some(Ok(m)) - trying to turn m into wsmessage.");
-				let wsmessage: WebSocketMessage = m.into();
+				let wsmessage: WebSocketMessage = m;
 				//Check to see if we're done.
 				if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST {
 					trace!("Acknowledging.");
