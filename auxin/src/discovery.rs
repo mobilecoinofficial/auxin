@@ -13,7 +13,7 @@ use libsignal_protocol::PublicKey;
 use log::{debug, warn};
 use rand::{CryptoRng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryFrom};
+use std::collections::HashMap;
 use x509_certificate::CapturedX509Certificate;
 
 ///Magic string referring to the Intel SGX enclave ID used by Signal.
