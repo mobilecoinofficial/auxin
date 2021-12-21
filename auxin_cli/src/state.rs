@@ -112,9 +112,8 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 		}));
 	}
 	let mut decoded_profile_key: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
-	for i in 0..PROFILE_KEY_LEN {
-		decoded_profile_key[i] = profile_key[i];
-	}
+	// NOTE: This won't panic because the check above ensures the slices have the same length.
+	decoded_profile_key.copy_from_slice(&profile_key);
 
 	//Device ID
 	let device_id = match val.get("deviceId") {
