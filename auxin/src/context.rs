@@ -132,6 +132,8 @@ pub struct AuxinContext {
 /// # Arguments
 ///
 /// * `profile_key` - A base-64 string encoding of a signal user's 32-byte (256-bit) Profile Key.
+// TODO(Diana): profile_key should be `&str`, but i'm unsure if I'm allowed to change the API.
+#[allow(clippy::ptr_arg)]
 pub fn get_unidentified_access_for_key(profile_key: &String) -> crate::Result<Vec<u8>> {
 	let profile_key_bytes = base64::decode(profile_key)?;
 	let profile_key = aes_gcm::Key::from_slice(profile_key_bytes.as_slice());
