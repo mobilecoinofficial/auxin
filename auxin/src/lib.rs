@@ -1984,9 +1984,9 @@ where
 			// if has_avatar is true, there is a parameters.avatar_file, so we can unwrap here.
 			let raw_path = maybe_avatar_filename.unwrap();
 			//Make sure we have a specific file and not a path here. 
-			let filename = if raw_path.contains("/") {
+			let filename = if raw_path.contains('/') {
 				//Cannot use std::Path here as that will break on wasm. 
-				let resl = raw_path.rsplit_once("/").unwrap().1;
+				let resl = raw_path.rsplit_once('/').unwrap().1;
 
 				sanitize_filename::sanitize(resl)
 			}

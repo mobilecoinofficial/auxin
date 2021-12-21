@@ -82,7 +82,7 @@ pub mod download {
 						Some(ty) => {
 							sanitize_filename::sanitize(if ty.contains('/') {
 								// 1 here will always be the second element i.e. after the /
-								ty.split_once("/")
+								ty.split_once('/')
 									.unwrap()
 									.1
 									.to_string()
