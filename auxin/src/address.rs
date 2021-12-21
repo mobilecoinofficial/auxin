@@ -234,6 +234,5 @@ pub fn phone_number_to_long(phone: &E164) -> Result<i64> {
 	let phone = phone.replace(')', "");
 	let phone = phone.replace(' ', "");
 
-	// Radix of 10 to ensure we match Java.lang.Long exactly.
-	return Ok(i64::from_str_radix(phone.as_str(), 10)?);
+	Ok(phone.parse::<i64>()?)
 }
