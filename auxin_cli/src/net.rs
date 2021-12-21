@@ -473,11 +473,11 @@ impl AuxinTungsteniteConnection {
 		match msg {
 			None => {
 				trace!("msg was a None");
-				return None;
+				None
 			}
 			Some(Err(e)) => {
 				trace!("NetErr");
-				return Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))));
+				Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))))
 			}
 			Some(Ok(m)) => {
 				trace!("Some(Ok(m)) - trying to turn m into wsmessage.");
@@ -510,14 +510,14 @@ impl AuxinTungsteniteConnection {
 					let res = self.acknowledge_message(&req).await;
 
 					if let Err(e) = res {
-						return Some(Err(e));
+						Some(Err(e))
 					} else {
 						trace!("request-shaped Some(Ok(wsmessage))");
-						return Some(Ok(wsmessage));
+						Some(Ok(wsmessage))
 					}
 				} else {
 					trace!("non-request Some(Ok(wsmessage))");
-					return Some(Ok(wsmessage));
+					Some(Ok(wsmessage))
 				}
 			}
 		}

@@ -1104,7 +1104,7 @@ where
 
 				info!("End of retrieve_profile() at {}", generate_timestamp());
 
-				return Ok(profile_response);
+				Ok(profile_response)
 			} else {
 				Err(ProfileRetrievalError::NoProfileKey(recipient.clone()))
 			}
