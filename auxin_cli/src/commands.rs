@@ -751,13 +751,15 @@ pub async fn handle_send_command(
 	let recipient_addr = AuxinAddress::try_from(cmd.destination.as_str()).unwrap();
 
 	//MessageContent
-	let mut message_content = MessageContent::default();
+	let mut message_content = MessageContent {
+		//Do we want to end our session here?
+		end_session: cmd.end_session,
 
-	//Do we want to end our session here?
-	message_content.end_session = cmd.end_session;
+		//Do we have a regular text message?
+		text_message: cmd.message,
 
-	//Do we have a regular text message?
-	message_content.text_message = cmd.message;
+		..MessageContent::default()
+	};
 
 	//Did the user pass in a "Content" protocol buffer serialized as json?
 	let mut premade_content: Option<auxin_protos::Content> = cmd

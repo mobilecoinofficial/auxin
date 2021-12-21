@@ -1241,8 +1241,10 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 	type Error = MessageInError;
 
 	fn try_from(value: auxin_protos::Content) -> std::result::Result<Self, Self::Error> {
-		let mut result = MessageContent::default();
-		result.end_session = false;
+		let mut result = MessageContent {
+			end_session: false,
+			..MessageContent::default()
+		};
 		if value.has_dataMessage() {
 			let data_message = value.get_dataMessage();
 			if data_message.has_body() {
