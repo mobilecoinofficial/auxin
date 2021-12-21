@@ -492,7 +492,7 @@ impl AuxinTungsteniteConnection {
 							debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
 							//Acknowledge we received the end-of-queue and do many clunky error-handling things:
 							let res = self
-								.acknowledge_message(&req)
+								.acknowledge_message(req)
 								.await
 								.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
 							let res = match res {
@@ -507,7 +507,7 @@ impl AuxinTungsteniteConnection {
 					}
 					// Ack it. We will not double-ack because the acknowledgement above
 					// directly returns from that  if req.get_path().contains("/api/v1/queue/empty") block
-					let res = self.acknowledge_message(&req).await;
+					let res = self.acknowledge_message(req).await;
 
 					if let Err(e) = res {
 						Some(Err(e))

@@ -711,7 +711,7 @@ where
 
 			let res_str = String::from_utf8(res.body().to_vec())?;
 			debug!("Profile response: {:?}", res_str);
-			let recipient = self.context.peer_cache.get_mut(&recipient_addr).unwrap();
+			let recipient = self.context.peer_cache.get_mut(recipient_addr).unwrap();
 
 			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
 
@@ -1811,7 +1811,7 @@ where
 		self.state_manager.end_session(peer_addr, &self.context)?;
 
 		// Pull up the relevant peer
-		let peer_record = match self.context.peer_cache.get(&peer_addr) {
+		let peer_record = match self.context.peer_cache.get(peer_addr) {
 			Some(a) => a,
 			// We do not need to delete what is not there.
 			None => {
@@ -1854,7 +1854,7 @@ where
 		}
 
 		self.state_manager
-			.save_peer_sessions(&peer_addr, &self.context)?;
+			.save_peer_sessions(peer_addr, &self.context)?;
 
 		Ok(())
 	}
