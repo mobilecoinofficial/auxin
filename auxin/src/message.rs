@@ -1079,7 +1079,7 @@ impl MessageIn {
 		if let Some(_) = self.content.receipt_message {
 			false
 		} else if self.content.end_session {
-			//End-session messages do not get recipts.
+			//End-session messages do not get receipts.
 			false
 		} else {
 			true
