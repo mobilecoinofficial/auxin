@@ -162,6 +162,9 @@ pub async fn main() -> Result<()> {
 	// within json-rpc (including the command to start a json-rpc daemon) goes here.
 	// As of 0.1.2, that is Echoserver, JsonRPC, and REPL.
 
+	#[allow(clippy::while_immutable_condition)]
+	// TODO(Diana): Several match arms have a while loop with an exit condition that can never be false.
+	// For now, suppress the error from Clippy.
 	match arguments.command {
 		// Sends a message to the given address.
 		AuxinCommand::Send(send_command) => {
