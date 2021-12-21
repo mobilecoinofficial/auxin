@@ -62,21 +62,21 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 
 	//UUID
 	let our_uuid = val.get("uuid").ok_or(ErrBuildIdent::MissingUuid {
-		phone_number: phone_number.clone().to_string(),
+		phone_number: phone_number.to_string(),
 	})?;
 	let our_uuid = our_uuid.as_str().ok_or(ErrBuildIdent::MissingUuid {
-		phone_number: phone_number.clone().to_string(),
+		phone_number: phone_number.to_string(),
 	})?;
 	let our_uuid = Uuid::from_str(our_uuid)?;
 
 	//Password
 	let password = val.get("password").ok_or(ErrBuildIdent::MissingPassword {
-		phone_number: phone_number.clone().to_string(),
+		phone_number: phone_number.to_string(),
 	})?;
 	let password = password
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingPassword {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 
@@ -84,24 +84,24 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 	let registration_id =
 		val.get("registrationId")
 			.ok_or(ErrBuildIdent::MissingRegistrationId {
-				phone_number: phone_number.clone().to_string(),
+				phone_number: phone_number.to_string(),
 			})?;
 	let registration_id = registration_id
 		.as_u64()
 		.ok_or(ErrBuildIdent::MissingRegistrationId {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?;
 
 	//Profile key
 	let profile_key = val
 		.get("profileKey")
 		.ok_or(ErrBuildIdent::MissingProfileKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?;
 	let profile_key = profile_key
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingProfileKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 	let profile_key = base64::decode(profile_key)?;
@@ -128,12 +128,12 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 	let private_key = val
 		.get("identityPrivateKey")
 		.ok_or(ErrBuildIdent::MissingPrivateKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?;
 	let private_key = private_key
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingPrivateKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 	let private_key = base64::decode(private_key)?;
@@ -143,19 +143,19 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 	let public_key = val
 		.get("identityKey")
 		.ok_or(ErrBuildIdent::MissingPublicKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?;
 	let public_key = public_key
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingPublicKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 	let public_key = base64::decode(public_key)?;
 	let public_key = PublicKey::deserialize(public_key.as_slice())?;
 
 	let our_address = AuxinDeviceAddress {
-		address: AuxinAddress::Both(phone_number.clone().to_string(), our_uuid),
+		address: AuxinAddress::Both(phone_number.to_string(), our_uuid),
 		device_id,
 	};
 
@@ -178,7 +178,7 @@ pub async fn load_known_peers(
 	identity_store: &mut InMemIdentityKeyStore,
 	ctx: libsignal_protocol::Context,
 ) -> Result<()> {
-	let mut our_path = base_dir.clone().to_string();
+	let mut our_path = base_dir.to_string();
 	our_path.push('/');
 	our_path.push_str(our_id);
 	our_path.push_str(".d/");
@@ -223,7 +223,7 @@ pub async fn load_sessions(
 	base_dir: &str,
 	ctx: libsignal_protocol::Context,
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
-	let mut our_path = base_dir.clone().to_string();
+	let mut our_path = base_dir.to_string();
 	our_path.push('/');
 	our_path.push_str(our_id);
 	our_path.push_str(".d/");

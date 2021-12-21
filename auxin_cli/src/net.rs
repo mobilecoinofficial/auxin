@@ -424,7 +424,7 @@ impl AuxinTungsteniteConnection {
 		res.set_id(reply_id);
 		res.set_status(200); // Success
 		res.set_message(String::from("OK"));
-		res.set_headers(req.get_headers().clone().into());
+		res.set_headers(req.get_headers().into());
 		let mut res_m = WebSocketMessage::default();
 		res_m.set_response(res);
 		res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
