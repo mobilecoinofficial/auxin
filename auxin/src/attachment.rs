@@ -807,7 +807,7 @@ pub mod upload {
 		let mut attachment_pointer = AttachmentPointer::default();
 
 		match attachment_identifier {
-			AttachmentId::cdnId(id) => attachment_pointer.set_cdnId(id.clone()),
+			AttachmentId::cdnId(id) => attachment_pointer.set_cdnId(*id),
 			AttachmentId::cdnKey(key) => attachment_pointer.set_cdnKey(key.clone()),
 		}
 
@@ -880,7 +880,7 @@ pub mod upload {
 		)
 		.await?;
 		let (parts, body_vec) = response.into_parts();
-		let body_str = String::from_utf8_lossy(&body_vec.as_slice());
+		let body_str = String::from_utf8_lossy(body_vec.as_slice());
 
 		let response_converted = http::response::Response::from_parts(parts, body_str.to_string());
 		debug!(
@@ -890,7 +890,7 @@ pub mod upload {
 
 		let attachment_identifier = AttachmentId::cdnId(upload_attributes.attachment_id);
 		let attachment_pointer =
-			make_attachment_pointer(&attachment_identifier, &attachment).await?;
+			make_attachment_pointer(&attachment_identifier, attachment).await?;
 
 		info!("End of upload_attachment() at {}", generate_timestamp());
 		Ok(attachment_pointer)

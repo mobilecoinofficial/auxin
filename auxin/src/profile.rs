@@ -105,7 +105,7 @@ pub fn build_set_profile_request<R: CryptoRng + Rng>(
 	rng: &mut R,
 ) -> crate::Result<ProfileSetRequest> {
 	let uuid = identity.address.get_uuid().unwrap();
-	let profile_key = zkgroup::profiles::ProfileKey::create(identity.profile_key.clone());
+	let profile_key = zkgroup::profiles::ProfileKey::create(identity.profile_key);
 
 	// Profile encryption
 	let profile_cipher = ProfileCipher::from(profile_key);
@@ -146,7 +146,7 @@ pub fn build_set_profile_request<R: CryptoRng + Rng>(
 	// Drop the cipher's ownership of the profile key, getting the profile key copy back.
 	let profile_key = profile_cipher.into_inner();
 	let profile_key_ver = get_profile_key_version(&profile_key, uuid);
-	let commitment = profile_key.get_commitment(uuid.as_bytes().clone());
+	let commitment = profile_key.get_commitment(*uuid.as_bytes());
 
 	// Per libsignal-service-rs' push_service.rs, bincode is transparent and this will return a hex-encoded string.
 	let version = bincode::serialize(&profile_key_ver)?;
@@ -192,5 +192,5 @@ pub fn get_profile_key_version(
 	uuid: &Uuid,
 ) -> ProfileKeyVersion {
 	let uid_bytes = uuid.as_bytes();
-	profile_key.get_profile_key_version(uid_bytes.clone())
+	profile_key.get_profile_key_version(*uid_bytes)
 }

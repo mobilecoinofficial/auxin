@@ -945,7 +945,7 @@ impl MessageIn {
 			}
 			if let Ok(uuid) = remote_address.get_uuid() {
 				//Set uuid
-				peer.uuid = Some(uuid.clone());
+				peer.uuid = Some(*uuid);
 			}
 		}
 		Ok(())

@@ -1947,7 +1947,7 @@ where
 			);
 
 			let profile_key =
-				zkgroup::profiles::ProfileKey::create(self.context.identity.profile_key.clone());
+				zkgroup::profiles::ProfileKey::create(self.context.identity.profile_key);
 			// Encrypt with profile key
 			let profile_cipher = ProfileCipher::from(profile_key);
 			let encrypted_avatar_bytes = profile_cipher.encrypt_avatar(attachment).unwrap();
