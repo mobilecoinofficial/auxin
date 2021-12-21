@@ -264,6 +264,8 @@ pub trait PeerStore {
 	fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord>;
 
 	/// Finds the UUID that corresponds to this phone number.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): phone_number
 	fn complete_phone_address(&self, phone_number: &String) -> Option<AuxinAddress> {
 		self.get_by_number(phone_number).map(AuxinAddress::from)
 	}

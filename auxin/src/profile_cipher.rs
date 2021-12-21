@@ -196,6 +196,8 @@ impl ProfileCipher {
 	///
 	/// Intended to match the behavior of Java's ProfileCipher::encryptWithLength().
 	/// Provided padding brackets should not include the cipher's 28 byte encryption overhead.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): bytes
 	pub fn pad_and_encrypt_with_length(
 		&self,
 		bytes: &Vec<u8>,

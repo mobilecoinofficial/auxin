@@ -170,6 +170,8 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 /// Load any identity keys for known peers (recipients) present in our protocol store.
 /// These end up in identity_store.known_keys
 #[allow(unused_must_use)]
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): our_id
 pub async fn load_known_peers(
 	our_id: &String,
 	base_dir: &str,
@@ -217,6 +219,8 @@ pub async fn load_known_peers(
 	Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): our_id
 pub async fn load_sessions(
 	our_id: &String,
 	base_dir: &str,
@@ -351,6 +355,8 @@ pub async fn load_sessions(
 	Ok((session_store, recipient_structure))
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): our_id
 pub async fn load_prekeys(
 	our_id: &String,
 	base_dir: &str,

@@ -419,6 +419,8 @@ impl From<ProfileRetrievalError> for JsonRpcErrorResponse {
 	}
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): download_path should be a &Path, but API.
 pub async fn process_jsonrpc_input(
 	input: &str,
 	app: &mut crate::app::App,
@@ -872,6 +874,8 @@ pub async fn handle_upload_command(
 	Ok(attachments)
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): download_path
 pub async fn handle_receive_command(
 	cmd: ReceiveCommand,
 	download_path: &PathBuf,
@@ -949,6 +953,8 @@ pub async fn handle_get_profile_command(
 }
 
 /// Returns a vector of filenames retrieved.
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): download_path
 pub async fn handle_download_command(
 	cmd: DownloadAttachmentCommand,
 	download_path: &PathBuf,

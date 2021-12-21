@@ -338,6 +338,8 @@ pub struct DiscoveryRequest {
 ///
 /// * `phone_numbers` - A list of phone numbers we are seeking corresponding UUIDs for.
 /// * `rand` - The cryptographically-strong source of entropy for this process.
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): phone_numbers
 pub fn build_query_data<R>(phone_numbers: &Vec<E164>, rand: &mut R) -> Result<Vec<u8>>
 where
 	R: RngCore + CryptoRng,
@@ -370,6 +372,8 @@ impl DiscoveryRequest {
 	/// * `phone_numbers` - Addresses to request UUIDs for from the server. Must be E164 format i.e. +12345678910
 	/// * `attestations` - A list of decoded attestation responses. Probably generated with AttestationResponseList::decode_attestations().
 	/// * `rand` - Randomness provider.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): phone_numbers
 	pub fn new<R>(
 		phone_numbers: &Vec<E164>,
 		attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>,
@@ -460,6 +464,8 @@ pub struct DiscoveryResponse {
 
 impl DiscoveryResponse {
 	/// Decrypt the discovery response.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): attestations
 	pub fn decrypt(
 		&self,
 		attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>,

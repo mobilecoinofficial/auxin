@@ -289,6 +289,8 @@ pub fn pad_message_body(message: &[u8]) -> Vec<u8> {
 /// # Arguments
 ///
 /// * `message` - Message content to have the padding removed from (snipping everything after PADDING_START_CHAR), producing usable message-text.
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): message
 pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>, PaddingError> {
 	for (i, elem) in message.iter().enumerate() {
 		//Only check the final chunk
@@ -314,6 +316,8 @@ pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>,
 /// # Arguments
 ///
 /// * `buf` - A buffer containing a protocol buffer message sent to us from Signal's Web API.
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): buf
 pub fn fix_protobuf_buf(buf: &Vec<u8>) -> Result<Vec<u8>> {
 	let mut new_buf: Vec<u8> = Vec::new();
 	// It is expecting this to start with "Len".
@@ -504,6 +508,8 @@ impl MessageContent {
 	///
 	/// * `our_profile_key` - Our local Signal user's profile key, passed as a Base64-encoded string representing our 32-byte Profile Key.
 	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): our_profile_key
 	pub fn build_signal_content(
 		&self,
 		our_profile_key: &String,
