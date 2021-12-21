@@ -158,7 +158,7 @@ pub fn build_set_profile_request<R: CryptoRng + Rng>(
 		name,
 		about,
 		about_emoji,
-		payment_address: payment_address,
+		payment_address,
 		avatar: parameters.avatar_file.is_some(),
 		commitment,
 	})
