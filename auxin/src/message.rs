@@ -1076,6 +1076,7 @@ impl MessageIn {
 	/// Returns false for receipt messages (no infinite receipt loops) and true for all others.
 	pub fn needs_receipt(&self) -> bool {
 		// TODO: Evaluate if Receipt Messages are ever delivered alongside anything else in the same envelope.
+		#[cfg(TODO)]
 		if let Some(_) = self.content.receipt_message {
 			false
 		} else if self.content.end_session {
@@ -1084,6 +1085,7 @@ impl MessageIn {
 		} else {
 			true
 		}
+		false
 	}
 }
 
