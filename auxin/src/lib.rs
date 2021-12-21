@@ -14,7 +14,10 @@ use aes_gcm::{
 };
 use attachment::{
 	download::{self, AttachmentDownloadError},
-	upload::{AttachmentUploadError, AttachmentUploadToken, PreparedAttachment, PreUploadToken, AttachmentEncryptError},
+	upload::{
+		AttachmentEncryptError, AttachmentUploadError, AttachmentUploadToken, PreUploadToken,
+		PreparedAttachment,
+	},
 };
 use auxin_protos::{AttachmentPointer, Envelope};
 
@@ -28,7 +31,10 @@ use libsignal_protocol::{
 use log::{debug, error, info, trace, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
-use net::{api_paths::{SIGNAL_CDN, SIGNAL_CDN_2}, AuxinHttpsConnection, AuxinNetManager};
+use net::{
+	api_paths::{SIGNAL_CDN, SIGNAL_CDN_2},
+	AuxinHttpsConnection, AuxinNetManager,
+};
 use profile::ProfileConfig;
 use protobuf::CodedInputStream;
 use serde_json::json;
@@ -64,7 +70,7 @@ use rand::{CryptoRng, Rng, RngCore};
 use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerStore};
 
 use crate::{
-	attachment::{download::EncryptedAttachment, upload::{content_type_from_filename}},
+	attachment::{download::EncryptedAttachment, upload::content_type_from_filename},
 	discovery::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
@@ -75,7 +81,10 @@ use crate::{
 	},
 	net::common_http_headers,
 	profile::{build_set_profile_request, ProfileResponse},
-	state::{try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode}, profile_cipher::ProfileCipher,
+	profile_cipher::ProfileCipher,
+	state::{
+		try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode,
+	},
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -194,7 +203,7 @@ impl std::fmt::Display for PaymentAddressRetrievalError {
 impl std::error::Error for PaymentAddressRetrievalError {}
 
 #[derive(Debug, Clone)]
-pub enum ProfileRetrievalError {	
+pub enum ProfileRetrievalError {
 	NoProfileKey(AuxinAddress),
 	NoPeer(AuxinAddress),
 	EncodingError(AuxinAddress, String),
@@ -1005,15 +1014,9 @@ where
 		&mut self,
 		recipient_addr: &AuxinAddress,
 	) -> std::result::Result<ProfileResponse, ProfileRetrievalError> {
-		info!(
-			"Start of retrieve_profile() at {}",
-			generate_timestamp()
-		);
+		info!("Start of retrieve_profile() at {}", generate_timestamp());
 		self.ensure_peer_loaded(recipient_addr).await.map_err(|e| {
-			ProfileRetrievalError::ErrPeer (
-				recipient_addr.clone(),
-				format!("{:?}", e)
-			)
+			ProfileRetrievalError::ErrPeer(recipient_addr.clone(), format!("{:?}", e))
 		})?;
 		//We may have just grabbed the UUID in ensure_peer_loaded() above, make sure we have a usable address.
 		let recipient = self
@@ -1026,20 +1029,13 @@ where
 			if let Some(profile_key) = &peer.profile_key {
 				let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
 				let temp_bytes = base64::decode(profile_key).map_err(|e| {
-					ProfileRetrievalError::EncodingError (
-						recipient.clone(),
-						format!("{:?}", e),
-					)
+					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 				})?;
 				profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
 
-				let uuid =
-					recipient
-						.get_uuid()
-						.map_err(|e| ProfileRetrievalError::NoUuid (
-							recipient.clone(),
-							format!("{:?}", e),
-						))?;
+				let uuid = recipient.get_uuid().map_err(|e| {
+					ProfileRetrievalError::NoUuid(recipient.clone(), format!("{:?}", e))
+				})?;
 
 				let randomness: [u8; 32] = self.rng.gen();
 				let server_secret_params = zkgroup::api::ServerSecretParams::generate(randomness);
@@ -1057,10 +1053,7 @@ where
 				let encoded_request = hex::encode(&bincode::serialize(&request).unwrap());
 
 				let version_bytes = bincode::serialize(&version).map_err(|e| {
-					ProfileRetrievalError::EncodingError (
-						recipient.clone(),
-						format!("{:?}", e),
-					)
+					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 				})?;
 				let version_string = String::from_utf8_lossy(&version_bytes);
 
@@ -1074,68 +1067,51 @@ where
 				let unidentified_access = self
 					.context
 					.get_unidentified_access_for(&recipient, &mut self.rng)
-					.map_err(|e| ProfileRetrievalError::UnidentifiedAccess (
-						recipient.clone(),
-						format!("{:?}", e),
-					))?;
+					.map_err(|e| {
+						ProfileRetrievalError::UnidentifiedAccess(
+							recipient.clone(),
+							format!("{:?}", e),
+						)
+					})?;
 				let unidentified_access = base64::encode(unidentified_access);
 				let req = common_http_headers(
 					http::Method::GET,
 					&get_path,
 					&self.context.identity.make_auth_header(),
 				)
-				.map_err(|e| ProfileRetrievalError::EncodingError (
-					recipient.clone(),
-					format!("{:?}", e),
-				))?
+				.map_err(|e| {
+					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
+				})?
 				.header("Unidentified-Access-Key", unidentified_access)
 				.body(Vec::default())
-				.map_err(|e| ProfileRetrievalError::EncodingError (
-					recipient.clone(),
-					format!("{:?}", e),
-				))?;
+				.map_err(|e| {
+					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
+				})?;
 				debug!("Requesitng profile key credential with {:?}", req);
 				let response = self.http_client.request(req).await.map_err(|e| {
-					ProfileRetrievalError::EncodingError (
-						recipient.clone(),
-						format!("{:?}", e),
-					)
+					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 				})?;
 
 				let response_str = String::from_utf8(response.body().to_vec()).map_err(|e| {
-					ProfileRetrievalError::DecodingError (
-						recipient.clone(),
-						format!("{:?}", e),
-					)
+					ProfileRetrievalError::DecodingError(recipient.clone(), format!("{:?}", e))
 				})?;
 
 				debug!("Provided profile response string was: {}", &response_str);
 
-				let profile_response = serde_json::from_str(&response_str)
-					.map_err(|e| ProfileRetrievalError::DecodingError (
-						recipient.clone(),
-						format!("{:?}", e),
-					))?;
-				
-				info!(
-					"End of retrieve_profile() at {}",
-					generate_timestamp()
-				);
+				let profile_response = serde_json::from_str(&response_str).map_err(|e| {
+					ProfileRetrievalError::DecodingError(recipient.clone(), format!("{:?}", e))
+				})?;
+
+				info!("End of retrieve_profile() at {}", generate_timestamp());
 
 				return Ok(profile_response);
-
 			} else {
-				Err(ProfileRetrievalError::NoProfileKey(
-					recipient.clone(),
-				))
+				Err(ProfileRetrievalError::NoProfileKey(recipient.clone()))
 			}
 		} else {
-			Err(ProfileRetrievalError::NoPeer (
-				recipient.clone(),
-			))
+			Err(ProfileRetrievalError::NoPeer(recipient.clone()))
 		}
 	}
-
 
 	/// Get Signal profile information for the specified known peer. This peer must have a profile key known
 	/// to us already (i.e. messages already received). Unlike retrieve_profile() (which this method calls
@@ -1162,101 +1138,74 @@ where
 			.unwrap_or(peer_address.clone());
 
 		//Set up cipher
-		let profile_key = self.context.peer_cache.get(&peer_address)
-			.ok_or(
-				ProfileRetrievalError::NoPeer(
-						peer_address.clone()
-					)
-			)?.profile_key.as_ref()
-			.ok_or(
-					ProfileRetrievalError::NoProfileKey(
-						peer_address.clone()
-					)
-			)?;
-			
+		let profile_key = self
+			.context
+			.peer_cache
+			.get(&peer_address)
+			.ok_or(ProfileRetrievalError::NoPeer(peer_address.clone()))?
+			.profile_key
+			.as_ref()
+			.ok_or(ProfileRetrievalError::NoProfileKey(peer_address.clone()))?;
+
 		let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
 		let temp_bytes = base64::decode(profile_key).map_err(|e| {
-			ProfileRetrievalError::EncodingError (
-				peer_address.clone(),
-				format!("{:?}", e),
-			)
+			ProfileRetrievalError::EncodingError(peer_address.clone(), format!("{:?}", e))
 		})?;
 		profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
 
 		let profile_key = zkgroup::profiles::ProfileKey::create(profile_key_bytes);
 		let profile_cipher = ProfileCipher::from(profile_key);
 
-		// Start decrypting fields 
+		// Start decrypting fields
 
-		let (given_name, family_name) = match response.name { 
-			Some(b64_name) => { 
-				let namebytes = base64::decode(b64_name)
-					.map_err(|e| {
-						ProfileRetrievalError::DecodingError(
-							peer_address.clone(),
-							format!("{:?}", e),
-						)
-					})?;
-				let decrypted_name = profile_cipher.decrypt_name(&namebytes)
-					.map_err(|e| {
-						ProfileRetrievalError::DecryptingError (
-							peer_address.clone(),
-							format!("{:?}", e),
-						)
-					})?;
+		let (given_name, family_name) = match response.name {
+			Some(b64_name) => {
+				let namebytes = base64::decode(b64_name).map_err(|e| {
+					ProfileRetrievalError::DecodingError(peer_address.clone(), format!("{:?}", e))
+				})?;
+				let decrypted_name = profile_cipher.decrypt_name(&namebytes).map_err(|e| {
+					ProfileRetrievalError::DecryptingError(peer_address.clone(), format!("{:?}", e))
+				})?;
 				match decrypted_name {
 					Some(name) => (Some(name.given_name), name.family_name),
 					None => (None, None),
 				}
-			},
+			}
 			None => (None, None),
 		};
 
 		let about = match response.about {
 			Some(b64_about) => {
-				let about_bytes = base64::decode(b64_about)
-					.map_err(|e| {
-						ProfileRetrievalError::DecodingError(
-							peer_address.clone(),
-							format!("{:?}", e),
-						)
-					})?;
-				let decrypted_about = profile_cipher.decrypt_about(about_bytes)
-					.map_err(|e| {
-						ProfileRetrievalError::DecryptingError (
-							peer_address.clone(),
-							format!("{:?}", e),
-						)
-					})?;
+				let about_bytes = base64::decode(b64_about).map_err(|e| {
+					ProfileRetrievalError::DecodingError(peer_address.clone(), format!("{:?}", e))
+				})?;
+				let decrypted_about = profile_cipher.decrypt_about(about_bytes).map_err(|e| {
+					ProfileRetrievalError::DecryptingError(peer_address.clone(), format!("{:?}", e))
+				})?;
 				Some(decrypted_about)
-			},
+			}
 			None => None,
 		};
 
-		let	about_emoji = match response.about_emoji {
+		let about_emoji = match response.about_emoji {
 			Some(b64_emoji) => {
-				let emoji_bytes = base64::decode(b64_emoji)
-					.map_err(|e| {
-						ProfileRetrievalError::DecodingError(
-							peer_address.clone(),
-							format!("{:?}", e),
-						)
-					})?;
-				let decrypted = profile_cipher.decrypt_about(emoji_bytes)
-					.map_err(|e| {
-						ProfileRetrievalError::DecryptingError (
-							peer_address.clone(),
-							format!("{:?}", e),
-						)
-					})?;
+				let emoji_bytes = base64::decode(b64_emoji).map_err(|e| {
+					ProfileRetrievalError::DecodingError(peer_address.clone(), format!("{:?}", e))
+				})?;
+				let decrypted = profile_cipher.decrypt_about(emoji_bytes).map_err(|e| {
+					ProfileRetrievalError::DecryptingError(peer_address.clone(), format!("{:?}", e))
+				})?;
 				Some(decrypted)
-			},
+			}
 			None => None,
 		};
 
-		// No decrypting needed here but let's take a look at the unidentified access mode and the capabilities. 
+		// No decrypting needed here but let's take a look at the unidentified access mode and the capabilities.
 
-		let unidentified_access_mode = match (response.unrestricted_unidentified_access, response.unidentified_access.is_some()) {
+		let unidentified_access_mode = match (
+			response.unrestricted_unidentified_access,
+			response.unidentified_access.is_some(),
+		) {
 			(true, _) => UnidentifiedAccessMode::UNRESTRICTED,
 			(false, true) => UnidentifiedAccessMode::ENABLED,
 			(false, false) => UnidentifiedAccessMode::DISABLED,
@@ -1275,10 +1224,10 @@ where
 		if response.capabilities.sender_key {
 			capabilities.push("senderKey".to_string());
 		}
-	
-		//TODO: Code to support Signal's new (beta) "username" feature will be needed here. 
 
-		// Structure profile so we can both store it and return it. 
+		//TODO: Code to support Signal's new (beta) "username" feature will be needed here.
+
+		// Structure profile so we can both store it and return it.
 		let result = PeerProfile {
 			last_update_timestamp: generate_timestamp(),
 			given_name,
@@ -1289,13 +1238,17 @@ where
 			capabilities,
 		};
 
-		debug!("Saving newly-received profile for {:?} with last updated timestamp {}",
-			&peer_address,
-			result.last_update_timestamp,
+		debug!(
+			"Saving newly-received profile for {:?} with last updated timestamp {}",
+			&peer_address, result.last_update_timestamp,
 		);
-		// self.retrieve_profile() *necessarily* ensured we have a peer profile made for this peer. 
-		// Assume one is present and update accordingly. 
-		self.context.peer_cache.get_mut(&peer_address).unwrap().profile = Some(result.clone());
+		// self.retrieve_profile() *necessarily* ensured we have a peer profile made for this peer.
+		// Assume one is present and update accordingly.
+		self.context
+			.peer_cache
+			.get_mut(&peer_address)
+			.unwrap()
+			.profile = Some(result.clone());
 
 		info!(
 			"End of get_and_decrypt_profile() at {}",
@@ -1327,39 +1280,32 @@ where
 			.unwrap_or(recipient_addr.clone());
 
 		if let Some(address_b64) = &response_structure.payment_address {
-			// Retrieve profile key 
-			let profile_key = self.context.peer_cache.get(&recipient)
-				.ok_or(
-					PaymentAddressRetrievalError::CouldntGetProfile(
-						ProfileRetrievalError::NoPeer(
-							recipient.clone()
-						)
-				))?.profile_key.as_ref()
-				.ok_or(
-					PaymentAddressRetrievalError::CouldntGetProfile(
-						ProfileRetrievalError::NoProfileKey(
-							recipient.clone()
-						)
+			// Retrieve profile key
+			let profile_key = self
+				.context
+				.peer_cache
+				.get(&recipient)
+				.ok_or(PaymentAddressRetrievalError::CouldntGetProfile(
+					ProfileRetrievalError::NoPeer(recipient.clone()),
+				))?
+				.profile_key
+				.as_ref()
+				.ok_or(PaymentAddressRetrievalError::CouldntGetProfile(
+					ProfileRetrievalError::NoProfileKey(recipient.clone()),
 				))?;
-			// Decode it 
+			// Decode it
 			let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
 			let temp_bytes = base64::decode(profile_key).map_err(|e| {
-				ProfileRetrievalError::EncodingError (
-					recipient.clone(),
-					format!("{:?}", e),
-				)
+				ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 			})?;
 			profile_key_bytes.copy_from_slice(&(temp_bytes)[0..PROFILE_KEY_LEN]);
-			
-			//Put it in an actually usable struct. 
+
+			//Put it in an actually usable struct.
 			let key = aes_gcm::Key::from_slice(&profile_key_bytes);
 			let cipher = Aes256Gcm::new(key);
 
 			let payment_address_bytes = base64::decode(&address_b64).map_err(|e| {
-				PaymentAddressRetrievalError::DecodingError(
-					recipient.clone(),
-					format!("{:?}", e),
-				)
+				PaymentAddressRetrievalError::DecodingError(recipient.clone(), format!("{:?}", e))
 			})?;
 
 			//                              Nonce + content + ????
@@ -1381,10 +1327,7 @@ where
 				aad: b"",
 			};
 			let decryption_result = cipher.decrypt(nonce, payload).map_err(|e| {
-				PaymentAddressRetrievalError::DecryptingError (
-					recipient.clone(),
-					format!("{:?}", e),
-				)
+				PaymentAddressRetrievalError::DecryptingError(recipient.clone(), format!("{:?}", e))
 			})?;
 
 			// 4 bits len - - 32 bit (signed?) integer describing buffer length.
@@ -1403,25 +1346,23 @@ where
 			content_bytes.copy_from_slice(&decryption_result[4..(length + 4)]);
 
 			let fixed_buf = fix_protobuf_buf(&content_bytes).map_err(|e| {
-				PaymentAddressRetrievalError::DecodingError (
-					recipient.clone(),
-					format!("{:?}", e),
-				)
+				PaymentAddressRetrievalError::DecodingError(recipient.clone(), format!("{:?}", e))
 			})?;
 			let mut reader = protobuf::CodedInputStream::from_bytes(&fixed_buf);
-			let payment_address: auxin_protos::PaymentAddress = reader
-				.read_message()
-				.map_err(|e| PaymentAddressRetrievalError::DecodingError (
-					recipient.clone(),
-					format!("{:?}", e),
-				))?;
+			let payment_address: auxin_protos::PaymentAddress =
+				reader.read_message().map_err(|e| {
+					PaymentAddressRetrievalError::DecodingError(
+						recipient.clone(),
+						format!("{:?}", e),
+					)
+				})?;
 			info!(
 				"End of retrieve_payment_address() at {}",
 				generate_timestamp()
 			);
 			return Ok(payment_address);
 		};
-		Err(PaymentAddressRetrievalError::NoPaymentAddressForUser (
+		Err(PaymentAddressRetrievalError::NoPaymentAddressForUser(
 			recipient.clone(),
 		))
 	}
@@ -1634,7 +1575,10 @@ where
 						None
 					}
 					Err(e) => {
-						error!("Error encountered in receive_decode() on a message from address {:?}", maybe_address);
+						error!(
+							"Error encountered in receive_decode() on a message from address {:?}",
+							maybe_address
+						);
 						return Err(e.into());
 					}
 					Ok(m) => m,
@@ -1923,17 +1867,14 @@ where
 		mut parameters: ProfileConfig,
 		avatar_buf: Option<Vec<u8>>,
 	) -> crate::Result<http::Response<String>> {
-
-		let has_avatar: bool = if avatar_buf.is_none() { 
+		let has_avatar: bool = if avatar_buf.is_none() {
 			//Make sure we don't tell the server "Hey I'm going to upload an avatar"
 			//when there is no avatar to upload.
 			parameters.avatar_file = None;
 			false
-		}
-		else if parameters.avatar_file.is_none() { 
+		} else if parameters.avatar_file.is_none() {
 			false
-		} 
-		else {
+		} else {
 			true
 		};
 
@@ -1963,7 +1904,10 @@ where
 		};
 		let resulting_response = http::Response::from_parts(parts, body_string);
 
-		debug!("In response to our attempt to set our profile, the server sent: {:?}", &resulting_response);
+		debug!(
+			"In response to our attempt to set our profile, the server sent: {:?}",
+			&resulting_response
+		);
 
 		//Error out if we got a non-success response code.
 		if !resulting_response.status().is_success() {
@@ -1972,59 +1916,66 @@ where
 			)));
 		}
 
-		//Now do avatar-related behavior. 
-		if has_avatar { 
-			//Now do the avatar 
-			let body_string= resulting_response.body();
-	
+		//Now do avatar-related behavior.
+		if has_avatar {
+			//Now do the avatar
+			let body_string = resulting_response.body();
+
 			let upload_token: PreUploadToken = serde_json::from_str(body_string)
-				.map_err(|e| {
-					SetProfileError::AvatarTokenError(format!("{:?}", e))
-				})?;
+				.map_err(|e| SetProfileError::AvatarTokenError(format!("{:?}", e)))?;
 			// if has_avatar is true, there is a parameters.avatar_file, so we can unwrap here.
 			let raw_path = maybe_avatar_filename.unwrap();
-			//Make sure we have a specific file and not a path here. 
+			//Make sure we have a specific file and not a path here.
 			let filename = if raw_path.contains('/') {
-				//Cannot use std::Path here as that will break on wasm. 
+				//Cannot use std::Path here as that will break on wasm.
 				let resl = raw_path.rsplit_once('/').unwrap().1;
 
 				sanitize_filename::sanitize(resl)
-			}
-			else {
+			} else {
 				sanitize_filename::sanitize(raw_path)
 			};
-			
+
 			let attachment = avatar_buf.unwrap();
-			debug!("Attempting to upload {}-byte avatar with file name {}.", attachment.len(), &filename);
-			
-			let profile_key = zkgroup::profiles::ProfileKey::create(self.context.identity.profile_key.clone());
+			debug!(
+				"Attempting to upload {}-byte avatar with file name {}.",
+				attachment.len(),
+				&filename
+			);
+
+			let profile_key =
+				zkgroup::profiles::ProfileKey::create(self.context.identity.profile_key.clone());
 			// Encrypt with profile key
 			let profile_cipher = ProfileCipher::from(profile_key);
 			let encrypted_avatar_bytes = profile_cipher.encrypt_avatar(attachment).unwrap();
-			debug!("Produced avatar ciphertext which is {:?} bytes long.", encrypted_avatar_bytes.len());
-			
-			//Figure out a mime type 	
+			debug!(
+				"Produced avatar ciphertext which is {:?} bytes long.",
+				encrypted_avatar_bytes.len()
+			);
+
+			//Figure out a mime type
 			let mime_name = content_type_from_filename(&filename);
-			//If this doesn't end in a / for some reason, make sure it does now. 
+			//If this doesn't end in a / for some reason, make sure it does now.
 			let mut url = cdn_url.to_string();
 			if !cdn_url.ends_with("/") {
 				url.push_str("/");
 			}
 			let cdn_url = url.as_str();
-			debug!("Guessed file type as {} and upload address as {}", &mime_name, &cdn_url);
+			debug!(
+				"Guessed file type as {} and upload address as {}",
+				&mime_name, &cdn_url
+			);
 			//Actually upload the avatar
 			let auth = self.context.identity.make_auth_header();
 			let res = attachment::upload::upload_to_cdn(
-				&upload_token, 
+				&upload_token,
 				encrypted_avatar_bytes,
 				mime_name.as_str(),
 				("Authorization", auth.as_str()),
 				self.http_client.clone(),
-				cdn_url
-				).await
-				.map_err(|e| { 
-					SetProfileError::UploadAvatarFailed(e)
-				})?;
+				cdn_url,
+			)
+			.await
+			.map_err(|e| SetProfileError::UploadAvatarFailed(e))?;
 
 			//We should be all done, now just try to make some legible log output
 			let (parts, body) = res.into_parts();
@@ -2033,8 +1984,11 @@ where
 				Err(_) => hex::encode(&body),
 			};
 			let avatar_response = http::Response::from_parts(parts, body_string);
-			debug!("Our attempt to upload avatar file {} yielded the response {:?}", filename, avatar_response);
-			
+			debug!(
+				"Our attempt to upload avatar file {} yielded the response {:?}",
+				filename, avatar_response
+			);
+
 			//let attachment_identifier = AttachmentId::cdnKey(upload_token.key.clone());
 			//let attachment_pointer = make_attachment_pointer(&attachment_identifier, &prepared_attachment).await?;
 		}
