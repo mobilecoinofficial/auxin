@@ -31,16 +31,9 @@ use crate::Context;
 /// Loads the needed information for a LocalIdentity from a json file
 /// - intended to be compatible with Libsignal-cli
 pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
-	let mut identity_dir = String::from_str(base_dir)?;
+	let identity_dir = Path::new(base_dir);
 
-	if !base_dir.ends_with('/') {
-		identity_dir.push('/');
-	}
-
-	let mut identity_file_path = identity_dir.clone();
-	identity_file_path.push_str(our_phone_number.as_str());
-
-	let file = File::open(identity_file_path)?;
+	let file = File::open(identity_dir.join(our_phone_number))?;
 	Ok(serde_json::from_reader(file)?)
 }
 
