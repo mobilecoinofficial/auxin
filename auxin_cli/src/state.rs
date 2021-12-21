@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::Context;
 
-/// Loads the needed information for a LocalIdentity from a json file - intended to be compatible with Libsingal-cli
+/// Loads the needed information for a LocalIdentity from a json file - intended to be compatible with Libsignal-cli
 pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
 	let mut identity_dir = String::from_str(base_dir)?;
 
@@ -55,7 +55,7 @@ custom_error! { pub ErrBuildIdent
 	MissingPublicKey{phone_number:E164} = "No public key found when trying to build a LocalIdentity from json structure for user: {phone_number}.",
 }
 
-/// Builds a LocalIdentity from the json structure loaded by load_signal_cli_user() - intended to be compatible with Libsingal-cli
+/// Builds a LocalIdentity from the json structure loaded by load_signal_cli_user() - intended to be compatible with Libsignal-cli
 pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity> {
 	//Phone number.
 	let phone_number = val
