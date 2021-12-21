@@ -1254,10 +1254,8 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 				result.attachments = data_message.attachments.iter().cloned().collect();
 			}
 			// 1 is the END_SESSION flag.
-			if data_message.has_flags() {
-				if data_message.get_flags().bitand(1) > 0 {
-					result.end_session = true;
-				}
+			if data_message.has_flags() && data_message.get_flags().bitand(1) > 0 {
+				result.end_session = true;
 			}
 		}
 		if value.has_receiptMessage() {
