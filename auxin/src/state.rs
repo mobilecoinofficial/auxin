@@ -280,10 +280,12 @@ pub trait PeerStore {
 				.get_phone_number()
 				.ok()
 				.map(|p| self.complete_phone_address(p))
-				.or(address
-					.get_uuid()
-					.ok()
-					.map(|u| self.complete_uuid_address(u))))
+				.or_else(|| {
+					address
+						.get_uuid()
+						.ok()
+						.map(|u| self.complete_uuid_address(u))
+				}))
 			.flatten();
 		}
 	}
@@ -359,7 +361,7 @@ impl PeerStore for PeerRecordStructure {
 			Some(AuxinAddress::Uuid(peer_uuid)) => self.get_by_uuid(&peer_uuid),
 			Some(AuxinAddress::Both(phone_number, peer_uuid)) => self
 				.get_by_number(&phone_number)
-				.or(self.get_by_uuid(&peer_uuid)),
+				.or_else(|| self.get_by_uuid(&peer_uuid)),
 			None => None,
 		}
 	}

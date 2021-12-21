@@ -149,9 +149,11 @@ impl TryFrom<&str> for AuxinDeviceAddress {
 	type Error = Box<dyn Error>;
 	fn try_from(val: &str) -> std::result::Result<Self, Self::Error> {
 		let split = val.rsplit_once('.');
-		let (addr, dev) = split.ok_or(Box::new(AddressError::NoDevice {
-			val: val.to_string(),
-		}))?;
+		let (addr, dev) = split.ok_or_else(|| {
+			Box::new(AddressError::NoDevice {
+				val: val.to_string(),
+			})
+		})?;
 		let device_id = u32::from_str(dev).map_err(|_e| {
 			Box::new(AddressError::NoDevice {
 				val: val.to_string(),

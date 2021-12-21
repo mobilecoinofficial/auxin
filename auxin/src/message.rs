@@ -902,7 +902,7 @@ impl MessageIn {
 		let remote_address = context
 			.peer_cache
 			.complete_address(remote_address)
-			.unwrap_or(remote_address.clone());
+			.unwrap_or_else(|| remote_address.clone());
 
 		if content.has_dataMessage() && content.get_dataMessage().has_profileKey() {
 			let mut pk: ProfileKey = ProfileKey::default();
@@ -935,7 +935,7 @@ impl MessageIn {
 		let remote_address = context
 			.peer_cache
 			.complete_address(remote_address)
-			.unwrap_or(remote_address.clone());
+			.unwrap_or_else(|| remote_address.clone());
 
 		let peer = context.peer_cache.get_mut(&remote_address);
 		if let Some(peer) = peer {
@@ -976,7 +976,7 @@ impl MessageIn {
 			new_addr.address = context
 				.peer_cache
 				.complete_address(&a.address)
-				.unwrap_or(a.address.clone());
+				.unwrap_or_else(|| a.address.clone());
 			new_addr
 		});
 
@@ -1047,7 +1047,7 @@ impl MessageIn {
 			new_addr.address = context
 				.peer_cache
 				.complete_address(&a.address)
-				.unwrap_or(a.address.clone());
+				.unwrap_or_else(|| a.address.clone());
 			new_addr
 		});
 

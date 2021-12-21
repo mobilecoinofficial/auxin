@@ -415,7 +415,7 @@ where
 			.context
 			.peer_cache
 			.complete_address(recipient_addr)
-			.or(Some(recipient_addr.clone()))
+			.or_else(|| Some(recipient_addr.clone()))
 			.unwrap();
 
 		debug!("Completed address to: {}", recipient_addr);
@@ -544,7 +544,7 @@ where
 			.context
 			.peer_cache
 			.complete_address(recipient_addr)
-			.or(Some(recipient_addr.clone()))
+			.or_else(|| Some(recipient_addr.clone()))
 			.unwrap();
 
 		// Will this be the last mssage in a session that we send?
@@ -559,7 +559,7 @@ where
 			.context
 			.peer_cache
 			.complete_address(&recipient_addr)
-			.or(Some(recipient_addr.clone()))
+			.or_else(|| Some(recipient_addr.clone()))
 			.unwrap();
 
 		let message_list = AuxinMessageList {
@@ -1023,7 +1023,7 @@ where
 			.context
 			.peer_cache
 			.complete_address(recipient_addr)
-			.unwrap_or(recipient_addr.clone());
+			.unwrap_or_else(|| recipient_addr.clone());
 
 		if let Some(peer) = self.context.peer_cache.get(&recipient) {
 			if let Some(profile_key) = &peer.profile_key {
@@ -1135,17 +1135,17 @@ where
 			.context
 			.peer_cache
 			.complete_address(peer_address)
-			.unwrap_or(peer_address.clone());
+			.unwrap_or_else(|| peer_address.clone());
 
 		//Set up cipher
 		let profile_key = self
 			.context
 			.peer_cache
 			.get(&peer_address)
-			.ok_or(ProfileRetrievalError::NoPeer(peer_address.clone()))?
+			.ok_or_else(|| ProfileRetrievalError::NoPeer(peer_address.clone()))?
 			.profile_key
 			.as_ref()
-			.ok_or(ProfileRetrievalError::NoProfileKey(peer_address.clone()))?;
+			.ok_or_else(|| ProfileRetrievalError::NoProfileKey(peer_address.clone()))?;
 
 		let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
 		let temp_bytes = base64::decode(profile_key).map_err(|e| {
@@ -1277,7 +1277,7 @@ where
 			.context
 			.peer_cache
 			.complete_address(recipient_addr)
-			.unwrap_or(recipient_addr.clone());
+			.unwrap_or_else(|| recipient_addr.clone());
 
 		if let Some(address_b64) = &response_structure.payment_address {
 			// Retrieve profile key
@@ -1285,14 +1285,18 @@ where
 				.context
 				.peer_cache
 				.get(&recipient)
-				.ok_or(PaymentAddressRetrievalError::CouldntGetProfile(
-					ProfileRetrievalError::NoPeer(recipient.clone()),
-				))?
+				.ok_or_else(|| {
+					PaymentAddressRetrievalError::CouldntGetProfile(ProfileRetrievalError::NoPeer(
+						recipient.clone(),
+					))
+				})?
 				.profile_key
 				.as_ref()
-				.ok_or(PaymentAddressRetrievalError::CouldntGetProfile(
-					ProfileRetrievalError::NoProfileKey(recipient.clone()),
-				))?;
+				.ok_or_else(|| {
+					PaymentAddressRetrievalError::CouldntGetProfile(
+						ProfileRetrievalError::NoProfileKey(recipient.clone()),
+					)
+				})?;
 			// Decode it
 			let mut profile_key_bytes: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
 			let temp_bytes = base64::decode(profile_key).map_err(|e| {
@@ -1452,7 +1456,7 @@ where
 			.context
 			.peer_cache
 			.complete_address(&message.remote_address.address)
-			.unwrap_or(message.remote_address.address.clone());
+			.unwrap_or_else(|| message.remote_address.address.clone());
 		// Make sure we know about their device ID.
 		let peer_maybe = self
 			.context
@@ -1664,7 +1668,7 @@ where
 						.context
 						.peer_cache
 						.complete_address(&a.address)
-						.unwrap_or(a.address.clone());
+						.unwrap_or_else(|| a.address.clone());
 					new_addr
 				});
 
