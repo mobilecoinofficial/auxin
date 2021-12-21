@@ -16,7 +16,6 @@ use crate::{
 
 use zkgroup::profiles::ProfileKeyVersion;
 
-
 /// Information on which capabilities this peer has, as sent to us from Signal's web API.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProfileCapabilitiesResponse {
@@ -30,8 +29,8 @@ pub struct ProfileCapabilitiesResponse {
 }
 
 /// A response from Signal's Web API containing profile information pertaining to a user.
-/// NOTE FOR FURTHER DEVELOPMENT: Appears to be identical to ForeignPeerProfile! 
-/// It might be worth looking into ways to deduplicate / merge those code paths. 
+/// NOTE FOR FURTHER DEVELOPMENT: Appears to be identical to ForeignPeerProfile!
+/// It might be worth looking into ways to deduplicate / merge those code paths.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileResponse {
@@ -89,7 +88,7 @@ pub struct ProfileSetRequest {
 	about_emoji: Vec<u8>,
 	#[serde(with = "serde_optional_base64")]
 	payment_address: Option<Vec<u8>>,
-	/// Avatar is a boolean here because, if avatar is True, we get a PreUploadToken for an avatar here. 
+	/// Avatar is a boolean here because, if avatar is True, we get a PreUploadToken for an avatar here.
 	/// Due to the way I/O responsibility is supposed to live outside of Auxin and in something like
 	/// auxin_cli, avatar uploading cannot be fully handled inline with build_set_profile_request()
 	avatar: bool,
