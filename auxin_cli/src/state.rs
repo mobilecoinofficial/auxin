@@ -560,6 +560,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 
 	Ok(())
 }
+
 pub async fn make_context(
 	base_dir: &str,
 	local_identity: LocalIdentity,
