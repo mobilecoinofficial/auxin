@@ -503,7 +503,7 @@ impl MessageContent {
 	/// # Arguments
 	///
 	/// * `our_profile_key` - Our local Signal user's profile key, passed as a Base64-encoded string representing our 32-byte Profile Key.
-	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.  
+	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
 	pub fn build_signal_content(
 		&self,
 		our_profile_key: &String,
@@ -594,7 +594,7 @@ impl MessageOut {
 	/// * `mode` - A MessageSendMode, controlling if we're sending this as a Sealed Sender message or a regular Signal ciphertext message.
 	/// * `context` - All keys and session state data required to encrypt this message.
 	/// * `rng` - Cryptographically-strong source of entropy for this message.
-	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.  
+	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
 	pub async fn encrypt_message<Rng: RngCore + CryptoRng>(
 		&self,
 		address_to: &AuxinDeviceAddress,
