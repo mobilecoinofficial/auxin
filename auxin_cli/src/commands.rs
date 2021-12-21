@@ -780,8 +780,8 @@ pub async fn handle_send_command(
 			let file_path = std::path::Path::new(&file_path_str);
 			let file_name = file_path.file_name().unwrap().to_str().unwrap();
 
-			let data = std::fs::read(&file_path)
-				.map_err(|e| SendCommandError::AttachmentFileReadError(e))?;
+			let data =
+				std::fs::read(&file_path).map_err(SendCommandError::AttachmentFileReadError)?;
 
 			//Encrypt our attachment.
 			let mut rng = OsRng::default();

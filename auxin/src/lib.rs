@@ -1979,7 +1979,7 @@ where
 				cdn_url,
 			)
 			.await
-			.map_err(|e| SetProfileError::UploadAvatarFailed(e))?;
+			.map_err(SetProfileError::UploadAvatarFailed)?;
 
 			//We should be all done, now just try to make some legible log output
 			let (parts, body) = res.into_parts();
