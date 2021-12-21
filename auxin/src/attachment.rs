@@ -726,51 +726,52 @@ pub mod upload {
 		http_client: H,
 		uri: &str,
 	) -> std::result::Result<http::Response<Vec<u8>>, AttachmentUploadError> {
-		let mut multipart_form = Vec::default();
-
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "acl".to_string(),
-			value: token.acl.clone(),
-		});
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "key".to_string(),
-			value: token.key.clone(),
-		});
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "policy".to_string(),
-			value: token.policy.clone(),
-		});
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "Content-Type".to_string(),
-			value: content_type.to_string(),
-		});
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "x-amz-algorithm".to_string(),
-			value: token.algorithm.clone(),
-		});
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "x-amz-credential".to_string(),
-			value: token.credential.clone(),
-		});
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "x-amz-date".to_string(),
-			value: token.date.clone(),
-		});
-		multipart_form.push(MultipartEntry::Text {
-			field_name: "x-amz-signature".to_string(),
-			value: token.signature.clone(),
-		});
+		let multipart_form = vec![
+			MultipartEntry::Text {
+				field_name: "acl".to_string(),
+				value: token.acl.clone(),
+			},
+			MultipartEntry::Text {
+				field_name: "key".to_string(),
+				value: token.key.clone(),
+			},
+			MultipartEntry::Text {
+				field_name: "policy".to_string(),
+				value: token.policy.clone(),
+			},
+			MultipartEntry::Text {
+				field_name: "Content-Type".to_string(),
+				value: content_type.to_string(),
+			},
+			MultipartEntry::Text {
+				field_name: "x-amz-algorithm".to_string(),
+				value: token.algorithm.clone(),
+			},
+			MultipartEntry::Text {
+				field_name: "x-amz-credential".to_string(),
+				value: token.credential.clone(),
+			},
+			MultipartEntry::Text {
+				field_name: "x-amz-date".to_string(),
+				value: token.date.clone(),
+			},
+			MultipartEntry::Text {
+				field_name: "x-amz-signature".to_string(),
+				value: token.signature.clone(),
+			},
+			// This should be cut from the end
+			MultipartEntry::File {
+				field_name: "file".to_string(),
+				file_name: "file".to_string(),
+				file: data,
+			},
+		];
 
 		debug!(
 			"Making request to {}, multipart form (minus file data) is: {:?}",
-			uri, multipart_form
+			uri,
+			&multipart_form[..multipart_form.len() - 1]
 		);
-
-		multipart_form.push(MultipartEntry::File {
-			field_name: "file".to_string(),
-			file_name: "file".to_string(),
-			file: data,
-		});
 
 		let req_builder = http::request::Request::post(uri)
 			.header(auth.0, auth.1)
