@@ -191,10 +191,11 @@ impl ProfileCipher {
 		Ok(concat)
 	}
 
-	// Prepends the ;ength of the plaintext (pre-padding) to the buffer
-	// before encrypting it normally.
-	// Intended to match the behavior of Java's ProfileCipher::encryptWithLength().
-	// Provieded padding brackets should not include the cipher's 28 byte encryption overhead.
+	/// Prepends the length of the plaintext (pre-padding) to the buffer
+	/// before encrypting it normally.
+	///
+	/// Intended to match the behavior of Java's ProfileCipher::encryptWithLength().
+	/// Provided padding brackets should not include the cipher's 28 byte encryption overhead.
 	pub fn pad_and_encrypt_with_length(
 		&self,
 		bytes: &Vec<u8>,
@@ -279,10 +280,7 @@ impl ProfileCipher {
 	}
 
 	/// No padding is used when encrypting an avatar
-	pub fn encrypt_avatar(
-		&self,
-		mut bytes: Vec<u8>,
-	) -> Result<Vec<u8>, ProfileCipherError> {
+	pub fn encrypt_avatar(&self, mut bytes: Vec<u8>) -> Result<Vec<u8>, ProfileCipherError> {
 		let cipher = Aes256Gcm::new(&self.get_key());
 		let nonce: [u8; 12] = rand::thread_rng().gen();
 		let nonce = GenericArray::from_slice(&nonce);
