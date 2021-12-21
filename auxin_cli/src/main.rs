@@ -28,14 +28,18 @@ use log::{debug, error, trace, warn};
 
 use rand::rngs::OsRng;
 
-use std::{convert::TryFrom};
+use std::convert::TryFrom;
 
 use structopt::StructOpt;
 
-use tokio::{sync::{
+use tokio::{
+	sync::{
 		mpsc,
 		mpsc::{Receiver, Sender},
-	}, task::JoinHandle, time::{Duration, Instant}};
+	},
+	task::JoinHandle,
+	time::{Duration, Instant},
+};
 use tracing::{info, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
@@ -301,8 +305,8 @@ pub async fn main() -> Result<()> {
 					Err(e) => {
 						// Write a debug string of the error before the sender takes ownership of it.
 						let err_string = format!("{:?}", &e);
-						block_on(line_sender.send(std::result::Result::Err(e))) 
-							.expect(format!("Exceeded input buffer of {} lines, while attempting to return error: {:?}", 
+						block_on(line_sender.send(std::result::Result::Err(e)))
+							.expect(format!("Exceeded input buffer of {} lines, while attempting to return error: {:?}",
 							LINE_BUF_COUNT, err_string).as_str());
 					}
 					// Ignore a None value, continuing to loop on this thread waiting for input.
@@ -345,7 +349,9 @@ pub async fn main() -> Result<()> {
 
 			// Prepare to (potentially) download attachments
 			//let mut pending_downloads: Vec<attachment::PendingDownload> = Vec::default();
-			let mut download_task_handles: Vec<JoinHandle<std::result::Result<(), AttachmentPipelineError>>> = Vec::default();
+			let mut download_task_handles: Vec<
+				JoinHandle<std::result::Result<(), AttachmentPipelineError>>,
+			> = Vec::default();
 
 			let mut exit = false;
 			// Infinite loop
@@ -384,11 +390,11 @@ pub async fn main() -> Result<()> {
 												);
 												// Start our downloads.
 												let handle = tokio::spawn(async move {
-													// Transform Result<Vec<()>, E> to Result<(), E> 
-													futures::future::try_join_all(message_downloads.into_iter()).await.map(| _ | { () }) 
+													// Transform Result<Vec<()>, E> to Result<(), E>
+													futures::future::try_join_all(message_downloads.into_iter()).await.map(| _ | { () })
 												});
-												// Make sure we do not forget the download - put the task on a list of tasks to 
-												// ensure we complete before exiting. 
+												// Make sure we do not forget the download - put the task on a list of tasks to
+												// ensure we complete before exiting.
 												download_task_handles.push(handle);
 											};
 										},
@@ -452,7 +458,7 @@ pub async fn main() -> Result<()> {
 					}
 				}
 			}
-			for handle in download_task_handles { 
+			for handle in download_task_handles {
 				//Ensure all downloads are completed.
 				handle.await??;
 			}
@@ -481,15 +487,18 @@ pub async fn main() -> Result<()> {
 			let peername = cmd.peer_name.clone();
 			let profile = handle_get_profile_command(cmd, &mut app).await?;
 			let profile_json = serde_json::to_string(&profile)?;
-			println!("Retrieved profile for peer at address {}. Profile is: {}",
-				peername,
-				profile_json,			
+			println!(
+				"Retrieved profile for peer at address {}. Profile is: {}",
+				peername, profile_json,
 			)
 		}
-		AuxinCommand::Download(cmd ) => {
+		AuxinCommand::Download(cmd) => {
 			handle_download_command(cmd, &arguments.download_path, &mut app).await?;
-			println!("Attachment download to directory {:?} completed.", &arguments.download_path);
-		},
+			println!(
+				"Attachment download to directory {:?} completed.",
+				&arguments.download_path
+			);
+		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	Ok(())
