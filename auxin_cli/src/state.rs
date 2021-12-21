@@ -289,7 +289,7 @@ pub async fn load_sessions(
 			for file_name in session_file_list {
 				let mut file_path = session_path.clone();
 				file_path.push_str(file_name.as_str());
-				let (recipient_id, recipient_device_id) = file_name.split_once("_").unwrap();
+				let (recipient_id, recipient_device_id) = file_name.split_once('_').unwrap();
 				//Address retrieval from oru previously-built session list
 				//TODO: More informative error handling.
 				let recipient_id_num: usize = recipient_id.parse::<usize>()?;

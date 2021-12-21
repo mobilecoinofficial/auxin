@@ -1960,8 +1960,8 @@ where
 			let mime_name = content_type_from_filename(&filename);
 			//If this doesn't end in a / for some reason, make sure it does now.
 			let mut url = cdn_url.to_string();
-			if !cdn_url.ends_with("/") {
-				url.push_str("/");
+			if !cdn_url.ends_with('/') {
+				url.push('/');
 			}
 			let cdn_url = url.as_str();
 			debug!(
