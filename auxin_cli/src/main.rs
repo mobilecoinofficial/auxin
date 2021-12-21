@@ -289,6 +289,7 @@ pub async fn main() -> Result<()> {
 			//How many lines can we receive in one pass?
 			const LINE_BUF_COUNT: usize = 4096;
 
+			#[allow(clippy::type_complexity)]
 			let (line_sender, mut line_receiver): (
 				Sender<std::result::Result<String, std::io::Error>>,
 				Receiver<std::result::Result<String, std::io::Error>>,
@@ -323,6 +324,7 @@ pub async fn main() -> Result<()> {
 
 			const MESSAGE_BUF_COUNT: usize = 4096;
 
+			#[allow(clippy::type_complexity)]
 			let (msg_channel, mut msg_receiver): (
 				Sender<std::result::Result<WebSocketMessage, ReceiveError>>,
 				Receiver<std::result::Result<WebSocketMessage, ReceiveError>>,
