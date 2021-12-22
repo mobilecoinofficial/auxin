@@ -1257,7 +1257,7 @@ where
 		Ok(result)
 	}
 
-	/// Attempts to get a SignalPay aaddres / MobileCoin public address.
+	/// Attempts to get a SignalPay address / MobileCoin public address.
 	///
 	/// # Arguments
 	///
