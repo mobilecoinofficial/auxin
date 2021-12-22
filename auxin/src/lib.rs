@@ -274,6 +274,8 @@ impl From<MessageInError> for HandleEnvelopeError {
 
 /// Any error encountered while receiving and decoding a message.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
+// TODO(Diana): Figure out something here?
 pub enum ReceiveError {
 	NetSpecific(String),
 	SendErr(String),
