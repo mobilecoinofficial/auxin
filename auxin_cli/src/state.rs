@@ -81,14 +81,17 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 		.to_string();
 
 	//Registration ID
-	let registration_id =
-		val.get("registrationId")
-			.ok_or(ErrBuildIdent::MissingRegistrationId {
-				phone_number: phone_number.to_string(),
-			})?;
-	let registration_id = registration_id
+	let registration_id = val
+		.get("registrationId")
+		.ok_or(ErrBuildIdent::MissingRegistrationId {
+			phone_number: phone_number.to_string(),
+		})?
 		.as_u64()
 		.ok_or(ErrBuildIdent::MissingRegistrationId {
+			phone_number: phone_number.to_string(),
+		})?;
+	let registration_id =
+		u32::try_from(registration_id).map_err(|_| ErrBuildIdent::MissingRegistrationId {
 			phone_number: phone_number.to_string(),
 		})?;
 
@@ -121,7 +124,10 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 			.as_u64()
 			.ok_or(ErrBuildIdent::DeviceIdNotUInt { val: id.clone() })?,
 		None => 1, //Default device ID is 1.
-	} as u32;
+	};
+	let device_id = u32::try_from(device_id).map_err(|_| ErrBuildIdent::DeviceIdNotUInt {
+		val: serde_json::Value::from(device_id),
+	})?;
 
 	//Private key
 	let private_key = val
@@ -163,7 +169,7 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 		password,
 		profile_key: decoded_profile_key,
 		identity_keys: IdentityKeyPair::new(IdentityKey::new(public_key), private_key),
-		reg_id: registration_id as u32,
+		reg_id: registration_id,
 	})
 }
 

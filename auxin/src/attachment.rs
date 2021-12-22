@@ -824,7 +824,7 @@ pub mod upload {
 		attachment_pointer.set_digest(digest.as_ref().to_vec());
 		attachment_pointer.set_fileName(attachment.filename.clone());
 		attachment_pointer.set_uploadTimestamp(crate::generate_timestamp());
-		attachment_pointer.set_size(attachment.unpadded_size as u32);
+		attachment_pointer.set_size(u32::try_from(attachment.unpadded_size).unwrap());
 
 		debug!(
 			"Size before padding / encryption was {}, size of ciphertext is {}",

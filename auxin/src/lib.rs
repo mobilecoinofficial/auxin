@@ -1335,7 +1335,8 @@ where
 			})?;
 
 			// 4 bits len - - 32 bit (signed?) integer describing buffer length.
-			let max_length = (decryption_result.len() - 4) as i32;
+			// This unwrap should never be hit, but if it is at least it wont silently truncate.
+			let max_length = i32::try_from(decryption_result.len() - 4).unwrap();
 			let mut tag_bytes: [u8; 4] = [0; 4];
 			tag_bytes.copy_from_slice(&decryption_result[0..4]);
 			let length = i32::from_le_bytes(tag_bytes);
