@@ -495,11 +495,7 @@ impl MessageContent {
 	pub fn with_text(self, value: String) -> MessageContent {
 		MessageContent {
 			text_message: Some(value),
-			receipt_message: self.receipt_message,
-			quote: self.quote,
-			source: self.source,
-			attachments: self.attachments,
-			end_session: self.end_session,
+			..self
 		}
 	}
 
