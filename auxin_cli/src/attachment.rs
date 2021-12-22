@@ -7,7 +7,7 @@ use auxin::{
 };
 use auxin_protos::AttachmentPointer;
 use futures::{Future, FutureExt, TryFutureExt};
-use std::{io::Write, pin::Pin, collections::HashMap};
+use std::{collections::HashMap, io::Write, pin::Pin};
 use tokio::time::Duration;
 
 #[derive(Debug)]
@@ -37,8 +37,7 @@ impl std::fmt::Display for AttachmentPipelineError {
 			AttachmentPipelineError::Parse(v, e) => write!(
 				f,
 				"Could not parse json structure {:?} into an AttachmentPointer. Error: {:?}",
-				v,
-				e
+				v, e
 			),
 		}
 	}
@@ -98,7 +97,7 @@ pub fn initiate_attachment_downloads(
 		let mut cdn_addresses = HashMap::default();
 		cdn_addresses.insert(0, SIGNAL_CDN.to_string());
 		cdn_addresses.insert(2, SIGNAL_CDN_2.to_string());
-		
+
 		let first_handle = Box::pin(retrieve_attachment(
 			att.clone(),
 			http_client.clone(),
