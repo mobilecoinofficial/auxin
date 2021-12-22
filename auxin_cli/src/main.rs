@@ -302,16 +302,19 @@ pub async fn main() -> Result<()> {
 				match maybe_input {
 					Ok(Some(input)) => {
 						//Pass along a valid string.
-						block_on(line_sender.send(Ok(input))).expect(
-							format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str(),
-						);
+						block_on(line_sender.send(Ok(input))).unwrap_or_else(|_| {
+							panic!("Exceeded input buffer of {} lines", LINE_BUF_COUNT)
+						});
 					}
 					Err(e) => {
 						// Write a debug string of the error before the sender takes ownership of it.
 						let err_string = format!("{:?}", &e);
-						block_on(line_sender.send(std::result::Result::Err(e)))
-							.expect(format!("Exceeded input buffer of {} lines, while attempting to return error: {:?}",
-							LINE_BUF_COUNT, err_string).as_str());
+						block_on(line_sender.send(std::result::Result::Err(e))).unwrap_or_else(
+							|_| {
+								panic!("Exceeded input buffer of {} lines, while attempting to return error: {:?}",
+							LINE_BUF_COUNT, err_string)
+							},
+						);
 					}
 					// Ignore a None value, continuing to loop on this thread waiting for input.
 					Ok(None) => {}
@@ -336,8 +339,12 @@ pub async fn main() -> Result<()> {
 
 				loop {
 					while let Some(msg) = block_on(receiver.next()) {
-						block_on(msg_channel.send(msg))
-							.expect(format!("Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}", MESSAGE_BUF_COUNT).as_str());
+						block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
+							panic!(
+								"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
+								MESSAGE_BUF_COUNT
+							)
+						});
 					}
 					trace!("Entering sleep...");
 					let sleep_time = Duration::from_millis(100);
