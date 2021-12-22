@@ -1013,7 +1013,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 					// Vec<u8>s get serialized very naively. So, all numbers should be 0 <= x < 255
 					else if elem.is_i64() {
 						let num = elem.as_i64().unwrap();
-						if num < 0 || num > 255 {
+						if !(0..=255).contains(&num) {
 							//Out of range. Do not base-64 this.
 							assume_bytes = false;
 							break;
