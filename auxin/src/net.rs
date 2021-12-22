@@ -73,8 +73,8 @@ pub type ResponseFuture<E> = Pin<
 >;
 
 /// A trait used to wrap an HTTP connection which you can make requests of.
-/// "Clone" in this case must clone a reference - much like Arc<T>'s behavior. 
-pub trait AuxinHttpsConnection : Clone {
+/// "Clone" in this case must clone a reference - much like Arc<T>'s behavior.
+pub trait AuxinHttpsConnection: Clone {
 	type Error: 'static + std::error::Error + Send;
 	/// Make an HTTPS request.
 	fn request(&self, req: Request) -> ResponseFuture<Self::Error>;
