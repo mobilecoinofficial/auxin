@@ -1061,9 +1061,7 @@ where
 
 				let get_path = format!(
 					"https://textsecure-service.whispersystems.org/v1/profile/{}/{}/{}",
-					uuid.to_string(),
-					version_string,
-					encoded_request
+					uuid, version_string, encoded_request
 				);
 
 				let unidentified_access = self
