@@ -1877,10 +1877,8 @@ where
 			//when there is no avatar to upload.
 			parameters.avatar_file = None;
 			false
-		} else if parameters.avatar_file.is_none() {
-			false
 		} else {
-			true
+			parameters.avatar_file.is_some()
 		};
 
 		let maybe_avatar_filename = parameters.avatar_file.clone();
