@@ -662,7 +662,7 @@ impl AuxinStateManager for StateManager {
 		let peer = &context
 			.peer_cache
 			.complete_address(peer)
-			.unwrap_or(peer.clone());
+			.unwrap_or_else(|| peer.clone());
 
 		let peer_record = match context.peer_cache.get(peer) {
 			Some(a) => a,
