@@ -403,7 +403,7 @@ pub async fn main() -> Result<()> {
 												// Start our downloads.
 												let handle = tokio::spawn(async move {
 													// Transform Result<Vec<()>, E> to Result<(), E>
-													futures::future::try_join_all(message_downloads.into_iter()).await.map(| _ | { () })
+													futures::future::try_join_all(message_downloads.into_iter()).await.map(| _ | {})
 												});
 												// Make sure we do not forget the download - put the task on a list of tasks to
 												// ensure we complete before exiting.
