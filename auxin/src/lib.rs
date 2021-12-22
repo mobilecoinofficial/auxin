@@ -1368,7 +1368,7 @@ where
 			return Ok(payment_address);
 		};
 		Err(PaymentAddressRetrievalError::NoPaymentAddressForUser(
-			recipient.clone(),
+			recipient,
 		))
 	}
 

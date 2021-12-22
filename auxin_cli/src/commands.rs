@@ -825,7 +825,7 @@ pub async fn handle_send_command(
 		let built_content = message
 			.content
 			.build_signal_content(
-				&base64::encode(&app.context.identity.profile_key).to_string(),
+				&base64::encode(&app.context.identity.profile_key),
 				timestamp,
 			)
 			.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
@@ -964,7 +964,7 @@ pub async fn handle_download_command(
 	for att in cmd.attachments.into_iter() {
 		let pointer = match serde_json::from_value(att.clone()) {
 			Ok(v) => v,
-			Err(e) => return Err(AttachmentPipelineError::Parse(att.clone(), e)),
+			Err(e) => return Err(AttachmentPipelineError::Parse(att, e)),
 		};
 		attachments_to_download.push(pointer);
 	}
