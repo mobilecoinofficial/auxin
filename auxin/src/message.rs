@@ -491,6 +491,7 @@ impl MessageContent {
 	/// # Arguments
 	///
 	/// * `value` - The message we are texting to a peer.
+	#[must_use]
 	pub fn with_text(self, value: String) -> MessageContent {
 		MessageContent {
 			text_message: Some(value),
