@@ -2,7 +2,7 @@
 // Copyright (c) 2021 Emily Cultip
 
 // Copyright (c) 2021 The MobileCoin Foundation
-// Emily "Gyro" Cutlip / The Forest team
+// Emily "Gyro" Cultip / The Forest team
 
 //! Developer (and bot) friendly wrapper around the Signal protocol.
 
