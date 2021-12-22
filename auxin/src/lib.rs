@@ -89,7 +89,7 @@ use crate::{
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-/// Generate a 64-bit unsigned Timestamp - this is the number of miliseconds since the
+/// Generate a 64-bit unsigned Timestamp - this is the number of milliseconds since the
 /// Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
 pub fn generate_timestamp() -> u64 {
 	let now = SystemTime::now();
@@ -167,7 +167,7 @@ impl std::fmt::Display for SendMessageError {
 		match &self {
 			SendMessageError::CannotMakeMessageRequest(e) => write!(f, "Unable to send a message-send request: {}.", e),
 			SendMessageError::CannotSendAuthUpgrade(e)  => write!(f, "Unable request auth upgrade: {}.", e),
-			SendMessageError::SenderCertRetrieval(e) => write!(f, "Failed to retrieve a sencer certificate: {}.", e),
+			SendMessageError::SenderCertRetrieval(e) => write!(f, "Failed to retrieve a sender certificate: {}.", e),
 			SendMessageError::CannotSendAttestReq(e) => write!(f, "Unable to request attestations: {}.", e),
 			SendMessageError::CannotSendDiscoveryReq(e) => write!(f, "Unable to send discovery request to remote secure enclave: {}.", e),
 			SendMessageError::PeerStoreIssue(e) => write!(f, "An error was encountered while trying to make sure information for a peer is present, for the purposes of sending a message: {}.", e),
@@ -236,7 +236,7 @@ impl From<ProfileRetrievalError> for PaymentAddressRetrievalError {
 	}
 }
 
-/// An error encountered when an AuxinApp is attemping to handle an incoming envelope.
+/// An error encountered when an AuxinApp is attempting to handle an incoming envelope.
 #[derive(Debug)]
 pub enum HandleEnvelopeError {
 	MessageDecodingErr(MessageInError),
@@ -367,8 +367,8 @@ where
 	///
 	/// # Arguments
 	///
-	/// * `local_phone_number` - This node's Signal user acocunt's phone number. TODO: Refactor this to allow accounts with no phone numbers when Signal fully implements usernames.
-	/// * `config` - Configuation for various properties of this Signal app.
+	/// * `local_phone_number` - This node's Signal user account's phone number. TODO: Refactor this to allow accounts with no phone numbers when Signal fully implements usernames.
+	/// * `config` - Configuration for various properties of this Signal app.
 	/// * `net` - An AuxinNetManager, used to make HTTPS and Websocket connections to Signal's servers.
 	/// * `state_manager` - An AuxinStateManager, a trait for structures which can hold and manage Signal protocol state. This could be a filesystem, call out to a database - so long as it can load and store state for the application.
 	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
@@ -529,7 +529,8 @@ where
 		Ok(())
 	}
 
-	/// Send a message (any type of message) to a fellow Signal user. Returns the timestamp at which thsi message was generated.
+	/// Send a message (any type of message) to a fellow Signal user.
+	/// Returns the timestamp at which this message was generated.
 	///
 	/// # Arguments
 	///
@@ -549,7 +550,7 @@ where
 			.or_else(|| Some(recipient_addr.clone()))
 			.unwrap();
 
-		// Will this be the last mssage in a session that we send?
+		// Will this be the last message in a session that we send?
 		let end_session = message.content.end_session;
 
 		//Make sure we know everything about this user that we need to.
@@ -680,7 +681,7 @@ where
 		Ok(())
 	}
 
-	/// Retrieves and fills in core information about a peer that is necessary to send a mmessage to them.
+	/// Retrieves and fills in core information about a peer that is necessary to send a message to them.
 	///
 	/// # Arguments
 	///
@@ -689,7 +690,8 @@ where
 		info!("Start of fill_peer_info() at {}", generate_timestamp());
 		let signal_ctx = self.context.get_signal_ctx().get();
 
-		// Once you get here, retrieve_and_store_peer() shuld have already been called, so we should definitely have a UUID.
+		// Once you get here, retrieve_and_store_peer() should have already been called,
+		// so we should definitely have a UUID.
 		let uuid = self
 			.context
 			.peer_cache
@@ -1087,7 +1089,7 @@ where
 				.map_err(|e| {
 					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 				})?;
-				debug!("Requesitng profile key credential with {:?}", req);
+				debug!("Requesting profile key credential with {:?}", req);
 				let response = self.http_client.request(req).await.map_err(|e| {
 					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 				})?;
@@ -1160,10 +1162,10 @@ where
 
 		let (given_name, family_name) = match response.name {
 			Some(b64_name) => {
-				let namebytes = base64::decode(b64_name).map_err(|e| {
+				let name_bytes = base64::decode(b64_name).map_err(|e| {
 					ProfileRetrievalError::DecodingError(peer_address.clone(), format!("{:?}", e))
 				})?;
-				let decrypted_name = profile_cipher.decrypt_name(&namebytes).map_err(|e| {
+				let decrypted_name = profile_cipher.decrypt_name(&name_bytes).map_err(|e| {
 					ProfileRetrievalError::DecryptingError(peer_address.clone(), format!("{:?}", e))
 				})?;
 				match decrypted_name {
@@ -1346,7 +1348,7 @@ where
 			let length = length as usize;
 			let mut content_bytes: Vec<u8> = vec![0; length];
 
-			// 4 bytes for length - offset by that. Get "length" bytes affter the length tag itself.
+			// 4 bytes for length - offset by that. Get "length" bytes after the length tag itself.
 			// The rest is padding.
 			content_bytes.copy_from_slice(&decryption_result[4..(length + 4)]);
 
@@ -1376,7 +1378,8 @@ where
 	///
 	/// # Arguments
 	///
-	/// * `attachment` - A SignalService attachment pointer, containing all infromation required to retrieve and decrypt this attachment. .
+	/// * `attachment` - A SignalService attachment pointer,
+	/// containing all information required to retrieve and decrypt this attachment. .
 	pub async fn retrieve_attachment(
 		&self,
 		attachment: &AttachmentPointer,
@@ -1416,7 +1419,7 @@ where
 		.await
 	}
 
-	/// Upload an attahcment to Signal's CDN.
+	/// Upload an attachment to Signal's CDN.
 	///
 	/// # Arguments
 	///
@@ -1506,7 +1509,8 @@ where
 	///
 	/// # Arguments
 	///
-	/// * `msg` - A WebSocketMessage polled from Signal's websocket API (wss://textsecure-service.whispersystems.org/v1/websocket/).
+	/// * `msg` - A WebSocketMessage polled from Signal's websocket API
+	/// (wss://textsecure-service.whispersystems.org/v1/websocket/).
 	/// This is the "WebSocketMessage" protocol buffer struct as defined in websocket.proto
 	pub async fn receive_and_acknowledge(
 		&mut self,
