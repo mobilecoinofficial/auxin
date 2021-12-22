@@ -993,7 +993,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 		// Is this an array of bytes?
 		Value::Array(array) => {
 			// Skip empty arrays.
-			if array.len() == 0 {
+			if array.is_empty() {
 				output = None;
 			} else {
 				// Let's see if this is an array of bytes which needs to turn into a base-64 string.
@@ -1055,7 +1055,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 						// }
 					}
 					// Now let's look at what we just made.
-					if result_array_value.len() > 0 {
+					if !result_array_value.is_empty() {
 						//Make an actual serde_json Value that wraps this.
 						output = Some(Value::Array(result_array_value));
 					} else {
@@ -1073,7 +1073,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 					new_map.insert(name.clone(), new_val);
 				}
 			}
-			if new_map.len() > 0 {
+			if !new_map.is_empty() {
 				output = Some(Value::Object(new_map));
 			} else {
 				//Do not include nulls or empties.
