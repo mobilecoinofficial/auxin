@@ -148,6 +148,8 @@ pub async fn main() -> Result<()> {
 	#[allow(clippy::while_immutable_condition)]
 	// TODO(Diana): Several match arms have a while loop with an exit condition that can never be false.
 	// For now, suppress the error from Clippy.
+	// TODO(Diana): A lot of `println`s in here. Should they be proper log macros?
+	// Should find out.
 	match arguments.command {
 		// Sends a message to the given address.
 		AuxinCommand::Send(send_command) => {
