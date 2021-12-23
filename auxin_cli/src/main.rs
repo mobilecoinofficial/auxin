@@ -21,17 +21,11 @@ use auxin::{
 //External dependencies
 
 use auxin_protos::WebSocketMessage;
-
 use futures::executor::block_on;
-
 use log::{debug, error, trace, warn};
-
 use rand::rngs::OsRng;
-
 use std::convert::TryFrom;
-
 use structopt::StructOpt;
-
 use tokio::{
 	sync::{
 		mpsc,
@@ -51,18 +45,15 @@ pub mod net;
 pub mod repl_wrapper;
 pub mod state;
 
-use crate::net::AuxinTungsteniteConnection;
 // Dependencies from this crate.
-pub use crate::{attachment::*, commands::*};
-use net::load_root_tls_cert;
-pub type Context = auxin::AuxinContext;
-
+use crate::initiate_attachment_downloads;
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
-
+pub use crate::{attachment::*, commands::*};
 use auxin_protos::AttachmentPointer;
+use net::{load_root_tls_cert, AuxinTungsteniteConnection};
 
-use crate::initiate_attachment_downloads;
+pub type Context = auxin::AuxinContext;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
