@@ -104,7 +104,7 @@ impl AuxinDeviceAddress {
 		Ok(ProtocolAddress::new(addr_uuid.to_string(), self.device_id))
 	}
 
-	/// Constructs an AuxinDeviceaddress using the provided AuxinAddress and assuming the default device ID of 1.
+	/// Constructs an AuxinDeviceAddress using the provided AuxinAddress and assuming the default device ID of 1.
 	pub fn new_default_device(address: AuxinAddress) -> Self {
 		AuxinDeviceAddress {
 			address,

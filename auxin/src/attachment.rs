@@ -272,9 +272,10 @@ pub mod download {
 			}
 
 			//Set up our ciphers.
-			//The IV is built-in with the ciphertext here. We beed to split it out so there isn't a weird little
+			//The IV is built-in with the ciphertext here. We need to split it out so there isn't a weird little
 			let (iv_slice, ciphertext_slice) = self.ciphertext.split_at(BLOCK_SIZE);
-			// MAC key lives at the end of the ciphertext. This is required. The Mac Key is not ciphertext. Tested - this is necessary.
+			// MAC key lives at the end of the ciphertext. This is required. The Mac Key is not ciphertext.
+			// Tested - this is necessary.
 			let ciphertext_slice = &ciphertext_slice[0..(ciphertext_slice.len() - MAC_KEY_SIZE)];
 
 			let mut cipher_key_bytes: [u8; CIPHER_KEY_SIZE] = [0; CIPHER_KEY_SIZE];
@@ -475,7 +476,7 @@ pub mod upload {
 
 	//fn guess_ciphertext_length(plaintext_length: usize) -> usize { (((plaintext_length / 16) +1) * 16) + 32 }
 
-	/// Figure out how large our attachent's buffer will need to be after padding is added to it.
+	/// Figure out how large our attachment's buffer will need to be after padding is added to it.
 	///
 	/// # Arguments
 	///
@@ -604,8 +605,10 @@ pub mod upload {
 		pub signature: String,
 	}
 
-	/// A ticket received in response to a GET request to https://textsecure-service.whispersystems.org/v2/attachments/form/upload
-	/// This will include everyting you need to send the cdn an attachment which it won't reject.
+	/// A ticket received in response to a GET request to
+	/// https://textsecure-service.whispersystems.org/v2/attachments/form/upload
+	///
+	/// This will include everything you need to send the cdn an attachment which it won't reject.
 	#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 	#[serde(rename_all = "camelCase")]
 	pub struct AttachmentUploadToken {
@@ -709,15 +712,18 @@ pub mod upload {
 		Ok(result)
 	}
 
-	/// Upload a blob (attachment, avatar, etc) we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+	/// Upload a blob (attachment, avatar, etc) we have encrypted to the CDN,
+	/// returning an AttachmentPointer we can attach to Signal messages and send to peers.
 	///
 	/// # Arguments
 	///
 	/// * `token` - The pre-upload token retrieved from Signal's servers.
 	/// * `attachment` - The encrypted attachment we are sending.
-	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
+	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request.
+	/// Should match the values produced by LocalIdentity::make_auth_header().
 	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
-	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
+	/// * `cdn_address` - The base address of the CDN to which we'll upload this file.
+	/// "/attachments/" will be appended to this to get our URI.
 	pub(crate) async fn upload_to_cdn<H: AuxinHttpsConnection>(
 		token: &PreUploadToken,
 		data: Vec<u8>,
@@ -851,15 +857,19 @@ pub mod upload {
 		mime.essence_str().to_string()
 	}
 
-	/// Upload an attachment we have encrypted to the CDN, returning an AttachmentPointer we can attach to Signal messags and send to peers.
+	/// Upload an attachment we have encrypted to the CDN,
+	/// returning an AttachmentPointer we can attach to Signal message and send to peers.
 	///
 	/// # Arguments
 	///
-	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers, giving us an ID we can use for this attachment.
+	/// * `upload_attributes` - The pre-upload token retrieved from Signal's servers,
+	/// giving us an ID we can use for this attachment.
 	/// * `attachment` - The encrypted attachment we are sending.
-	/// * `auth` - The header-name and header-value of our authorization header for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
+	/// * `auth` - The header-name and header-value of our authorization header
+	/// for the HTTP request. Should match the values produced by LocalIdentity::make_auth_header().
 	/// * `http_client` - The HTTPS client we'll use to send this HTTP request.
-	/// * `cdn_address` - The base address of the CDN to which we'll upload this file. "/attachments/" will be appended to this to get our URI.
+	/// * `cdn_address` - The base address of the CDN to which we'll upload this file.
+	/// "/attachments/" will be appended to this to get our URI.
 	pub async fn upload_attachment<H: AuxinHttpsConnection>(
 		upload_attributes: &AttachmentUploadToken,
 		attachment: &PreparedAttachment,

@@ -366,14 +366,14 @@ mod tests {
 
 	#[test]
 	fn roundtrip_emoji() {
-		let emojii = ["❤️", "💩", "🤣", "😲", "🐠"];
+		let emoji = ["❤️", "💩", "🤣", "😲", "🐠"];
 
 		let mut rng = rand::thread_rng();
 		let some_randomness = rng.gen();
 		let profile_key = ProfileKey::generate(some_randomness);
 		let cipher = ProfileCipher::from(profile_key);
 
-		for &emoji in &emojii {
+		for &emoji in &emoji {
 			let encrypted = cipher.encrypt_emoji(emoji.into()).unwrap();
 			let decrypted = cipher.decrypt_emoji(&encrypted).unwrap();
 

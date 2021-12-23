@@ -85,7 +85,7 @@ pub fn initiate_attachment_downloads(
 	// to the HTTP client. i.e. no deep copy,
 	// no initiating a new connection.
 	//
-	// I found this out becauseHyper's HTTP clien
+	// I found this out because Hyper's HTTP client
 	// internally calls "self.clone()" inside of
 	// its "Client::request()"
 

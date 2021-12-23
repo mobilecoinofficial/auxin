@@ -24,8 +24,8 @@ pub type Body = Vec<u8>;
 pub type Request = http::request::Request<Body>;
 pub type Response = http::Response<Body>;
 
+/// An element in a multipart form HTML request.
 #[derive(Debug, Clone)]
-///An element in a multipart form HMTL request.
 pub enum MultipartEntry {
 	Text {
 		field_name: String,
@@ -41,13 +41,15 @@ pub enum MultipartEntry {
 //pub type MultipartRequest = http::request::Request<>;
 pub type MultipartForm = Vec<MultipartEntry>;
 
-/// Convenience function to fill in some of the common HTTP headers used by Signal, such as USER_AGENT, X_SIGNAL_AGENT, and Authorization
+/// Convenience function to fill in some of the common HTTP headers used by Signal,
+/// such as USER_AGENT, X_SIGNAL_AGENT, and Authorization
 ///
 /// # Arguments
 ///
 /// * `verb` - The verb of the HTTP request, such as GET, POST, etc.
 /// * `uri` - The web address to which your request will be made.
-/// * `auth` - The authorization string. Should match the format produced by make_auth_header(). Fits the format of Base64::encode("username:pasword")
+/// * `auth` - The authorization string. Should match the format produced
+/// by make_auth_header(). Fits the format of Base64::encode("username:password")
 pub fn common_http_headers(
 	verb: http::Method,
 	uri: &str,
@@ -86,7 +88,7 @@ pub trait AuxinHttpsConnection: Clone {
 	) -> ResponseFuture<Self::Error>;
 }
 
-/// Wraps a future pending on initating as new connection to HTTPS or Websocket.
+/// Wraps a future pending on initiating as new connection to HTTPS or Websocket.
 pub type ConnectFuture<O, E> =
 	Pin<Box<dyn Future<Output = std::result::Result<O, E>> + Send + Unpin>>;
 

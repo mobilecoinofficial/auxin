@@ -118,7 +118,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
 		.map_err(|e| EstablishConnectionError::CantStartWebsocketConnect(format!("{:?}", e)))
 }
 
-// (Try to) read a raw byte buffer as a Signal Websocketmessage protobuf.
+// (Try to) read a raw byte buffer as a Signal WebSocketMessage protobuf.
 fn read_wsmessage(
 	buf: &[u8],
 ) -> std::result::Result<auxin_protos::WebSocketMessage, WebsocketError> {
@@ -329,8 +329,8 @@ impl AuxinNetManager for NetManager {
 			.map_err(|e| EstablishConnectionError::CannotTls(e.to_string()))
 			.map_ok(|tls_connector| {
 				let mut http_connector = HttpConnector::new();
-				//Critically important. If we do not set this value to false, it will defalt to true,
-				//and the connector will errror out when we attempt to connect using https://
+				//Critically important. If we do not set this value to false, it will default to true,
+				//and the connector will error out when we attempt to connect using https://
 				//(Because technically it isn't http)
 				http_connector.enforce_http(false);
 				let https_connector =
@@ -363,7 +363,7 @@ impl AuxinTungsteniteConnection {
 		} else {
 			//If it's successful, pass along our value.
 			debug!(
-				"Constructed websocket client streans, got response: {:?}",
+				"Constructed websocket client streams, got response: {:?}",
 				connect_response
 			);
 
@@ -408,12 +408,13 @@ impl AuxinTungsteniteConnection {
 
 	/// Notify the server that we have received a message.
 	///
-	/// Note that thsi only sends the WebSocket acknowledgement.
+	/// Note that this only sends the WebSocket acknowledgement.
 	/// AuxinApp::receive_and_acknowledge() sends the Signal protocol "receipt" message.
 	///
 	/// # Arguments
 	///
-	/// * `req` - The original WebSocketRequestMessage - passed so that we can acknowledge that we've received this message even if no valid message can be parsed from it.
+	/// * `req` - The original WebSocketRequestMessage - passed so
+	/// that we can acknowledge that we've received this message even if no valid message can be parsed from it.
 	async fn acknowledge_message(
 		&mut self,
 		req: &WebSocketRequestMessage,

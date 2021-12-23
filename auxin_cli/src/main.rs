@@ -368,7 +368,7 @@ pub async fn main() -> Result<()> {
 			let mut exit = false;
 			// Infinite loop
 			while !exit {
-				//Receive first, attempting to ensure messagss are read in the order they are sent.
+				// Receive first, attempting to ensure messages are read in the order they are sent.
 				tokio::select! {
 					biased;
 					wsmessage_maybe = msg_receiver.recv() => {

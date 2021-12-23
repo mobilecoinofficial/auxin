@@ -254,7 +254,7 @@ pub struct AttestationKeys {
 	pub server_key: [u8; 32],
 }
 
-/// Gnerates a set of attestation keys from the server's ephemeral key and static key from an AttestationResponse,
+/// Generates a set of attestation keys from the server's ephemeral key and static key from an AttestationResponse,
 /// and from our local set of ephemeral keys.
 /// Returns client_key and server_key, wrapped up in a AttestationKeys.
 ///

@@ -66,26 +66,36 @@ pub struct AppArgs {
 pub enum AuxinCommand {
 	/// Sends a message to the given address.
 	Send(SendCommand),
+
 	/// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json.
 	/// This can be used with Send --prepared-attachments later.
 	Upload(UploadCommand),
+
 	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	Receive(ReceiveCommand),
+
 	/// Continuously polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	ReceiveLoop,
-	///Attempts to get a payment address for the user with the specified phonenumber or UUID.
+
+	/// Attempts to get a payment address for the user with the specified phone number or UUID.
 	GetPayAddress(GetPayAddrCommand),
+
 	/// A simple echo server for demonstration purposes. Loops until killed.
 	Echoserver,
+
 	/// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
 	JsonRPC,
+
 	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
 	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 	Repl,
+
 	/// Update one or more fields on your user profile via Signal's web API.
 	SetProfile(SetProfileCommand),
+
 	/// Retrieve Signal service profile information about a peer
 	GetProfile(GetProfileCommand),
+
 	/// Download the specified Signal-protocol attachment pointer
 	Download(DownloadAttachmentCommand),
 }
@@ -94,13 +104,14 @@ pub enum AuxinCommand {
 pub struct SendCommand {
 	/// Sets the destination for our message (as E164-format phone number or a UUID).
 	pub destination: String,
+
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
 	#[serde(default)]
 	#[structopt(short, long, parse(from_os_str))]
 	pub attachments: Option<Vec<PathBuf>>,
 
 	/// Add one or more attachments to this message, passed in as a pre-generated \"AttachmentPointer\"
-	/// Signal Service protcol buffer struct, serialized to json."
+	/// Signal Service protocol buffer struct, serialized to json."
 	#[structopt(long = "prepared-attachments")]
 	#[serde(default)]
 	pub prepared_attachments: Option<Vec<String>>,
@@ -109,14 +120,18 @@ pub struct SendCommand {
 	#[structopt(short, long)]
 	#[serde(default)]
 	pub message: Option<String>,
+
 	/// Used to pass a \"Content\" protocol buffer struct from signalservice.proto, serialized as a json string.
 	#[structopt(short, long)]
 	#[serde(default)]
 	pub content: Option<String>,
-	/// Generate a Signal Service \"Content\" structure without actually sending it. Useful for testing the -c / --content option.
+
+	/// Generate a Signal Service \"Content\" structure without actually sending it.
+	/// Useful for testing the -c / --content option.
 	#[structopt(short, long)]
 	#[serde(default)]
 	pub simulate: bool,
+
 	/// Sets a flag so this message ends / resets your session with this peer.
 	///
 	/// Sets the END_SESSION flag (defined on line 109 of signalservice.proto) on this message,
@@ -247,10 +262,12 @@ pub struct JsonRpcNotification {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonRpcError {
-	/// The type of error that occured.
+	/// The type of error that occurred.
 	pub code: i32,
-	///A short description of the error.
+
+	/// A short description of the error.
 	pub message: String,
+
 	/// A more detailed, possibly-structured description of the error.
 	pub data: Option<serde_json::Value>,
 }
@@ -285,7 +302,7 @@ impl From<ReceiveError> for JsonRpcErrorResponse {
 		let resulting_err = match err_in {
 			ReceiveError::NetSpecific(e) => JsonRpcError {
 				code: -32001,
-				message: String::from("Network Errror"),
+				message: String::from("Network Error"),
 				data: Some(serde_json::Value::String(e)),
 			},
 			ReceiveError::SendErr(e) => JsonRpcError {
@@ -494,8 +511,8 @@ pub async fn process_jsonrpc_input(
 	// We should now have one or more valid JsonRPC commands. Let's see if any of them match our method.
 	for req in requests {
 		let lowercase = req.method.to_ascii_lowercase();
-		let methodstr = lowercase.as_str();
-		let response = match methodstr {
+		let method_str = lowercase.as_str();
+		let response = match method_str {
 			"send" => {
 				match serde_json::from_value::<SendCommand>(req.params) {
 					// Is this a valid parameter?
@@ -726,7 +743,7 @@ pub async fn process_jsonrpc_input(
 				jsonrpc: JSONRPC_VER.to_string(),
 				error: JsonRpcError {
 					code: -32601,
-					message: format!("The method you provided (which is {}) does not exist - please use \"send\", \"upload\", or \"receive\".", methodstr),
+					message: format!("The method you provided (which is {}) does not exist - please use \"send\", \"upload\", or \"receive\".", method_str),
 					data: None,
 				},
 				id: req.id.clone(),
@@ -785,12 +802,12 @@ pub async fn handle_send_command(
 
 			//Encrypt our attachment.
 			let mut rng = OsRng::default();
-			let encrypted_attahcment =
+			let encrypted_attachment =
 				auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
 
 			//Upload the attachment, generating an attachment pointer in the process.
 			let attachment_pointer = app
-				.upload_attachment(&upload_attributes, &encrypted_attahcment)
+				.upload_attachment(&upload_attributes, &encrypted_attachment)
 				.await?;
 
 			//If we have a premade content, put the attachments there instead.
@@ -859,7 +876,7 @@ pub async fn handle_upload_command(
 
 		let file_name = path.file_name().unwrap();
 
-		let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(
+		let encrypted_attachment = auxin::attachment::upload::encrypt_attachment(
 			file_name.to_str().unwrap(),
 			&data,
 			&mut rng,
@@ -867,7 +884,7 @@ pub async fn handle_upload_command(
 
 		// TODO: Refactor Auxin's HTTP client ownership to permit greater parallelism
 		let attachment_pointer = app
-			.upload_attachment(&upload_attributes, &encrypted_attahcment)
+			.upload_attachment(&upload_attributes, &encrypted_attachment)
 			.await?;
 		attachments.push(attachment_pointer);
 	}
