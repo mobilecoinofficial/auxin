@@ -60,29 +60,20 @@ pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 #[cfg(feature = "repl")]
 pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 	use papyrus::repl;
+	use std::path::Path;
 
 	let mut app = AppWrapper { app_inner: app };
 
 	let mut repl = repl!(AppWrapper);
 
-	let mut library_dir: String = "target/".into();
-
 	#[cfg(debug_assertions)]
-	library_dir.push_str("debug/");
+	let library_dir = Path::new("target").join("debug");
 	#[cfg(not(debug_assertions))]
-	library_dir.push_str("release/");
+	let library_dir = Path::new("target").join("release");
 
-	let mut auxin_cli_lib_dir = library_dir.clone();
-	auxin_cli_lib_dir.push_str("libauxin_cli.rlib");
-	let auxin_cli_lib = papyrus::linking::Extern::new(&auxin_cli_lib_dir)?; //papyrus::linking::Extern::new(&auxin_lib_dir)?;
-
-	let mut auxin_lib_dir = library_dir.clone();
-	auxin_lib_dir.push_str("libauxin.rlib");
-	let auxin_lib = papyrus::linking::Extern::new(&auxin_lib_dir)?; //papyrus::linking::Extern::new(&auxin_lib_dir)?;)?;
-
-	let mut auxin_proto_lib_dir = library_dir.clone();
-	auxin_proto_lib_dir.push_str("libauxin_protos.rlib");
-	let auxin_proto_lib = papyrus::linking::Extern::new(&auxin_proto_lib_dir)?; //papyrus::linking::Extern::new(&auxin_lib_dir)?;
+	let auxin_cli_lib = papyrus::linking::Extern::new(library_dir.join("libauxin_cli.rlib"))?;
+	let auxin_lib = papyrus::linking::Extern::new(library_dir.join("libauxin.rlib"))?;
+	let auxin_proto_lib = papyrus::linking::Extern::new(library_dir.join("libauxin_protos.rlib"))?;
 
 	repl.data.with_external_lib(auxin_cli_lib);
 	repl.data.with_external_lib(auxin_lib);
@@ -92,6 +83,7 @@ pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 
 	Ok(())
 }
+
 #[cfg(not(feature = "repl"))]
 pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
