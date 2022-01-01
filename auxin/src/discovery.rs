@@ -13,7 +13,7 @@ use libsignal_protocol::PublicKey;
 use log::{debug, warn};
 use rand::{CryptoRng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryFrom};
+use std::collections::HashMap;
 use x509_certificate::CapturedX509Certificate;
 
 ///Magic string referring to the Intel SGX enclave ID used by Signal.
@@ -128,10 +128,8 @@ impl AttestationResponse {
 		// ----- Verify signature on response.
 		let cert = *chain.first().unwrap();
 		//Figure out a verification algorithm, which requires both a key algorithm and a signature algorithm.
-		let key_algorithm =
-			x509_certificate::KeyAlgorithm::try_from(cert.key_algorithm().unwrap())?;
-		let signature_algorithm =
-			x509_certificate::SignatureAlgorithm::try_from(cert.signature_algorithm().unwrap())?;
+		let key_algorithm = cert.key_algorithm().unwrap();
+		let signature_algorithm = cert.signature_algorithm().unwrap();
 		let verify_algorithm = signature_algorithm.resolve_verification_algorithm(key_algorithm)?;
 
 		let cipher =
@@ -256,7 +254,7 @@ pub struct AttestationKeys {
 	pub server_key: [u8; 32],
 }
 
-/// Gnerates a set of attestation keys from the server's ephemeral key and static key from an AttestationResponse,
+/// Generates a set of attestation keys from the server's ephemeral key and static key from an AttestationResponse,
 /// and from our local set of ephemeral keys.
 /// Returns client_key and server_key, wrapped up in a AttestationKeys.
 ///
@@ -340,6 +338,8 @@ pub struct DiscoveryRequest {
 ///
 /// * `phone_numbers` - A list of phone numbers we are seeking corresponding UUIDs for.
 /// * `rand` - The cryptographically-strong source of entropy for this process.
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): phone_numbers
 pub fn build_query_data<R>(phone_numbers: &Vec<E164>, rand: &mut R) -> Result<Vec<u8>>
 where
 	R: RngCore + CryptoRng,
@@ -372,6 +372,8 @@ impl DiscoveryRequest {
 	/// * `phone_numbers` - Addresses to request UUIDs for from the server. Must be E164 format i.e. +12345678910
 	/// * `attestations` - A list of decoded attestation responses. Probably generated with AttestationResponseList::decode_attestations().
 	/// * `rand` - Randomness provider.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): phone_numbers
 	pub fn new<R>(
 		phone_numbers: &Vec<E164>,
 		attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>,
@@ -462,6 +464,8 @@ pub struct DiscoveryResponse {
 
 impl DiscoveryResponse {
 	/// Decrypt the discovery response.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): attestations
 	pub fn decrypt(
 		&self,
 		attestations: &Vec<(String, AttestationKeys, AttestationRequestId)>,

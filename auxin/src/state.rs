@@ -154,7 +154,8 @@ impl ForeignPeerProfile {
 	}
 }
 
-/// A known peer's pre-existing identifying information, public keys, and prefrences.
+/// A known peer's pre-existing identifying information, public keys, and preferences.
+///
 /// Note that session state and ratchet key state do not live here.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -236,12 +237,14 @@ impl From<&PeerRecord> for AuxinAddress {
 	}
 }
 
-/// This structure holds PeerRecrods for all peers known to this auxin instance.
+/// This structure holds PeerRecords for all peers known to this auxin instance.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PeerRecordStructure {
 	#[serde(rename = "recipients")]
 	pub peers: Vec<PeerRecord>,
-	/// This is the last used ID by this structure - when a new peer is encountered and added to our cache, increment this number.
+
+	/// This is the last used ID by this structure - when a new peer is
+	/// encountered and added to our cache, increment this number.
 	#[serde(rename = "lastId")]
 	pub last_id: u64,
 }
@@ -264,13 +267,17 @@ pub trait PeerStore {
 	fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord>;
 
 	/// Finds the UUID that corresponds to this phone number.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): phone_number
 	fn complete_phone_address(&self, phone_number: &String) -> Option<AuxinAddress> {
 		self.get_by_number(phone_number).map(AuxinAddress::from)
 	}
-	/// Finds phone number that corresponds to this UUIO.
+
+	/// Finds phone number that corresponds to this UUID.
 	fn complete_uuid_address(&self, peer_uuid: &Uuid) -> Option<AuxinAddress> {
 		self.get_by_uuid(peer_uuid).map(AuxinAddress::from)
 	}
+
 	/// If we only have a phone number or a UUID, fill in the other one. Returns None if no peer by this address is found.
 	fn complete_address(&self, address: &AuxinAddress) -> Option<AuxinAddress> {
 		if let AuxinAddress::Both(_, _) = address {
@@ -280,10 +287,12 @@ pub trait PeerStore {
 				.get_phone_number()
 				.ok()
 				.map(|p| self.complete_phone_address(p))
-				.or(address
-					.get_uuid()
-					.ok()
-					.map(|u| self.complete_uuid_address(u))))
+				.or_else(|| {
+					address
+						.get_uuid()
+						.ok()
+						.map(|u| self.complete_uuid_address(u))
+				}))
 			.flatten();
 		}
 	}
@@ -359,7 +368,7 @@ impl PeerStore for PeerRecordStructure {
 			Some(AuxinAddress::Uuid(peer_uuid)) => self.get_by_uuid(&peer_uuid),
 			Some(AuxinAddress::Both(phone_number, peer_uuid)) => self
 				.get_by_number(&phone_number)
-				.or(self.get_by_uuid(&peer_uuid)),
+				.or_else(|| self.get_by_uuid(&peer_uuid)),
 			None => None,
 		}
 	}
@@ -539,8 +548,10 @@ pub trait AuxinStateManager {
 }
 
 /// Attempt to get a registration ID from the previous-session records.
+///
 /// Please note that this might result in cache inconsistency if a peer
-/// reset a session specifically because they re-registerd.
+/// reset a session specifically because they re-registered.
+///
 /// However, re-registering is a much rarer case than other reasons
 /// one can need to reset a session, such as corrupt key state, for
 /// testing purposes, or for privacy concerns.
@@ -566,7 +577,8 @@ pub fn try_excavate_registration_id(
 	let structure: auxin_protos::protos::storage::RecordStructure = decoder.read_message()?;
 
 	if structure.previous_sessions.len() > 0 {
-		// Libsignal protcol's record of previous states is FIFO. For reference, please see archive_current_state() in session.rs.
+		// Libsignal protocol's record of previous states is FIFO.
+		// For reference, please see archive_current_state() in session.rs.
 		// This means the first one we encounter iterating through this list will be the most recent registration ID.
 		for prev in structure.previous_sessions.iter() {
 			// 0 appears to be Protobuf's default "we don't have this field" for unsigned integers.

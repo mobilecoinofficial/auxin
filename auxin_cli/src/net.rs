@@ -118,7 +118,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
 		.map_err(|e| EstablishConnectionError::CantStartWebsocketConnect(format!("{:?}", e)))
 }
 
-// (Try to) read a raw byte buffer as a Signal Websocketmessage protobuf.
+// (Try to) read a raw byte buffer as a Signal WebSocketMessage protobuf.
 fn read_wsmessage(
 	buf: &[u8],
 ) -> std::result::Result<auxin_protos::WebSocketMessage, WebsocketError> {
@@ -329,8 +329,8 @@ impl AuxinNetManager for NetManager {
 			.map_err(|e| EstablishConnectionError::CannotTls(e.to_string()))
 			.map_ok(|tls_connector| {
 				let mut http_connector = HttpConnector::new();
-				//Critically important. If we do not set this value to false, it will defalt to true,
-				//and the connector will errror out when we attempt to connect using https://
+				//Critically important. If we do not set this value to false, it will default to true,
+				//and the connector will error out when we attempt to connect using https://
 				//(Because technically it isn't http)
 				http_connector.enforce_http(false);
 				let https_connector =
@@ -363,7 +363,7 @@ impl AuxinTungsteniteConnection {
 		} else {
 			//If it's successful, pass along our value.
 			debug!(
-				"Constructed websocket client streans, got response: {:?}",
+				"Constructed websocket client streams, got response: {:?}",
 				connect_response
 			);
 
@@ -408,12 +408,13 @@ impl AuxinTungsteniteConnection {
 
 	/// Notify the server that we have received a message.
 	///
-	/// Note that thsi only sends the WebSocket acknowledgement.
+	/// Note that this only sends the WebSocket acknowledgement.
 	/// AuxinApp::receive_and_acknowledge() sends the Signal protocol "receipt" message.
 	///
 	/// # Arguments
 	///
-	/// * `req` - The original WebSocketRequestMessage - passed so that we can acknowledge that we've received this message even if no valid message can be parsed from it.
+	/// * `req` - The original WebSocketRequestMessage - passed so
+	/// that we can acknowledge that we've received this message even if no valid message can be parsed from it.
 	async fn acknowledge_message(
 		&mut self,
 		req: &WebSocketRequestMessage,
@@ -424,7 +425,7 @@ impl AuxinTungsteniteConnection {
 		res.set_id(reply_id);
 		res.set_status(200); // Success
 		res.set_message(String::from("OK"));
-		res.set_headers(req.get_headers().clone().into());
+		res.set_headers(req.get_headers().into());
 		let mut res_m = WebSocketMessage::default();
 		res_m.set_response(res);
 		res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
@@ -473,15 +474,15 @@ impl AuxinTungsteniteConnection {
 		match msg {
 			None => {
 				trace!("msg was a None");
-				return None;
+				None
 			}
 			Some(Err(e)) => {
 				trace!("NetErr");
-				return Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))));
+				Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))))
 			}
 			Some(Ok(m)) => {
 				trace!("Some(Ok(m)) - trying to turn m into wsmessage.");
-				let wsmessage: WebSocketMessage = m.into();
+				let wsmessage: WebSocketMessage = m;
 				//Check to see if we're done.
 				if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST {
 					trace!("Acknowledging.");
@@ -492,7 +493,7 @@ impl AuxinTungsteniteConnection {
 							debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
 							//Acknowledge we received the end-of-queue and do many clunky error-handling things:
 							let res = self
-								.acknowledge_message(&req)
+								.acknowledge_message(req)
 								.await
 								.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
 							let res = match res {
@@ -507,17 +508,17 @@ impl AuxinTungsteniteConnection {
 					}
 					// Ack it. We will not double-ack because the acknowledgement above
 					// directly returns from that  if req.get_path().contains("/api/v1/queue/empty") block
-					let res = self.acknowledge_message(&req).await;
+					let res = self.acknowledge_message(req).await;
 
 					if let Err(e) = res {
-						return Some(Err(e));
+						Some(Err(e))
 					} else {
 						trace!("request-shaped Some(Ok(wsmessage))");
-						return Some(Ok(wsmessage));
+						Some(Ok(wsmessage))
 					}
 				} else {
 					trace!("non-request Some(Ok(wsmessage))");
-					return Some(Ok(wsmessage));
+					Some(Ok(wsmessage))
 				}
 			}
 		}

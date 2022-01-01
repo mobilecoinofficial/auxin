@@ -7,12 +7,14 @@ use auxin::{
 	address::AuxinAddress,
 	generate_timestamp,
 	message::{MessageContent, MessageIn, MessageOut},
-	ReceiveError, Result, state::{PeerProfile}, ProfileRetrievalError, profile::ProfileConfig,
+	profile::ProfileConfig,
+	state::PeerProfile,
+	ProfileRetrievalError, ReceiveError, Result,
 };
 
 //External dependencies
 
-use auxin_cli::{net::AuxinTungsteniteConnection};
+use auxin_cli::net::AuxinTungsteniteConnection;
 use auxin_protos::AttachmentPointer;
 use log::debug;
 
@@ -24,7 +26,7 @@ use structopt::StructOpt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{initiate_attachment_downloads, ATTACHMENT_TIMEOUT_DURATION, AttachmentPipelineError};
+use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_TIMEOUT_DURATION};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
 pub const VERSION_STR: &str = "0.1.3";
@@ -64,27 +66,37 @@ pub struct AppArgs {
 pub enum AuxinCommand {
 	/// Sends a message to the given address.
 	Send(SendCommand),
+
 	/// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json.
 	/// This can be used with Send --prepared-attachments later.
 	Upload(UploadCommand),
+
 	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	Receive(ReceiveCommand),
+
 	/// Continuously polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	ReceiveLoop,
-	///Attempts to get a payment address for the user with the specified phonenumber or UUID.
+
+	/// Attempts to get a payment address for the user with the specified phone number or UUID.
 	GetPayAddress(GetPayAddrCommand),
+
 	/// A simple echo server for demonstration purposes. Loops until killed.
 	Echoserver,
+
 	/// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
 	JsonRPC,
+
 	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
 	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
 	Repl,
+
 	/// Update one or more fields on your user profile via Signal's web API.
 	SetProfile(SetProfileCommand),
+
 	/// Retrieve Signal service profile information about a peer
 	GetProfile(GetProfileCommand),
-	/// Download the specified Signal-protocol attachment pointer 
+
+	/// Download the specified Signal-protocol attachment pointer
 	Download(DownloadAttachmentCommand),
 }
 
@@ -92,13 +104,14 @@ pub enum AuxinCommand {
 pub struct SendCommand {
 	/// Sets the destination for our message (as E164-format phone number or a UUID).
 	pub destination: String,
+
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
 	#[serde(default)]
 	#[structopt(short, long, parse(from_os_str))]
 	pub attachments: Option<Vec<PathBuf>>,
 
 	/// Add one or more attachments to this message, passed in as a pre-generated \"AttachmentPointer\"
-	/// Signal Service protcol buffer struct, serialized to json."
+	/// Signal Service protocol buffer struct, serialized to json."
 	#[structopt(long = "prepared-attachments")]
 	#[serde(default)]
 	pub prepared_attachments: Option<Vec<String>>,
@@ -107,14 +120,18 @@ pub struct SendCommand {
 	#[structopt(short, long)]
 	#[serde(default)]
 	pub message: Option<String>,
+
 	/// Used to pass a \"Content\" protocol buffer struct from signalservice.proto, serialized as a json string.
 	#[structopt(short, long)]
 	#[serde(default)]
 	pub content: Option<String>,
-	/// Generate a Signal Service \"Content\" structure without actually sending it. Useful for testing the -c / --content option.
+
+	/// Generate a Signal Service \"Content\" structure without actually sending it.
+	/// Useful for testing the -c / --content option.
 	#[structopt(short, long)]
 	#[serde(default)]
 	pub simulate: bool,
+
 	/// Sets a flag so this message ends / resets your session with this peer.
 	///
 	/// Sets the END_SESSION flag (defined on line 109 of signalservice.proto) on this message,
@@ -245,10 +262,12 @@ pub struct JsonRpcNotification {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonRpcError {
-	/// The type of error that occured.
+	/// The type of error that occurred.
 	pub code: i32,
-	///A short description of the error.
+
+	/// A short description of the error.
 	pub message: String,
+
 	/// A more detailed, possibly-structured description of the error.
 	pub data: Option<serde_json::Value>,
 }
@@ -283,7 +302,7 @@ impl From<ReceiveError> for JsonRpcErrorResponse {
 		let resulting_err = match err_in {
 			ReceiveError::NetSpecific(e) => JsonRpcError {
 				code: -32001,
-				message: String::from("Network Errror"),
+				message: String::from("Network Error"),
 				data: Some(serde_json::Value::String(e)),
 			},
 			ReceiveError::SendErr(e) => JsonRpcError {
@@ -335,96 +354,79 @@ impl From<ReceiveError> for JsonRpcErrorResponse {
 	}
 }
 
-
 impl From<ProfileRetrievalError> for JsonRpcErrorResponse {
 	fn from(err_in: ProfileRetrievalError) -> Self {
 		let resulting_err = match err_in {
 			ProfileRetrievalError::NoProfileKey(peer) => JsonRpcError {
 				code: -32032,
 				message: String::from("No Profile Key"),
-				data: Some(
-					json!({
-						"description": "Attempted to retrieve a profile for a peer whose profile key we do not have.",
-						"peer": serde_json::to_value(&peer).unwrap(),
-					})
-				),
+				data: Some(json!({
+					"description": "Attempted to retrieve a profile for a peer whose profile key we do not have.",
+					"peer": serde_json::to_value(&peer).unwrap(),
+				})),
 			},
 			ProfileRetrievalError::NoPeer(tried_peer) => JsonRpcError {
 				code: -32033,
 				message: String::from("No Peer"),
-				data: Some(
-					json!({
-						"description": format!("Tried to get peer profile for {:?} but this peer is unknown to us.", &tried_peer),
-						"peer": serde_json::to_value(&tried_peer).unwrap(),
-					})
-				),
+				data: Some(json!({
+					"description": format!("Tried to get peer profile for {:?} but this peer is unknown to us.", &tried_peer),
+					"peer": serde_json::to_value(&tried_peer).unwrap(),
+				})),
 			},
 			ProfileRetrievalError::EncodingError(peer, msg) => JsonRpcError {
 				code: -32034,
 				message: String::from("Encoding Error"),
-				data: Some(
-					json!({
-						"description": format!("Encoding issue while trying to retrieve profile for {}", &peer),
-						"peer": serde_json::to_value(&peer).unwrap(),
-						"sourceErr": msg,
-					})
-				),
+				data: Some(json!({
+					"description": format!("Encoding issue while trying to retrieve profile for {}", &peer),
+					"peer": serde_json::to_value(&peer).unwrap(),
+					"sourceErr": msg,
+				})),
 			},
 			ProfileRetrievalError::DecodingError(peer, msg) => JsonRpcError {
 				code: -32035,
 				message: String::from("Decoding Error"),
-				data: Some(
-					json!({
-						"description": format!("Decoding issue while trying to retrieve profile for {}", &peer),
-						"peer": serde_json::to_value(&peer).unwrap(),
-						"sourceErr": msg,
-					})
-				),
+				data: Some(json!({
+					"description": format!("Decoding issue while trying to retrieve profile for {}", &peer),
+					"peer": serde_json::to_value(&peer).unwrap(),
+					"sourceErr": msg,
+				})),
 			},
 			ProfileRetrievalError::DecryptingError(peer, msg) => JsonRpcError {
 				code: -32036,
 				message: String::from("Decrypting Error"),
-				data: Some(
-					json!({
-						"description": format!("Decrypting issue while trying to retrieve profile for {}", &peer),
-						"peer": serde_json::to_value(&peer).unwrap(),
-						"sourceErr": msg,
-					})
-				),
+				data: Some(json!({
+					"description": format!("Decrypting issue while trying to retrieve profile for {}", &peer),
+					"peer": serde_json::to_value(&peer).unwrap(),
+					"sourceErr": msg,
+				})),
 			},
 			ProfileRetrievalError::UnidentifiedAccess(peer, msg) => JsonRpcError {
 				code: -32037,
 				message: String::from("Unidentified Access Error"),
-				data: Some(
-					json!({
-						"description": format!("Problem with unidentified access while trying to retrieve profile for {}", &peer),
-						"peer": serde_json::to_value(&peer).unwrap(),
-						"sourceErr": msg,
-					})
-				),
+				data: Some(json!({
+					"description": format!("Problem with unidentified access while trying to retrieve profile for {}", &peer),
+					"peer": serde_json::to_value(&peer).unwrap(),
+					"sourceErr": msg,
+				})),
 			},
 			ProfileRetrievalError::NoUuid(peer, msg) => JsonRpcError {
 				code: -32038,
 				message: String::from("No UUID"),
-				data: Some(
-					json!({
-						"description": format!("We do not have (and cannot get) the UUID for {}", &peer),
-						"peer": serde_json::to_value(&peer).unwrap(),
-						"sourceErr": msg,
-					})
-				),
+				data: Some(json!({
+					"description": format!("We do not have (and cannot get) the UUID for {}", &peer),
+					"peer": serde_json::to_value(&peer).unwrap(),
+					"sourceErr": msg,
+				})),
 			},
 			ProfileRetrievalError::ErrPeer(peer, msg) => JsonRpcError {
 				code: -32039,
 				message: String::from("Unable to save peer"),
-				data: Some(
-					json!({
-						"description": format!("Could not save cached peer information {}", &peer),
-						"peer": serde_json::to_value(&peer).unwrap(),
-						"sourceErr": msg,
-					})
-				),
-			}
+				data: Some(json!({
+					"description": format!("Could not save cached peer information {}", &peer),
+					"peer": serde_json::to_value(&peer).unwrap(),
+					"sourceErr": msg,
+				})),
+			},
 		};
 		JsonRpcErrorResponse {
 			jsonrpc: JSONRPC_VER.to_string(),
@@ -434,6 +436,8 @@ impl From<ProfileRetrievalError> for JsonRpcErrorResponse {
 	}
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): download_path should be a &Path, but API.
 pub async fn process_jsonrpc_input(
 	input: &str,
 	app: &mut crate::app::App,
@@ -507,22 +511,22 @@ pub async fn process_jsonrpc_input(
 	// We should now have one or more valid JsonRPC commands. Let's see if any of them match our method.
 	for req in requests {
 		let lowercase = req.method.to_ascii_lowercase();
-		let methodstr = lowercase.as_str();
-		let response = match methodstr { 
+		let method_str = lowercase.as_str();
+		let response = match method_str {
 			"send" => {
 				match serde_json::from_value::<SendCommand>(req.params) {
-					// Is this a valid parameter? 
+					// Is this a valid parameter?
 					Ok(val) => {
-						// Actually do send behavior. 
+						// Actually do send behavior.
 						let send_result = handle_send_command(val, app).await;
 						match send_result {
 							Ok(send_output) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
-								// send_output shouldn't be possible to error while encoding to json. 
+								// send_output shouldn't be possible to error while encoding to json.
 								result: serde_json::to_value(send_output).unwrap(),
 								id: req.id.clone(),
 							}),
-							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
 								error: JsonRpcError {
 									code: -32000,
@@ -532,9 +536,9 @@ pub async fn process_jsonrpc_input(
 								id: req.id.clone(),
 							}),
 						}
-					}, 
+					},
 					// Could not decode params
-					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 						jsonrpc: JSONRPC_VER.to_string(),
 						error: JsonRpcError {
 							code: -32602,
@@ -547,18 +551,18 @@ pub async fn process_jsonrpc_input(
 			},
 			"upload" => {
 				match serde_json::from_value::<UploadCommand>(req.params) {
-					// Is this a valid parameter? 
+					// Is this a valid parameter?
 					Ok(val) => {
-						// Actually do send behavior. 
+						// Actually do send behavior.
 						let upload_output = handle_upload_command(val, app).await;
 						match upload_output {
 							Ok(attachment_pointers) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
-								// send_output shouldn't be possible to error while encoding to json. 
+								// send_output shouldn't be possible to error while encoding to json.
 								result: serde_json::to_value(attachment_pointers).unwrap(),
 								id: req.id.clone(),
 							}),
-							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
 								error: JsonRpcError {
 									code: -32000,
@@ -568,9 +572,9 @@ pub async fn process_jsonrpc_input(
 								id: req.id.clone(),
 							}),
 						}
-					}, 
+					},
 					// Could not decode params
-					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 						jsonrpc: JSONRPC_VER.to_string(),
 						error: JsonRpcError {
 							code: -32602,
@@ -582,24 +586,24 @@ pub async fn process_jsonrpc_input(
 				}
 			},
 			"receive" => {
-				let params = if req.params.is_null() { 
+				let params = if req.params.is_null() {
 					std::result::Result::Ok(ReceiveCommand{ no_download: false })
-				} else { 
+				} else {
 					serde_json::from_value::<ReceiveCommand>(req.params)
 				};
 				match params {
-					// Is this a valid parameter? 
+					// Is this a valid parameter?
 					Ok(val) => {
-						// Actually do send behavior. 
+						// Actually do send behavior.
 						let receive_output = handle_receive_command(val, download_path, app).await;
 						match receive_output {
 							Ok(messages) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
-								// receive output shouldn't be possible to error while encoding to json. 
+								// receive output shouldn't be possible to error while encoding to json.
 								result: serde_json::to_value(messages).unwrap(),
 								id: req.id.clone(),
 							}),
-							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
 								error: JsonRpcError {
 									code: -32000,
@@ -609,9 +613,9 @@ pub async fn process_jsonrpc_input(
 								id: req.id.clone(),
 							}),
 						}
-					}, 
+					},
 					// Could not decode params
-					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 						jsonrpc: JSONRPC_VER.to_string(),
 						error: JsonRpcError {
 							code: -32602,
@@ -624,7 +628,7 @@ pub async fn process_jsonrpc_input(
 			},
 			"get-pay-address" | "getpayaddress" => {
 				match serde_json::from_value::<GetPayAddrCommand>(req.params) {
-					// Is this a valid parameter? 
+					// Is this a valid parameter?
 					Ok(val) => {
 						//Turn peer name into auxin address.
 						match AuxinAddress::try_from(val.peer_name.as_str()) {
@@ -633,11 +637,11 @@ pub async fn process_jsonrpc_input(
 								match  app.retrieve_payment_address(&peer).await {
 									Ok(pay_addr_output) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
 										jsonrpc: JSONRPC_VER.to_string(),
-										// send_output shouldn't be possible to error while encoding to json. 
+										// send_output shouldn't be possible to error while encoding to json.
 										result: serde_json::to_value(pay_addr_output).unwrap(),
 										id: req.id.clone(),
 									}),
-									Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+									Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 										jsonrpc: JSONRPC_VER.to_string(),
 										error: JsonRpcError {
 											code: -32000,
@@ -648,7 +652,7 @@ pub async fn process_jsonrpc_input(
 									}),
 								}
 							},
-							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
 								error: JsonRpcError {
 									code: -32000,
@@ -658,9 +662,9 @@ pub async fn process_jsonrpc_input(
 								id: req.id.clone(),
 							}),
 						}
-					}, 
+					},
 					// Could not decode params
-					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 						jsonrpc: JSONRPC_VER.to_string(),
 						error: JsonRpcError {
 							code: -32602,
@@ -671,18 +675,18 @@ pub async fn process_jsonrpc_input(
 					}),
 				}
 			},
-			"set-profile" | "setprofile" => { 
+			"set-profile" | "setprofile" => {
 				match serde_json::from_value::<SetProfileCommand>(req.params) {
-					// Is this a valid parameter? 
+					// Is this a valid parameter?
 					Ok(cmd) => {
 						match handle_set_profile_command(cmd, app).await {
 							Ok(response) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
-								// send_output shouldn't be possible to error while encoding to json. 
+								// send_output shouldn't be possible to error while encoding to json.
 								result: serde_json::to_value(response).unwrap(),
 								id: req.id.clone(),
 							}),
-							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
 								error: JsonRpcError {
 									code: -32099,
@@ -692,9 +696,9 @@ pub async fn process_jsonrpc_input(
 								id: req.id.clone(),
 							}),
 						}
-					}, 
+					},
 					// Could not decode params
-					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 						jsonrpc: JSONRPC_VER.to_string(),
 						error: JsonRpcError {
 							code: -32602,
@@ -705,9 +709,9 @@ pub async fn process_jsonrpc_input(
 					}),
 				}
 			},
-			"get-profile" | "getprofile" => { 
+			"get-profile" | "getprofile" => {
 				match serde_json::from_value::<GetProfileCommand>(req.params) {
-					// Is this a valid parameter? 
+					// Is this a valid parameter?
 					Ok(cmd) => {
 						match handle_get_profile_command(cmd, app).await {
 							Ok(profile) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
@@ -717,13 +721,13 @@ pub async fn process_jsonrpc_input(
 							}),
 							Err(e) => {
 								let mut err = JsonRpcErrorResponse::from(e);
-								err.id = req.id.clone(); 
+								err.id = req.id.clone();
 								JsonRpcResponse::Err(err)
 							},
 						}
-					}, 
+					},
 					// Could not decode params
-					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 						jsonrpc: JSONRPC_VER.to_string(),
 						error: JsonRpcError {
 							code: -32602,
@@ -734,12 +738,12 @@ pub async fn process_jsonrpc_input(
 					}),
 				}
 			},
-			// Not a valid command! 
-			_ => JsonRpcResponse::Err(JsonRpcErrorResponse { 
+			// Not a valid command!
+			_ => JsonRpcResponse::Err(JsonRpcErrorResponse {
 				jsonrpc: JSONRPC_VER.to_string(),
 				error: JsonRpcError {
 					code: -32601,
-					message: format!("The method you provided (which is {}) does not exist - please use \"send\", \"upload\", or \"receive\".", methodstr),
+					message: format!("The method you provided (which is {}) does not exist - please use \"send\", \"upload\", or \"receive\".", method_str),
 					data: None,
 				},
 				id: req.id.clone(),
@@ -766,13 +770,15 @@ pub async fn handle_send_command(
 	let recipient_addr = AuxinAddress::try_from(cmd.destination.as_str()).unwrap();
 
 	//MessageContent
-	let mut message_content = MessageContent::default();
+	let mut message_content = MessageContent {
+		//Do we want to end our session here?
+		end_session: cmd.end_session,
 
-	//Do we want to end our session here?
-	message_content.end_session = cmd.end_session;
+		//Do we have a regular text message?
+		text_message: cmd.message,
 
-	//Do we have a regular text message?
-	message_content.text_message = cmd.message;
+		..MessageContent::default()
+	};
 
 	//Did the user pass in a "Content" protocol buffer serialized as json?
 	let mut premade_content: Option<auxin_protos::Content> = cmd
@@ -791,17 +797,17 @@ pub async fn handle_send_command(
 			let file_path = std::path::Path::new(&file_path_str);
 			let file_name = file_path.file_name().unwrap().to_str().unwrap();
 
-			let data = std::fs::read(&file_path)
-				.map_err(|e| SendCommandError::AttachmentFileReadError(e))?;
+			let data =
+				std::fs::read(&file_path).map_err(SendCommandError::AttachmentFileReadError)?;
 
 			//Encrypt our attachment.
 			let mut rng = OsRng::default();
-			let encrypted_attahcment =
+			let encrypted_attachment =
 				auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
 
 			//Upload the attachment, generating an attachment pointer in the process.
 			let attachment_pointer = app
-				.upload_attachment(&upload_attributes, &encrypted_attahcment)
+				.upload_attachment(&upload_attributes, &encrypted_attachment)
 				.await?;
 
 			//If we have a premade content, put the attachments there instead.
@@ -836,7 +842,7 @@ pub async fn handle_send_command(
 		let built_content = message
 			.content
 			.build_signal_content(
-				&base64::encode(&app.context.identity.profile_key).to_string(),
+				&base64::encode(&app.context.identity.profile_key),
 				timestamp,
 			)
 			.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
@@ -870,7 +876,7 @@ pub async fn handle_upload_command(
 
 		let file_name = path.file_name().unwrap();
 
-		let encrypted_attahcment = auxin::attachment::upload::encrypt_attachment(
+		let encrypted_attachment = auxin::attachment::upload::encrypt_attachment(
 			file_name.to_str().unwrap(),
 			&data,
 			&mut rng,
@@ -878,13 +884,15 @@ pub async fn handle_upload_command(
 
 		// TODO: Refactor Auxin's HTTP client ownership to permit greater parallelism
 		let attachment_pointer = app
-			.upload_attachment(&upload_attributes, &encrypted_attahcment)
+			.upload_attachment(&upload_attributes, &encrypted_attachment)
 			.await?;
 		attachments.push(attachment_pointer);
 	}
 	Ok(attachments)
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): download_path
 pub async fn handle_receive_command(
 	cmd: ReceiveCommand,
 	download_path: &PathBuf,
@@ -921,8 +929,8 @@ pub async fn handle_receive_command(
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SetProfileResponse { 
-	/// HTTP status code. 
+pub struct SetProfileResponse {
+	/// HTTP status code.
 	pub status: u16,
 }
 
@@ -939,44 +947,45 @@ pub async fn handle_set_profile_command(
 	};
 	//TODO: Service configuration to select base URL.
 	Ok(app
-		.upload_profile("https://textsecure-service.whispersystems.org", 
-		auxin::net::api_paths::SIGNAL_CDN,
-			params, 
-			avatar_buf)
-		.await.map(|res| {
-			SetProfileResponse {
-				status: res.status().as_u16()
-			}
+		.upload_profile(
+			"https://textsecure-service.whispersystems.org",
+			auxin::net::api_paths::SIGNAL_CDN,
+			params,
+			avatar_buf,
+		)
+		.await
+		.map(|res| SetProfileResponse {
+			status: res.status().as_u16(),
 		})?)
 }
-
 
 pub async fn handle_get_profile_command(
 	cmd: GetProfileCommand,
 	app: &mut crate::app::App,
 ) -> std::result::Result<PeerProfile, ProfileRetrievalError> {
-	let peer = AuxinAddress::try_from(cmd.peer_name.as_str()).unwrap();	
+	let peer = AuxinAddress::try_from(cmd.peer_name.as_str()).unwrap();
 	let profile = app.get_and_decrypt_profile(&peer).await?;
 
 	Ok(profile)
 }
 
 /// Returns a vector of filenames retrieved.
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): download_path
 pub async fn handle_download_command(
-	cmd: DownloadAttachmentCommand, 
+	cmd: DownloadAttachmentCommand,
 	download_path: &PathBuf,
 	app: &mut crate::app::App,
-) -> std::result::Result<(), AttachmentPipelineError> { 
-
-	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default(); 
-	for att in cmd.attachments.into_iter() { 
-		let pointer = match serde_json::from_value(att.clone()) { 
+) -> std::result::Result<(), AttachmentPipelineError> {
+	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
+	for att in cmd.attachments.into_iter() {
+		let pointer = match serde_json::from_value(att.clone()) {
 			Ok(v) => v,
-			Err(e) => return Err(AttachmentPipelineError::Parse(att.clone(), e)),
+			Err(e) => return Err(AttachmentPipelineError::Parse(att, e)),
 		};
 		attachments_to_download.push(pointer);
 	}
-	
+
 	let pending_downloads = initiate_attachment_downloads(
 		attachments_to_download,
 		download_path.to_str().unwrap().to_string(),
@@ -985,7 +994,9 @@ pub async fn handle_download_command(
 	);
 
 	//Force all downloads to complete.
-	futures::future::try_join_all(pending_downloads.into_iter()).await.map( |_none_vec| () /* <- a simpler nothing */ )
+	futures::future::try_join_all(pending_downloads.into_iter())
+		.await
+		.map(|_none_vec| () /* <- a simpler nothing */)
 }
 
 #[allow(unused_assignments)]
@@ -999,7 +1010,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 		// Is this an array of bytes?
 		Value::Array(array) => {
 			// Skip empty arrays.
-			if array.len() == 0 {
+			if array.is_empty() {
 				output = None;
 			} else {
 				// Let's see if this is an array of bytes which needs to turn into a base-64 string.
@@ -1019,7 +1030,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 					// Vec<u8>s get serialized very naively. So, all numbers should be 0 <= x < 255
 					else if elem.is_i64() {
 						let num = elem.as_i64().unwrap();
-						if num < 0 || num > 255 {
+						if !(0..=255).contains(&num) {
 							//Out of range. Do not base-64 this.
 							assume_bytes = false;
 							break;
@@ -1061,7 +1072,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 						// }
 					}
 					// Now let's look at what we just made.
-					if result_array_value.len() > 0 {
+					if !result_array_value.is_empty() {
 						//Make an actual serde_json Value that wraps this.
 						output = Some(Value::Array(result_array_value));
 					} else {
@@ -1079,7 +1090,7 @@ pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::V
 					new_map.insert(name.clone(), new_val);
 				}
 			}
-			if new_map.len() > 0 {
+			if !new_map.is_empty() {
 				output = Some(Value::Object(new_map));
 			} else {
 				//Do not include nulls or empties.

@@ -2,7 +2,7 @@
 // Copyright (c) 2021 Emily Cultip
 
 // Copyright (c) 2021 The MobileCoin Foundation
-// Emily "Gyro" Cutlip / The Forest team
+// Emily "Gyro" Cultip / The Forest team
 
 //! Developer (and bot) friendly wrapper around the Signal protocol.
 
@@ -21,21 +21,19 @@ use auxin::{
 //External dependencies
 
 use auxin_protos::WebSocketMessage;
-
 use futures::executor::block_on;
-
 use log::{debug, error, trace, warn};
-
 use rand::rngs::OsRng;
-
-use std::{convert::TryFrom};
-
+use std::convert::TryFrom;
 use structopt::StructOpt;
-
-use tokio::{sync::{
+use tokio::{
+	sync::{
 		mpsc,
 		mpsc::{Receiver, Sender},
-	}, task::JoinHandle, time::{Duration, Instant}};
+	},
+	task::JoinHandle,
+	time::{Duration, Instant},
+};
 use tracing::{info, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
@@ -47,47 +45,35 @@ pub mod net;
 pub mod repl_wrapper;
 pub mod state;
 
-use crate::net::AuxinTungsteniteConnection;
 // Dependencies from this crate.
-pub use crate::{attachment::*, commands::*};
-use net::load_root_tls_cert;
-pub type Context = auxin::AuxinContext;
-
+use crate::initiate_attachment_downloads;
 #[cfg(feature = "repl")]
 use crate::repl_wrapper::AppWrapper;
-
+pub use crate::{attachment::*, commands::*};
 use auxin_protos::AttachmentPointer;
+use net::{load_root_tls_cert, AuxinTungsteniteConnection};
 
-use crate::initiate_attachment_downloads;
+pub type Context = auxin::AuxinContext;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
 #[cfg(feature = "repl")]
 pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 	use papyrus::repl;
+	use std::path::Path;
 
 	let mut app = AppWrapper { app_inner: app };
 
 	let mut repl = repl!(AppWrapper);
 
-	let mut library_dir: String = "target/".into();
-
 	#[cfg(debug_assertions)]
-	library_dir.push_str("debug/");
+	let library_dir = Path::new("target").join("debug");
 	#[cfg(not(debug_assertions))]
-	library_dir.push_str("release/");
+	let library_dir = Path::new("target").join("release");
 
-	let mut auxin_cli_lib_dir = library_dir.clone();
-	auxin_cli_lib_dir.push_str("libauxin_cli.rlib");
-	let auxin_cli_lib = papyrus::linking::Extern::new(&auxin_cli_lib_dir)?; //papyrus::linking::Extern::new(&auxin_lib_dir)?;
-
-	let mut auxin_lib_dir = library_dir.clone();
-	auxin_lib_dir.push_str("libauxin.rlib");
-	let auxin_lib = papyrus::linking::Extern::new(&auxin_lib_dir)?; //papyrus::linking::Extern::new(&auxin_lib_dir)?;)?;
-
-	let mut auxin_proto_lib_dir = library_dir.clone();
-	auxin_proto_lib_dir.push_str("libauxin_protos.rlib");
-	let auxin_proto_lib = papyrus::linking::Extern::new(&auxin_proto_lib_dir)?; //papyrus::linking::Extern::new(&auxin_lib_dir)?;
+	let auxin_cli_lib = papyrus::linking::Extern::new(library_dir.join("libauxin_cli.rlib"))?;
+	let auxin_lib = papyrus::linking::Extern::new(library_dir.join("libauxin.rlib"))?;
+	let auxin_proto_lib = papyrus::linking::Extern::new(library_dir.join("libauxin_protos.rlib"))?;
 
 	repl.data.with_external_lib(auxin_cli_lib);
 	repl.data.with_external_lib(auxin_lib);
@@ -97,6 +83,7 @@ pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
 
 	Ok(())
 }
+
 #[cfg(not(feature = "repl"))]
 pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
@@ -158,6 +145,11 @@ pub async fn main() -> Result<()> {
 	// within json-rpc (including the command to start a json-rpc daemon) goes here.
 	// As of 0.1.2, that is Echoserver, JsonRPC, and REPL.
 
+	#[allow(clippy::while_immutable_condition)]
+	// TODO(Diana): Several match arms have a while loop with an exit condition that can never be false.
+	// For now, suppress the error from Clippy.
+	// TODO(Diana): A lot of `println`s in here. Should they be proper log macros?
+	// Should find out.
 	match arguments.command {
 		// Sends a message to the given address.
 		AuxinCommand::Send(send_command) => {
@@ -282,6 +274,7 @@ pub async fn main() -> Result<()> {
 			//How many lines can we receive in one pass?
 			const LINE_BUF_COUNT: usize = 4096;
 
+			#[allow(clippy::type_complexity)]
 			let (line_sender, mut line_receiver): (
 				Sender<std::result::Result<String, std::io::Error>>,
 				Receiver<std::result::Result<String, std::io::Error>>,
@@ -294,16 +287,19 @@ pub async fn main() -> Result<()> {
 				match maybe_input {
 					Ok(Some(input)) => {
 						//Pass along a valid string.
-						block_on(line_sender.send(Ok(input))).expect(
-							format!("Exceeded input buffer of {} lines", LINE_BUF_COUNT).as_str(),
-						);
+						block_on(line_sender.send(Ok(input))).unwrap_or_else(|_| {
+							panic!("Exceeded input buffer of {} lines", LINE_BUF_COUNT)
+						});
 					}
 					Err(e) => {
 						// Write a debug string of the error before the sender takes ownership of it.
 						let err_string = format!("{:?}", &e);
-						block_on(line_sender.send(std::result::Result::Err(e))) 
-							.expect(format!("Exceeded input buffer of {} lines, while attempting to return error: {:?}", 
-							LINE_BUF_COUNT, err_string).as_str());
+						block_on(line_sender.send(std::result::Result::Err(e))).unwrap_or_else(
+							|_| {
+								panic!("Exceeded input buffer of {} lines, while attempting to return error: {:?}",
+							LINE_BUF_COUNT, err_string)
+							},
+						);
 					}
 					// Ignore a None value, continuing to loop on this thread waiting for input.
 					Ok(None) => {}
@@ -316,6 +312,7 @@ pub async fn main() -> Result<()> {
 
 			const MESSAGE_BUF_COUNT: usize = 4096;
 
+			#[allow(clippy::type_complexity)]
 			let (msg_channel, mut msg_receiver): (
 				Sender<std::result::Result<WebSocketMessage, ReceiveError>>,
 				Receiver<std::result::Result<WebSocketMessage, ReceiveError>>,
@@ -327,8 +324,12 @@ pub async fn main() -> Result<()> {
 
 				loop {
 					while let Some(msg) = block_on(receiver.next()) {
-						block_on(msg_channel.send(msg))
-							.expect(format!("Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}", MESSAGE_BUF_COUNT).as_str());
+						block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
+							panic!(
+								"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
+								MESSAGE_BUF_COUNT
+							)
+						});
 					}
 					trace!("Entering sleep...");
 					let sleep_time = Duration::from_millis(100);
@@ -345,12 +346,14 @@ pub async fn main() -> Result<()> {
 
 			// Prepare to (potentially) download attachments
 			//let mut pending_downloads: Vec<attachment::PendingDownload> = Vec::default();
-			let mut download_task_handles: Vec<JoinHandle<std::result::Result<(), AttachmentPipelineError>>> = Vec::default();
+			let mut download_task_handles: Vec<
+				JoinHandle<std::result::Result<(), AttachmentPipelineError>>,
+			> = Vec::default();
 
 			let mut exit = false;
 			// Infinite loop
 			while !exit {
-				//Receive first, attempting to ensure messagss are read in the order they are sent.
+				// Receive first, attempting to ensure messages are read in the order they are sent.
 				tokio::select! {
 					biased;
 					wsmessage_maybe = msg_receiver.recv() => {
@@ -384,11 +387,11 @@ pub async fn main() -> Result<()> {
 												);
 												// Start our downloads.
 												let handle = tokio::spawn(async move {
-													// Transform Result<Vec<()>, E> to Result<(), E> 
-													futures::future::try_join_all(message_downloads.into_iter()).await.map(| _ | { () }) 
+													// Transform Result<Vec<()>, E> to Result<(), E>
+													futures::future::try_join_all(message_downloads.into_iter()).await.map(| _ | {})
 												});
-												// Make sure we do not forget the download - put the task on a list of tasks to 
-												// ensure we complete before exiting. 
+												// Make sure we do not forget the download - put the task on a list of tasks to
+												// ensure we complete before exiting.
 												download_task_handles.push(handle);
 											};
 										},
@@ -452,7 +455,7 @@ pub async fn main() -> Result<()> {
 					}
 				}
 			}
-			for handle in download_task_handles { 
+			for handle in download_task_handles {
 				//Ensure all downloads are completed.
 				handle.await??;
 			}
@@ -481,15 +484,18 @@ pub async fn main() -> Result<()> {
 			let peername = cmd.peer_name.clone();
 			let profile = handle_get_profile_command(cmd, &mut app).await?;
 			let profile_json = serde_json::to_string(&profile)?;
-			println!("Retrieved profile for peer at address {}. Profile is: {}",
-				peername,
-				profile_json,			
+			println!(
+				"Retrieved profile for peer at address {}. Profile is: {}",
+				peername, profile_json,
 			)
 		}
-		AuxinCommand::Download(cmd ) => {
+		AuxinCommand::Download(cmd) => {
 			handle_download_command(cmd, &arguments.download_path, &mut app).await?;
-			println!("Attachment download to directory {:?} completed.", &arguments.download_path);
-		},
+			println!(
+				"Attachment download to directory {:?} completed.",
+				&arguments.download_path
+			);
+		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	Ok(())

@@ -97,9 +97,11 @@ unsafe impl Send for SignalCtx {}
 #[allow(unused)] // TODO: Remove this after we can send/remove a message.
 				 // This is the structure that an AuxinStateHandler builds and saves.
 pub struct AuxinContext {
-	/// The LocalIdentity holds this node's public and private key, its profile key, pwssword, and its UUID and phone number.
+	/// The LocalIdentity holds this node's public and private key, its profile key,
+	/// password, and its UUID and phone number.
 	pub identity: LocalIdentity,
-	/// A certificate used to send sealded-sender / unidentified-sender messages.
+
+	/// A certificate used to send sealed-sender / unidentified-sender messages.
 	/// Retrieved through a request to https://textsecure-service.whispersystems.org/v1/certificate/delivery
 	pub sender_certificate: Option<SenderCertificate>,
 
@@ -119,8 +121,9 @@ pub struct AuxinContext {
 	pub report_as_online: bool,
 
 	/// Signal context - pointer to a C data type.
+	///
 	/// It seems like this is future-proofing on Signal's behalf, because
-	/// the Signal's library never uses theis datatype directly even though
+	/// the Signal's library never uses this datatype directly even though
 	/// it is required as an argument to many of their methods.
 	pub ctx: SignalCtx,
 }
@@ -132,6 +135,8 @@ pub struct AuxinContext {
 /// # Arguments
 ///
 /// * `profile_key` - A base-64 string encoding of a signal user's 32-byte (256-bit) Profile Key.
+// TODO(Diana): profile_key should be `&str`, but i'm unsure if I'm allowed to change the API.
+#[allow(clippy::ptr_arg)]
 pub fn get_unidentified_access_for_key(profile_key: &String) -> crate::Result<Vec<u8>> {
 	let profile_key_bytes = base64::decode(profile_key)?;
 	let profile_key = aes_gcm::Key::from_slice(profile_key_bytes.as_slice());
@@ -152,9 +157,9 @@ pub fn get_unidentified_access_for_key(profile_key: &String) -> crate::Result<Ve
 
 custom_error! { pub UnidentifiedAccessError
 	NoProfileKey{uuid: Uuid} = "Cannot generate an unidentified access key for user {uuid}: We do not know their profile key! This would not matter for a user with UnidentifiedAccessMode::UNRESTRICTED.",
-	PeerDisallowsSealedSender{uuid: Uuid} = "Tried to generatet an unidentified access key for peer {uuid}, but this user has disabled unidentified access!",
+	PeerDisallowsSealedSender{uuid: Uuid} = "Tried to generate an unidentified access key for peer {uuid}, but this user has disabled unidentified access!",
 	UnrecognizedUser{address: AuxinAddress} = "Cannot generate an unidentified access key for address {address} as that is not a recognized peer.",
-	NoProfile{uuid: Uuid} = "Attempted to generate an unidenttified access key for peer {uuid}, but this user has no profile field whatsoever on record with this Auxin instance. We cannot retrieve their profile key.",
+	NoProfile{uuid: Uuid} = "Attempted to generate an unidentified access key for peer {uuid}, but this user has no profile field whatsoever on record with this Auxin instance. We cannot retrieve their profile key.",
 }
 
 impl AuxinContext {

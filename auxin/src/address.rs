@@ -104,7 +104,7 @@ impl AuxinDeviceAddress {
 		Ok(ProtocolAddress::new(addr_uuid.to_string(), self.device_id))
 	}
 
-	/// Constructs an AuxinDeviceaddress using the provided AuxinAddress and assuming the default device ID of 1.
+	/// Constructs an AuxinDeviceAddress using the provided AuxinAddress and assuming the default device ID of 1.
 	pub fn new_default_device(address: AuxinAddress) -> Self {
 		AuxinDeviceAddress {
 			address,
@@ -148,10 +148,12 @@ impl FromStr for AuxinAddress {
 impl TryFrom<&str> for AuxinDeviceAddress {
 	type Error = Box<dyn Error>;
 	fn try_from(val: &str) -> std::result::Result<Self, Self::Error> {
-		let split = val.rsplit_once(".");
-		let (addr, dev) = split.ok_or(Box::new(AddressError::NoDevice {
-			val: val.to_string(),
-		}))?;
+		let split = val.rsplit_once('.');
+		let (addr, dev) = split.ok_or_else(|| {
+			Box::new(AddressError::NoDevice {
+				val: val.to_string(),
+			})
+		})?;
 		let device_id = u32::from_str(dev).map_err(|_e| {
 			Box::new(AddressError::NoDevice {
 				val: val.to_string(),
@@ -226,14 +228,13 @@ mod tests {
 pub fn phone_number_to_long(phone: &E164) -> Result<i64> {
 	// Snip out the standard E164 + here and any other likely special characters.
 	// TODO: Regex phone numbers to ensure validity somewhere.
-	let phone = phone.replace("+", "");
-	let phone = phone.replace("-", "");
-	let phone = phone.replace(".", "");
-	let phone = phone.replace("/", "");
-	let phone = phone.replace("(", "");
-	let phone = phone.replace(")", "");
-	let phone = phone.replace(" ", "");
+	let phone = phone.replace('+', "");
+	let phone = phone.replace('-', "");
+	let phone = phone.replace('.', "");
+	let phone = phone.replace('/', "");
+	let phone = phone.replace('(', "");
+	let phone = phone.replace(')', "");
+	let phone = phone.replace(' ', "");
 
-	// Radix of 10 to ensure we match Java.lang.Long exactly.
-	return Ok(i64::from_str_radix(phone.as_str(), 10)?);
+	Ok(phone.parse::<i64>()?)
 }

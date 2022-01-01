@@ -191,20 +191,30 @@ impl ProfileCipher {
 		Ok(concat)
 	}
 
-	// Prepends the ;ength of the plaintext (pre-padding) to the buffer
-	// before encrypting it normally.
-	// Intended to match the behavior of Java's ProfileCipher::encryptWithLength().
-	// Provieded padding brackets should not include the cipher's 28 byte encryption overhead.
+	/// Prepends the length of the plaintext (pre-padding) to the buffer
+	/// before encrypting it normally.
+	///
+	/// Intended to match the behavior of Java's ProfileCipher::encryptWithLength().
+	/// Provided padding brackets should not include the cipher's 28 byte encryption overhead.
+	#[allow(clippy::ptr_arg)]
+	// TODO(Diana): bytes
 	pub fn pad_and_encrypt_with_length(
 		&self,
 		bytes: &Vec<u8>,
 		padding_brackets: &[usize],
 	) -> Result<Vec<u8>, ProfileCipherError> {
-		let length_tag = (bytes.len() as i32).to_le_bytes();
+		// Use TryFrom and unwrap to prevent the unlikely event of silent truncation
+		//
+		// The unwrap *should* never be hit, but if it somehow does its a crash
+		// and not anything worse.
+		//
+		// In Java, arrays are limited to i32 in size, but Rust uses usize,
+		// which can be u32 or u64, both of which "can" be bigger than i32.
+		let length_tag = i32::try_from(bytes.len()).unwrap().to_le_bytes();
 		// length_tag.len() will always be 4 because it is an i32
 		let mut new_bytes = Vec::with_capacity(4 + bytes.len());
 		new_bytes.extend_from_slice(&length_tag);
-		new_bytes.extend_from_slice(&bytes);
+		new_bytes.extend_from_slice(bytes);
 
 		self.pad_and_encrypt(new_bytes, padding_brackets)
 	}
@@ -279,10 +289,7 @@ impl ProfileCipher {
 	}
 
 	/// No padding is used when encrypting an avatar
-	pub fn encrypt_avatar(
-		&self,
-		mut bytes: Vec<u8>,
-	) -> Result<Vec<u8>, ProfileCipherError> {
+	pub fn encrypt_avatar(&self, mut bytes: Vec<u8>) -> Result<Vec<u8>, ProfileCipherError> {
 		let cipher = Aes256Gcm::new(&self.get_key());
 		let nonce: [u8; 12] = rand::thread_rng().gen();
 		let nonce = GenericArray::from_slice(&nonce);
@@ -359,14 +366,14 @@ mod tests {
 
 	#[test]
 	fn roundtrip_emoji() {
-		let emojii = ["❤️", "💩", "🤣", "😲", "🐠"];
+		let emoji = ["❤️", "💩", "🤣", "😲", "🐠"];
 
 		let mut rng = rand::thread_rng();
 		let some_randomness = rng.gen();
 		let profile_key = ProfileKey::generate(some_randomness);
 		let cipher = ProfileCipher::from(profile_key);
 
-		for &emoji in &emojii {
+		for &emoji in &emoji {
 			let encrypted = cipher.encrypt_emoji(emoji.into()).unwrap();
 			let decrypted = cipher.decrypt_emoji(&encrypted).unwrap();
 

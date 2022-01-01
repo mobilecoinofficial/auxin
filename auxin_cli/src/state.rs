@@ -28,18 +28,12 @@ use uuid::Uuid;
 
 use crate::Context;
 
-/// Loads the needed information for a LocalIdentity from a json file - intended to be compatible with Libsingal-cli
+/// Loads the needed information for a LocalIdentity from a json file
+/// - intended to be compatible with Libsignal-cli
 pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
-	let mut identity_dir = String::from_str(base_dir)?;
+	let identity_dir = Path::new(base_dir);
 
-	if !base_dir.ends_with('/') {
-		identity_dir.push('/');
-	}
-
-	let mut identity_file_path = identity_dir.clone();
-	identity_file_path.push_str(our_phone_number.as_str());
-
-	let file = File::open(identity_file_path)?;
+	let file = File::open(identity_dir.join(our_phone_number))?;
 	Ok(serde_json::from_reader(file)?)
 }
 
@@ -55,7 +49,8 @@ custom_error! { pub ErrBuildIdent
 	MissingPublicKey{phone_number:E164} = "No public key found when trying to build a LocalIdentity from json structure for user: {phone_number}.",
 }
 
-/// Builds a LocalIdentity from the json structure loaded by load_signal_cli_user() - intended to be compatible with Libsingal-cli
+/// Builds a LocalIdentity from the json structure loaded by load_signal_cli_user()
+/// - intended to be compatible with Libsignal-cli
 pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity> {
 	//Phone number.
 	let phone_number = val
@@ -67,46 +62,49 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 
 	//UUID
 	let our_uuid = val.get("uuid").ok_or(ErrBuildIdent::MissingUuid {
-		phone_number: phone_number.clone().to_string(),
+		phone_number: phone_number.to_string(),
 	})?;
 	let our_uuid = our_uuid.as_str().ok_or(ErrBuildIdent::MissingUuid {
-		phone_number: phone_number.clone().to_string(),
+		phone_number: phone_number.to_string(),
 	})?;
 	let our_uuid = Uuid::from_str(our_uuid)?;
 
 	//Password
 	let password = val.get("password").ok_or(ErrBuildIdent::MissingPassword {
-		phone_number: phone_number.clone().to_string(),
+		phone_number: phone_number.to_string(),
 	})?;
 	let password = password
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingPassword {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 
 	//Registration ID
-	let registration_id =
-		val.get("registrationId")
-			.ok_or(ErrBuildIdent::MissingRegistrationId {
-				phone_number: phone_number.clone().to_string(),
-			})?;
-	let registration_id = registration_id
+	let registration_id = val
+		.get("registrationId")
+		.ok_or(ErrBuildIdent::MissingRegistrationId {
+			phone_number: phone_number.to_string(),
+		})?
 		.as_u64()
 		.ok_or(ErrBuildIdent::MissingRegistrationId {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
+		})?;
+	let registration_id =
+		u32::try_from(registration_id).map_err(|_| ErrBuildIdent::MissingRegistrationId {
+			phone_number: phone_number.to_string(),
 		})?;
 
 	//Profile key
 	let profile_key = val
 		.get("profileKey")
 		.ok_or(ErrBuildIdent::MissingProfileKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?;
 	let profile_key = profile_key
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingProfileKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 	let profile_key = base64::decode(profile_key)?;
@@ -117,9 +115,8 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 		}));
 	}
 	let mut decoded_profile_key: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
-	for i in 0..PROFILE_KEY_LEN {
-		decoded_profile_key[i] = profile_key[i];
-	}
+	// NOTE: This won't panic because the check above ensures the slices have the same length.
+	decoded_profile_key.copy_from_slice(&profile_key);
 
 	//Device ID
 	let device_id = match val.get("deviceId") {
@@ -127,18 +124,21 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 			.as_u64()
 			.ok_or(ErrBuildIdent::DeviceIdNotUInt { val: id.clone() })?,
 		None => 1, //Default device ID is 1.
-	} as u32;
+	};
+	let device_id = u32::try_from(device_id).map_err(|_| ErrBuildIdent::DeviceIdNotUInt {
+		val: serde_json::Value::from(device_id),
+	})?;
 
 	//Private key
 	let private_key = val
 		.get("identityPrivateKey")
 		.ok_or(ErrBuildIdent::MissingPrivateKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?;
 	let private_key = private_key
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingPrivateKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 	let private_key = base64::decode(private_key)?;
@@ -148,19 +148,19 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 	let public_key = val
 		.get("identityKey")
 		.ok_or(ErrBuildIdent::MissingPublicKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?;
 	let public_key = public_key
 		.as_str()
 		.ok_or(ErrBuildIdent::MissingPublicKey {
-			phone_number: phone_number.clone().to_string(),
+			phone_number: phone_number.to_string(),
 		})?
 		.to_string();
 	let public_key = base64::decode(public_key)?;
 	let public_key = PublicKey::deserialize(public_key.as_slice())?;
 
 	let our_address = AuxinDeviceAddress {
-		address: AuxinAddress::Both(phone_number.clone().to_string(), our_uuid),
+		address: AuxinAddress::Both(phone_number.to_string(), our_uuid),
 		device_id,
 	};
 
@@ -169,12 +169,15 @@ pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity
 		password,
 		profile_key: decoded_profile_key,
 		identity_keys: IdentityKeyPair::new(IdentityKey::new(public_key), private_key),
-		reg_id: registration_id as u32,
+		reg_id: registration_id,
 	})
 }
 
-/// Load any identity keys for known peers (recipients) present in our protocol store. These end up in identity_store.known_keys
+/// Load any identity keys for known peers (recipients) present in our protocol store.
+/// These end up in identity_store.known_keys
 #[allow(unused_must_use)]
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): our_id
 pub async fn load_known_peers(
 	our_id: &String,
 	base_dir: &str,
@@ -182,7 +185,7 @@ pub async fn load_known_peers(
 	identity_store: &mut InMemIdentityKeyStore,
 	ctx: libsignal_protocol::Context,
 ) -> Result<()> {
-	let mut our_path = base_dir.clone().to_string();
+	let mut our_path = base_dir.to_string();
 	our_path.push('/');
 	our_path.push_str(our_id);
 	our_path.push_str(".d/");
@@ -222,12 +225,14 @@ pub async fn load_known_peers(
 	Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): our_id
 pub async fn load_sessions(
 	our_id: &String,
 	base_dir: &str,
 	ctx: libsignal_protocol::Context,
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
-	let mut our_path = base_dir.clone().to_string();
+	let mut our_path = base_dir.to_string();
 	our_path.push('/');
 	our_path.push_str(our_id);
 	our_path.push_str(".d/");
@@ -293,7 +298,7 @@ pub async fn load_sessions(
 			for file_name in session_file_list {
 				let mut file_path = session_path.clone();
 				file_path.push_str(file_name.as_str());
-				let (recipient_id, recipient_device_id) = file_name.split_once("_").unwrap();
+				let (recipient_id, recipient_device_id) = file_name.split_once('_').unwrap();
 				//Address retrieval from oru previously-built session list
 				//TODO: More informative error handling.
 				let recipient_id_num: usize = recipient_id.parse::<usize>()?;
@@ -356,6 +361,8 @@ pub async fn load_sessions(
 	Ok((session_store, recipient_structure))
 }
 
+#[allow(clippy::ptr_arg)]
+// TODO(Diana): our_id
 pub async fn load_prekeys(
 	our_id: &String,
 	base_dir: &str,
@@ -564,6 +571,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 
 	Ok(())
 }
+
 pub async fn make_context(
 	base_dir: &str,
 	local_identity: LocalIdentity,
@@ -654,7 +662,7 @@ impl AuxinStateManager for StateManager {
 		let peer = &context
 			.peer_cache
 			.complete_address(peer)
-			.unwrap_or(peer.clone());
+			.unwrap_or_else(|| peer.clone());
 
 		let peer_record = match context.peer_cache.get(peer) {
 			Some(a) => a,
