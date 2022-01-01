@@ -223,26 +223,31 @@ pub async fn main() -> Result<()> {
 				AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
 			while !exit {
 				while let Some(msg) = receiver.next().await {
-					let wsmessage = msg.unwrap();
-					let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
+					match msg {
+						Ok(wsmessage) => {
+							let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
 
-					if let Some(msg) = msg_maybe {
-						let msg_json = serde_json::to_string(&msg).unwrap();
-						println!("{}", msg_json);
+							if let Some(msg) = msg_maybe {
+								let msg_json = serde_json::to_string(&msg).unwrap();
+								println!("{}", msg_json);
 
-						if msg.content.receipt_message.is_none() {
-							if let Some(st) = msg.content.text_message {
-								info!("Message received with text \"{}\", replying...", st);
-								app.send_message(
-									&msg.remote_address.address,
-									MessageOut {
-										content: MessageContent::default().with_text(st.clone()),
-									},
-								)
-								.await
-								.unwrap();
+								if msg.content.receipt_message.is_none() {
+									if let Some(st) = msg.content.text_message {
+										info!("Message received with text \"{}\", replying...", st);
+										app.send_message(
+											&msg.remote_address.address,
+											MessageOut {
+												content: MessageContent::default()
+													.with_text(st.clone()),
+											},
+										)
+										.await
+										.unwrap();
+									}
+								}
 							}
 						}
+						Err(x) => println!("Error: {}", x),
 					}
 				}
 
