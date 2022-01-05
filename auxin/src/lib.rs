@@ -51,6 +51,7 @@ pub mod address;
 pub mod attachment;
 pub mod context;
 pub mod discovery;
+pub mod groups;
 pub mod message;
 pub mod net;
 pub mod profile;
