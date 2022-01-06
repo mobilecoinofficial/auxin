@@ -37,6 +37,7 @@ use net::{
 };
 use profile::ProfileConfig;
 use protobuf::CodedInputStream;
+use serde::{Serialize, Deserialize};
 use serde_json::json;
 use std::{
 	collections::{HashMap, HashSet},
@@ -148,6 +149,13 @@ custom_error! { pub AuxinInitError
 	CannotRequestSenderCert{msg: String} = "Unable to send a \"Sender Certificate\" request: {msg}.",
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MismatchedDevices { 
+	pub missing_devices: Vec<u32>,
+	pub extra_devices: Vec<u32>,
+}
+
 #[derive(Debug, Clone)]
 // Errors received when attempting to send a Signal message to another user.
 pub enum SendMessageError {
@@ -160,6 +168,7 @@ pub enum SendMessageError {
 	PeerSaveIssue(String),
 	MessageBuildErr(String),
 	EndSessionErr(String),
+	AttemptTwoFail(String),
 }
 
 impl std::fmt::Display for SendMessageError {
@@ -174,6 +183,7 @@ impl std::fmt::Display for SendMessageError {
 			SendMessageError::MessageBuildErr(e) => write!(f, "Could not build or encrypt Signal message content for send_message(): {}.", e),
 			SendMessageError::PeerSaveIssue(e) => write!(f, "Couldn't save files for a peer's sessions and profile, as part of sending a message: {}.", e),
 			SendMessageError::EndSessionErr(e) => write!(f, "Encountered an error while attempting to close out a session after sending an END_SESSION message: {}.", e),
+			SendMessageError::AttemptTwoFail(e) => write!(f, "Second attempt to send a message (after mismatched device list) failed: {}.", e),
 		}
 	}
 }
@@ -529,6 +539,44 @@ where
 		Ok(())
 	}
 
+	async fn send_message_inner(&mut self, recipient_addr: &AuxinAddress, message_list: &AuxinMessageList) -> std::result::Result<(Timestamp, http::Response<Vec<u8>>), SendMessageError> { 
+		// Can we do sealed sender messages here?
+		let sealed_sender: bool = self
+			.context
+			.peer_cache
+			.get(&recipient_addr)
+			.unwrap()
+			.supports_sealed_sender();
+
+		let mode = match sealed_sender {
+			true => {
+				// Make sure we have a sender certificate to do this stuff with.
+				self.retrieve_sender_cert()
+					.await
+					.map_err(|e| SendMessageError::SenderCertRetrieval(format!("{:?}", e)))?;
+				MessageSendMode::SealedSender
+			}
+			false => MessageSendMode::Standard,
+		};
+
+		let timestamp = generate_timestamp();
+		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
+		let outgoing_push_list = message_list
+			.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, timestamp)
+			.await
+			.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
+
+		let request: http::Request<Vec<u8>> = outgoing_push_list
+			.build_http_request(&recipient_addr, mode, &mut self.context, &mut self.rng)
+			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
+		let message_response = self
+			.http_client
+			.request(request)
+			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
+			.await?;
+		Ok( (timestamp, message_response) )
+	}
+
 	/// Send a message (any type of message) to a fellow Signal user.
 	/// Returns the timestamp at which this message was generated.
 	///
@@ -570,52 +618,54 @@ where
 			remote_address: recipient_addr.clone(),
 		};
 
-		// Can we do sealed sender messages here?
-		let sealed_sender: bool = self
-			.context
-			.peer_cache
-			.get(&recipient_addr)
-			.unwrap()
-			.supports_sealed_sender();
-
-		let mode = match sealed_sender {
-			true => {
-				// Make sure we have a sender certificate to do this stuff with.
-				self.retrieve_sender_cert()
-					.await
-					.map_err(|e| SendMessageError::SenderCertRetrieval(format!("{:?}", e)))?;
-				MessageSendMode::SealedSender
-			}
-			false => MessageSendMode::Standard,
-		};
-
-		let timestamp = generate_timestamp();
-		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
-		let outgoing_push_list = message_list
-			.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, timestamp)
-			.await
-			.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
-
-		let request: http::Request<Vec<u8>> = outgoing_push_list
-			.build_http_request(&recipient_addr, mode, &mut self.context, &mut self.rng)
-			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
-		let message_response = self
-			.http_client
-			.request(request)
-			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
-			.await?;
-
+		//Actually send it!
+		let (mut sent_timestamp, message_response) = self.send_message_inner(&recipient_addr, &message_list).await?;
+		
+		//Parse the response
 		let message_response_str = String::from_utf8(message_response.body().to_vec()).unwrap();
 		debug!(
 			"Got response to attempt to send message: {:?} {}",
 			message_response, message_response_str
 		);
 		if !message_response.status().is_success() {
-			return Err(SendMessageError::CannotMakeMessageRequest(format!(
-				"Response to send message: {:?} {}",
-				message_response, message_response_str
-			)));
+			let mismatch_list: MismatchedDevices = match serde_json::from_str(message_response_str.as_str()) {
+				Ok(v) => v,
+				Err(_) => {
+					// Return a regular error if this isn't a MismatchedDevices
+					return Err(SendMessageError::CannotMakeMessageRequest(format!(
+						"Response to send message: {:?} {}",
+						message_response, message_response_str
+					)));
+					//Otherwise, this is a device mismatch issue
+				},
+			};
+			//For logging purposes, figure out what we have on file.
+			let existing_list = { 
+				let peer = self.context.peer_cache.get(&recipient_addr).unwrap();
+				peer.device_ids_used.clone()
+			};
+			//And then delete the thing we just copied. Clear it out so we only get new state.
+			self.context.peer_cache.get_mut(&recipient_addr).unwrap().device_ids_used.clear();
+			self.context.peer_cache.get_mut(&recipient_addr).unwrap().registration_ids.clear();
+
+			//Get new device list
+			info!("Mismatched device list for {}. We have {:?}, and the server sent: {:?}. Attempting to fetch devices...", &recipient_addr, &existing_list, &mismatch_list );
+			self.fill_peer_info(&recipient_addr).await
+				.map_err(|e| SendMessageError::PeerStoreIssue(format!("{:?}", e)))?;
+			info!("Attempting to re-send message with original timestamp {}", &sent_timestamp);
+			let (new_timestamp, message_response) = self.send_message_inner(&recipient_addr, &message_list).await?;
+			sent_timestamp = new_timestamp;
+
+			// Only retry once.
+			if !message_response.status().is_success() {
+				return Err(SendMessageError::AttemptTwoFail(format!(
+					"{:?}",
+					message_response
+				)));
+			}
+			//Otherwise, we should be good.
 		}
+		
 		//Only necessary if fill_peer_info is called, and we do it in there.
 		self.state_manager
 			.save_peer_sessions(&recipient_addr, &self.context)
@@ -629,7 +679,7 @@ where
 		}
 
 		info!("End of send_message() at {}", generate_timestamp());
-		Ok(timestamp)
+		Ok(sent_timestamp)
 	}
 
 	/// Get a sender certificate for ourselves from Signal's web API, so that we can send sealed_sender messages properly.
