@@ -32,6 +32,20 @@ Currently, Auxin has a ``send`` command, which sends a Signal message to the rec
 
 Last, but not least, there is a `help` command. Type ``auxin-cli -h`` or ``auxin-cli help`` for more information on how to use this program in general, or ``auxin-cli [COMMAND] -h`` for more information on how to use a specific command.
 
+### JsonRPC Interface
+Auxin supports a JsonRPC mode wherein all commands can be invoked via a JsonRPC Repl accessed via the command line or file descriptors using another language like python. 
+
+Example commands include:
+#### Set profile
+```
+{"jsonrpc":"2.0","id":666,"method":"setProfile","params":{"name":{"givenName":"Thought","familyName":"Criminal"},"about":"I encrypt my thoughts with math","avatarFile":"profile.png","mobilecoinAddress":"[b64 encoded mobilecoin address]"}}
+```
+
+#### Send Message
+```
+{"jsonrpc":"2.0","id":666,"method":"send","params":{"destination":"+15555555555","message":"But do you REALLY know about turtles?","attachments":["turtles.png","also_turtles.jpeg"]}}
+```
+
 ## Project Structure
 
 ### Crates
