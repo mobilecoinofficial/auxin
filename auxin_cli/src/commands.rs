@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_TIMEOUT_DURATION};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
-pub const VERSION_STR: &str = "0.1.7";
+pub const VERSION_STR: &str = env!("CARGO_PKG_VERSION");
 
 pub const JSONRPC_VER: &str = "2.0";
 
