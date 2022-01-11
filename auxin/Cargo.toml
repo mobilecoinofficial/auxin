@@ -80,3 +80,6 @@ features = [
   'Response',
   'Window',
 ]
+
+[dev-dependencies]
+tokio-test = "*"

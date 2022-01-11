@@ -1301,3 +1301,347 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 		Ok(result)
 	}
 }
+
+
+
+#[cfg(test)]
+mod tests {
+	use std::collections::{HashSet, HashMap};
+
+	use libsignal_protocol::{IdentityKeyPair, InMemPreKeyStore, InMemSignedPreKeyStore, InMemIdentityKeyStore, InMemSenderKeyStore, InMemSessionStore, process_prekey_bundle};
+	use rand::{rngs::OsRng, Rng};
+	use crate::{LocalIdentity, state::{PeerRecordStructure, PeerRecord}, AuxinConfig};
+
+	use super::*;
+
+	#[test]
+	fn test_basic_prekey_v3() -> Result<(), SignalProtocolError> {
+		async {
+			let mut csprng = OsRng;
+	
+			let alice_address = ProtocolAddress::new("+14151111111".to_owned(), 1);
+			let bob_address = ProtocolAddress::new("+14151111112".to_owned(), 1);
+	
+			let mut alice_store = support::test_in_memory_protocol_store()?;
+			let mut bob_store = support::test_in_memory_protocol_store()?;
+	
+			let bob_pre_key_pair = KeyPair::generate(&mut csprng);
+			let bob_signed_pre_key_pair = KeyPair::generate(&mut csprng);
+	
+			let bob_signed_pre_key_public = bob_signed_pre_key_pair.public_key.serialize();
+			let bob_signed_pre_key_signature = bob_store
+				.get_identity_key_pair(None)
+				.await?
+				.private_key()
+				.calculate_signature(&bob_signed_pre_key_public, &mut csprng)?;
+	
+			let pre_key_id = 31337;
+			let signed_pre_key_id = 22;
+	
+			let bob_pre_key_bundle = PreKeyBundle::new(
+				bob_store.get_local_registration_id(None).await?,
+				1,                                               // device id
+				Some((pre_key_id, bob_pre_key_pair.public_key)), // pre key
+				signed_pre_key_id,                               // signed pre key id
+				bob_signed_pre_key_pair.public_key,
+				bob_signed_pre_key_signature.to_vec(),
+				*bob_store.get_identity_key_pair(None).await?.identity_key(),
+			)?;
+	
+			process_prekey_bundle(
+				&bob_address,
+				&mut alice_store.session_store,
+				&mut alice_store.identity_store,
+				&bob_pre_key_bundle,
+				&mut csprng,
+				None,
+			)
+			.await?;
+	
+			assert!(alice_store
+				.load_session(&bob_address, None)
+				.await?
+				.is_some());
+			assert_eq!(
+				alice_store
+					.load_session(&bob_address, None)
+					.await?
+					.expect("session found")
+					.session_version()?,
+				3
+			);
+			assert!(alice_store
+				.load_session(&bob_address, None)
+				.await?
+				.expect("session found")
+				.has_sender_chain()
+				.expect("can ask about sender chain"));
+			assert!(!alice_store
+				.load_session(&bob_address, None)
+				.await?
+				.expect("session found")
+				.needs_pni_signature()
+				.expect("has current state"));
+	
+			let original_message = "L'homme est condamné à être libre";
+	
+			let outgoing_message = encrypt(&mut alice_store, &bob_address, original_message).await?;
+	
+			assert_eq!(
+				outgoing_message.message_type(),
+				CiphertextMessageType::PreKey
+			);
+	
+			let incoming_message = CiphertextMessage::PreKeySignalMessage(
+				PreKeySignalMessage::try_from(outgoing_message.serialize())?,
+			);
+	
+			bob_store
+				.save_pre_key(
+					pre_key_id,
+					&PreKeyRecord::new(pre_key_id, &bob_pre_key_pair),
+					None,
+				)
+				.await?;
+			bob_store
+				.save_signed_pre_key(
+					signed_pre_key_id,
+					&SignedPreKeyRecord::new(
+						signed_pre_key_id,
+						/*timestamp*/ 42,
+						&bob_signed_pre_key_pair,
+						&bob_signed_pre_key_signature,
+					),
+					None,
+				)
+				.await?;
+	
+			let ptext = decrypt(&mut bob_store, &alice_address, &incoming_message).await?;
+	
+			assert_eq!(
+				String::from_utf8(ptext).expect("valid utf8"),
+				original_message
+			);
+	
+			let bobs_response = "Who watches the watchers?";
+	
+			assert!(bob_store
+				.load_session(&alice_address, None)
+				.await?
+				.is_some());
+			let bobs_session_with_alice = bob_store
+				.load_session(&alice_address, None)
+				.await?
+				.expect("session found");
+			assert_eq!(bobs_session_with_alice.session_version()?, 3);
+			assert_eq!(bobs_session_with_alice.alice_base_key()?.len(), 32 + 1);
+			assert!(bobs_session_with_alice
+				.has_sender_chain()
+				.expect("can ask about sender chain"));
+			assert!(!bobs_session_with_alice
+				.needs_pni_signature()
+				.expect("has current state"));
+	
+			let bob_outgoing = encrypt(&mut bob_store, &alice_address, bobs_response).await?;
+	
+			assert_eq!(bob_outgoing.message_type(), CiphertextMessageType::Whisper);
+	
+			let alice_decrypts = decrypt(&mut alice_store, &bob_address, &bob_outgoing).await?;
+	
+			assert_eq!(
+				String::from_utf8(alice_decrypts).expect("valid utf8"),
+				bobs_response
+			);
+	
+			run_interaction(
+				&mut alice_store,
+				&alice_address,
+				&mut bob_store,
+				&bob_address,
+			)
+			.await?;
+	
+			let mut alice_store = support::test_in_memory_protocol_store()?;
+	
+			let bob_pre_key_pair = KeyPair::generate(&mut csprng);
+			let bob_signed_pre_key_pair = KeyPair::generate(&mut csprng);
+	
+			let bob_signed_pre_key_public = bob_signed_pre_key_pair.public_key.serialize();
+			let bob_signed_pre_key_signature = bob_store
+				.get_identity_key_pair(None)
+				.await?
+				.private_key()
+				.calculate_signature(&bob_signed_pre_key_public, &mut csprng)?;
+	
+			let pre_key_id = 31337;
+			let signed_pre_key_id = 22;
+	
+			let bob_pre_key_bundle = PreKeyBundle::new(
+				bob_store.get_local_registration_id(None).await?,
+				1,                                                   // device id
+				Some((pre_key_id + 1, bob_pre_key_pair.public_key)), // pre key,
+				signed_pre_key_id + 1,
+				bob_signed_pre_key_pair.public_key,
+				bob_signed_pre_key_signature.to_vec(),
+				*bob_store.get_identity_key_pair(None).await?.identity_key(),
+			)?;
+	
+			bob_store
+				.save_pre_key(
+					pre_key_id + 1,
+					&PreKeyRecord::new(pre_key_id + 1, &bob_pre_key_pair),
+					None,
+				)
+				.await?;
+			bob_store
+				.save_signed_pre_key(
+					signed_pre_key_id + 1,
+					&SignedPreKeyRecord::new(
+						signed_pre_key_id + 1,
+						/*timestamp*/ 42,
+						&bob_signed_pre_key_pair,
+						&bob_signed_pre_key_signature,
+					),
+					None,
+				)
+				.await?;
+	
+			process_prekey_bundle(
+				&bob_address,
+				&mut alice_store.session_store,
+				&mut alice_store.identity_store,
+				&bob_pre_key_bundle,
+				&mut csprng,
+				None,
+			)
+			.await?;
+	
+			let outgoing_message = encrypt(&mut alice_store, &bob_address, original_message).await?;
+	
+			assert!(matches!(
+				decrypt(&mut bob_store, &alice_address, &outgoing_message)
+					.await
+					.unwrap_err(),
+				SignalProtocolError::UntrustedIdentity(a) if a == alice_address
+			));
+	
+			assert!(
+				bob_store
+					.save_identity(
+						&alice_address,
+						alice_store
+							.get_identity_key_pair(None)
+							.await?
+							.identity_key(),
+						None,
+					)
+					.await?
+			);
+	
+			let decrypted = decrypt(&mut bob_store, &alice_address, &outgoing_message).await?;
+			assert_eq!(
+				String::from_utf8(decrypted).expect("valid utf8"),
+				original_message
+			);
+	
+			// Sign pre-key with wrong key:
+			let bob_pre_key_bundle = PreKeyBundle::new(
+				bob_store.get_local_registration_id(None).await?,
+				1,                                               // device id
+				Some((pre_key_id, bob_pre_key_pair.public_key)), // pre key
+				signed_pre_key_id,
+				bob_signed_pre_key_pair.public_key,
+				bob_signed_pre_key_signature.to_vec(),
+				*alice_store
+					.get_identity_key_pair(None)
+					.await?
+					.identity_key(),
+			)?;
+	
+			assert!(process_prekey_bundle(
+				&bob_address,
+				&mut alice_store.session_store,
+				&mut alice_store.identity_store,
+				&bob_pre_key_bundle,
+				&mut csprng,
+				None,
+			)
+			.await
+			.is_err());
+	
+			Ok(())
+		}
+		.now_or_never()
+		.expect("sync")
+	}
+
+
+	#[test]
+	fn test_build_http_request() {
+
+		let peer_address= AuxinAddress::Both("+15555555555".to_string(),Uuid::new_v4());
+		let mode = MessageSendMode::Standard;
+		let mut rng = OsRng::default();
+		let identity = LocalIdentity{
+				address: AuxinDeviceAddress{
+					address: AuxinAddress::Both("+16666666666".to_string(),Uuid::new_v4()), 
+					device_id: 1
+				},
+				password: "NepetaLeujon666".to_string(),
+				profile_key: rng.gen(),
+				identity_keys: IdentityKeyPair::generate(&mut rng),
+				reg_id: 666,
+			};
+		let mut context = AuxinContext{ 
+			identity: identity.clone(), 
+			sender_certificate: None, 
+			peer_cache: PeerRecordStructure{ peers: Vec::default(), last_id: 0}, 
+			session_store: InMemSessionStore::default(), 
+			pre_key_store: InMemPreKeyStore::default(), 
+			signed_pre_key_store: InMemSignedPreKeyStore::default(), 
+			identity_store: InMemIdentityKeyStore::new(identity.identity_keys.clone(), identity.reg_id), 
+			sender_key_store: InMemSenderKeyStore::default(), 
+			config: AuxinConfig{}, 
+			report_as_online: true, 
+			ctx: crate::SignalCtx::default()
+		};
+		let content = MessageContent::default().with_text("Pesterlog: You dummy".to_string());
+		
+		let mut device_ids_used = HashSet::default();
+		device_ids_used.insert(1);
+		device_ids_used.insert(413);
+
+		let mut registration_ids = HashMap::default();
+		registration_ids.insert(1,555);
+		registration_ids.insert(413,666);
+
+
+		let peer = PeerRecord{
+				id: 1,
+				number: peer_address.get_phone_number().ok().map(|val| val.clone()),
+				uuid: peer_address.get_uuid().ok().map(|val| val.clone()),
+				profile_key: None,
+				profile_key_credential: None,
+				contact: None,
+				profile: None,
+				device_ids_used,
+				registration_ids,
+				identity: None,
+			};
+		context.peer_cache.push(peer);
+
+		let message = MessageOut{ content };
+		let messages = AuxinMessageList{
+			messages: vec![message],
+			remote_address: peer_address,
+		};
+		process_prekey_bundle();
+		let result = tokio_test::block_on(  
+			messages.generate_messages_to_all_devices(&mut context, mode, &mut rng, generate_timestamp())
+		);
+
+		println!("{:?}",result);
+
+		
+	}
+}
