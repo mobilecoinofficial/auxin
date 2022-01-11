@@ -47,6 +47,9 @@ pub struct AppArgs {
 	#[structopt(short, long, default_value = "state")]
 	pub config: String,
 
+	#[structopt(short, long)]
+	pub no_read_receipt: bool,
+
 	/// Controls which directory to save downloaded attachments to as files.
 	/// Defaults to \"./downloads\"
 	#[structopt(

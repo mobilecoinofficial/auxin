@@ -1602,6 +1602,13 @@ where
 				self.send_message(&msg_ok.remote_address.address, receipt)
 					.await
 					.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+				// Also send a read receipt if needed.
+				if self.context.config.enable_read_receipts { 
+					let read_receipt = msg_ok.generate_receipt(auxin_protos::ReceiptMessage_Type::READ);
+					self.send_message(&msg_ok.remote_address.address, read_receipt)
+						.await
+						.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+				}
 			}
 		}
 		info!(
