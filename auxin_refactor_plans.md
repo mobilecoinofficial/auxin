@@ -11,3 +11,4 @@ Generally speaking the Auxin refactor can have a much lower LoC if we do it righ
 * Eliminate `MessageIn` and `MessageOut`, as they are just the `Content` protocol buffer struct with a few of its fields duplicated. This seemed necessary before I fully understood the problem space, but now they just seem pointless. 
 * Get rid of `customerror` completely. Replace with either `thiserror` (looks promising) or just plain Rust enums.
 * Statefulness primitives should include functionality for caching attachments and other large blobs, either directly or by exposing some kind of hooks (jsonrpc?).
+* Better support for unit testing in the way the networking works (i.e. a context where you can send fake http requests that don't do actual i/o).

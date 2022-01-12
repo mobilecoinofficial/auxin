@@ -4,6 +4,7 @@
 // For reference please see https://github.com/whisperfish/libsignal-service-rs
 
 use libsignal_protocol::error::SignalProtocolError;
+use protobuf::UnknownFields;
 use zkgroup::groups::GroupMasterKey;
 use zkgroup::GROUP_MASTER_KEY_LEN;
 
@@ -103,12 +104,12 @@ impl GroupOperations {
             )?;
             (uuid, profile_key)
         };
-        Ok(DecryptedMember {
-            uuid: uuid.to_vec(),
-            profile_key: bincode::serialize(&profile_key)?,
-            role: member.role,
-            joined_at_revision: member.joined_at_revision,
-        })
+        let mut result = DecryptedMember::default();
+        result.uuid = uuid.to_vec();
+        result.role = member.role;
+        result.profileKey = bincode::serialize(&profile_key)?;
+        result.joinedAtRevision = member.joined_at_revision;
+        Ok(result)
     }
 
     fn decrypt_pending_member(
@@ -121,13 +122,14 @@ impl GroupOperations {
         let uuid = self.decrypt_uuid(&inner_member.user_id).unwrap_or_default();
         let added_by = self.decrypt_uuid(&member.added_by_user_id)?;
 
-        Ok(DecryptedPendingMember {
-            uuid: uuid.to_vec(),
-            role: inner_member.role,
-            added_by_uuid: added_by.to_vec(),
-            timestamp: member.timestamp,
-            uuid_cipher_text: inner_member.user_id,
-        })
+        let mut result = DecryptedPendingMember::default();
+        result.uuid = uuid.to_vec();
+        result.role = inner_member.role;
+        result.addedByUuid = added_by.to_vec();
+        result.timestamp = member.timestamp;
+        result.uuidCipherText = inner_member.user_id;
+
+        Ok(result)
     }
 
     fn decrypt_requesting_member(
@@ -151,11 +153,11 @@ impl GroupOperations {
             )?;
             (uuid, profile_key)
         };
-        Ok(DecryptedRequestingMember {
-            profile_key: bincode::serialize(&profile_key)?,
-            uuid: uuid.to_vec(),
-            timestamp: member.timestamp,
-        })
+        let mut result = DecryptedRequestingMember::default();
+        result.profileKey = bincode::serialize(&profile_key)?;
+        result.uuid = uuid.to_vec();
+        result.timestamp = member.timestamp;
+        Ok(result)
     }
 
     fn decrypt_blob(&self, bytes: &[u8]) -> GroupAttributeBlob {

@@ -12,10 +12,12 @@ use auxin::{
 	ProfileRetrievalError, ReceiveError, Result,
 };
 
-//External dependencies
-
 use auxin_cli::net::AuxinTungsteniteConnection;
 use auxin_protos::AttachmentPointer;
+
+use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_TIMEOUT_DURATION};
+
+//External dependencies
 use log::debug;
 
 use rand::rngs::OsRng;
@@ -26,10 +28,8 @@ use structopt::StructOpt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_TIMEOUT_DURATION};
-
 pub const AUTHOR_STR: &str = "Forest Contact team";
-pub const VERSION_STR: &str = "0.1.3";
+pub const VERSION_STR: &str = env!("CARGO_PKG_VERSION");
 
 pub const JSONRPC_VER: &str = "2.0";
 
