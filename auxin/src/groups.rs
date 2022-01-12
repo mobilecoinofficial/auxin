@@ -4,7 +4,7 @@
 // For reference please see https://github.com/whisperfish/libsignal-service-rs
 
 use libsignal_protocol::error::SignalProtocolError;
-use protobuf::UnknownFields;
+use protobuf::{UnknownFields, CodedInputStream};
 use zkgroup::groups::GroupMasterKey;
 use zkgroup::GROUP_MASTER_KEY_LEN;
 
@@ -13,13 +13,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use auxin_protos::protos::decrypted_groups::{
+use auxin_protos::protos::{decrypted_groups::{
     DecryptedGroup, 
     DecryptedMember, 
     DecryptedPendingMember, 
     DecryptedRequestingMember,
     DecryptedTimer
-};
+}, groups::GroupAttributeBlob_oneof_content};
 
 use auxin_protos::protos::groups::{
     Group as EncryptedGroup,
@@ -171,8 +171,13 @@ impl GroupOperations {
                 .decrypt_blob(bytes)
                 .map_err(|_| GroupDecryptionError::ZkGroupError)
                 .and_then(|b| {
-                    GroupAttributeBlob::decode(Bytes::copy_from_slice(&b[4..]))
-                        .map_err(GroupDecryptionError::ProtobufDecodeError)
+                    //NOTE: This was written with Prost in mind, fix_protobuf_buf may be needed here. 
+                    CodedInputStream::from_bytes(&b[4..])
+                    .map_err(GroupDecryptionError::ProtobufDecodeError)
+                    .map(|stream| 
+                        stream.read_message()
+                        .map_err(GroupDecryptionError::ProtobufDecodeError) 
+                    ).flatten()
                 })
                 .unwrap_or_else(|e| {
                     log::warn!("bad encrypted blob: {}", e);
@@ -182,17 +187,15 @@ impl GroupOperations {
     }
 
     fn decrypt_title(&self, ciphertext: &[u8]) -> String {
-        use group_attribute_blob::Content;
         match self.decrypt_blob(ciphertext).content {
-            Some(Content::Title(title)) => title,
+            Some(GroupAttributeBlob_oneof_content::title(title)) => title,
             _ => "".into(), // TODO: return an error here?
         }
     }
 
     fn decrypt_description(&self, ciphertext: &[u8]) -> String {
-        use group_attribute_blob::Content;
         match self.decrypt_blob(ciphertext).content {
-            Some(Content::Description(title)) => title,
+            Some(GroupAttributeBlob_oneof_content::description(description)) => description,
             _ => "".into(), // TODO: return an error here?
         }
     }
@@ -201,10 +204,11 @@ impl GroupOperations {
         &self,
         ciphertext: &[u8],
     ) -> Option<DecryptedTimer> {
-        use group_attribute_blob::Content;
         match self.decrypt_blob(ciphertext).content {
-            Some(Content::DisappearingMessagesDuration(duration)) => {
-                Some(DecryptedTimer { duration })
+            Some(GroupAttributeBlob_oneof_content::disappearingMessagesDuration(duration)) => {
+                let mut result = DecryptedTimer::default(); 
+                result.duration = duration; 
+                Some(result)
             }
             _ => None,
         }
@@ -239,18 +243,19 @@ impl GroupOperations {
             .into_iter()
             .map(|m| group_operations.decrypt_requesting_member(m))
             .collect::<Result<_, _>>()?;
-        Ok(DecryptedGroup {
-            title,
-            avatar: group.avatar,
-            disappearing_messages_timer,
-            access_control: group.access_control,
-            revision: group.revision,
-            members,
-            pending_members,
-            requesting_members,
-            invite_link_password: group.invite_link_password,
-            description,
-        })
+
+        let mut result = DecryptedGroup::default();
+        result.title = title;
+        result.avatar = group.avatar;
+        result.disappearing_messages_timer = DecryptedGroup::default();
+        result.access_control = group.access_control;
+        result.revision = group.revision;
+        result.members = group.members;
+        result.pending_members = group.pending_members;
+        result.requesting_members = group.requestingMembers;
+        result.inviteLinkPassword = group.invite_link_password;
+        result.description = group.description;
+        Ok(result)
     }
 }
 /// Given a 16-byte GroupV1 ID, derive the migration key.
@@ -284,7 +289,7 @@ pub struct CredentialResponse {
 impl CredentialResponse {
     pub fn parse(
         self,
-    ) -> Result<HashMap<i64, AuthCredentialResponse>, ServiceError> {
+    ) -> Result<HashMap<i64, AuthCredentialResponse>, Box<dyn std::error::Error> > {
         self.credentials
             .into_iter()
             .map(|c| {
@@ -292,7 +297,7 @@ impl CredentialResponse {
                 let data = bincode::deserialize(&bytes)?;
                 Ok((c.redemption_time, data))
             })
-            .collect::<Result<_, ServiceError>>()
+            .collect::<Result<_, Box<dyn std::error::Error>>>()
     }
 }
 
