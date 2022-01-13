@@ -4,7 +4,7 @@
 // For reference please see https://github.com/whisperfish/libsignal-service-rs
 
 use libsignal_protocol::error::SignalProtocolError;
-use protobuf::{UnknownFields, CodedInputStream};
+use protobuf::{CodedInputStream, ProtobufError};
 use zkgroup::groups::GroupMasterKey;
 use zkgroup::GROUP_MASTER_KEY_LEN;
 
@@ -39,10 +39,13 @@ use zkgroup::{
     profiles::{ProfileKey, ProfileKeyCredentialPresentation},
 };
 
+use crate::net::AuxinHttpsConnection;
+
 pub(crate) struct GroupOperations {
     group_secret_params: GroupSecretParams,
 }
 
+#[derive(Debug)]
 pub enum GroupDecryptionError {
     //zero-knowledge group error
     ZkGroupError(zkgroup::ZkGroupError),
@@ -60,6 +63,18 @@ impl From<zkgroup::ZkGroupError> for GroupDecryptionError {
     }
 }
 
+impl From<bincode::Error> for GroupDecryptionError {
+    fn from(e: bincode::Error) -> Self {
+        GroupDecryptionError::BincodeError(e)
+    }
+}
+
+impl From<protobuf::ProtobufError> for GroupDecryptionError {
+    fn from(e: protobuf::ProtobufError) -> Self {
+        GroupDecryptionError::ProtobufDecodeError(e)
+    }
+}
+
 impl GroupOperations {
     fn decrypt_uuid(
         &self,
@@ -68,7 +83,7 @@ impl GroupOperations {
         let bytes = self
             .group_secret_params
             .decrypt_uuid(bincode::deserialize(uuid)?)
-            .map_err(|_| GroupDecryptionError::ZkGroupError)?;
+            .map_err(|e| GroupDecryptionError::ZkGroupError(e))?;
         Ok(bytes)
     }
 
@@ -88,9 +103,9 @@ impl GroupOperations {
         member: EncryptedMember,
     ) -> Result<DecryptedMember, GroupDecryptionError> {
         let (uuid, profile_key) = if member.presentation.is_empty() {
-            let uuid = self.decrypt_uuid(&member.user_id)?;
+            let uuid = self.decrypt_uuid(&member.userId)?;
             let profile_key =
-                self.decrypt_profile_key(&member.profile_key, uuid)?;
+                self.decrypt_profile_key(&member.profileKey, uuid)?;
             (uuid, profile_key)
         } else {
             let profile_key_credential_presentation: ProfileKeyCredentialPresentation = bincode::deserialize(&member.presentation)?;
@@ -108,7 +123,7 @@ impl GroupOperations {
         result.uuid = uuid.to_vec();
         result.role = member.role;
         result.profileKey = bincode::serialize(&profile_key)?;
-        result.joinedAtRevision = member.joined_at_revision;
+        result.joinedAtRevision = member.joinedAtRevision;
         Ok(result)
     }
 
@@ -117,17 +132,17 @@ impl GroupOperations {
         member: EncryptedPendingMember,
     ) -> Result<DecryptedPendingMember, GroupDecryptionError> {
         let inner_member =
-            member.member.ok_or(GroupDecryptionError::WrongBlob)?;
+            member.member.as_ref().ok_or(GroupDecryptionError::WrongBlob)?;
         // "Unknown" UUID with zeroes in case of errors, see: UuidUtil.java:16
-        let uuid = self.decrypt_uuid(&inner_member.user_id).unwrap_or_default();
-        let added_by = self.decrypt_uuid(&member.added_by_user_id)?;
+        let uuid = self.decrypt_uuid(&inner_member.userId).unwrap_or_default();
+        let added_by = self.decrypt_uuid(&member.addedByUserId)?;
 
         let mut result = DecryptedPendingMember::default();
         result.uuid = uuid.to_vec();
         result.role = inner_member.role;
         result.addedByUuid = added_by.to_vec();
         result.timestamp = member.timestamp;
-        result.uuidCipherText = inner_member.user_id;
+        result.uuidCipherText = inner_member.userId.clone();
 
         Ok(result)
     }
@@ -137,9 +152,9 @@ impl GroupOperations {
         member: EncryptedRequestingMember,
     ) -> Result<DecryptedRequestingMember, GroupDecryptionError> {
         let (uuid, profile_key) = if member.presentation.is_empty() {
-            let uuid = self.decrypt_uuid(&member.user_id)?;
+            let uuid = self.decrypt_uuid(&member.userId)?;
             let profile_key =
-                self.decrypt_profile_key(&member.profile_key, uuid)?;
+                self.decrypt_profile_key(&member.profileKey, uuid)?;
             (uuid, profile_key)
         } else {
             let profile_key_credential_presentation: ProfileKeyCredentialPresentation = bincode::deserialize(&member.presentation)?;
@@ -168,21 +183,22 @@ impl GroupOperations {
             GroupAttributeBlob::default()
         } else {
             self.group_secret_params
-                .decrypt_blob(bytes)
-                .map_err(|_| GroupDecryptionError::ZkGroupError)
-                .and_then(|b| {
-                    //NOTE: This was written with Prost in mind, fix_protobuf_buf may be needed here. 
-                    CodedInputStream::from_bytes(&b[4..])
-                    .map_err(GroupDecryptionError::ProtobufDecodeError)
-                    .map(|stream| 
-                        stream.read_message()
-                        .map_err(GroupDecryptionError::ProtobufDecodeError) 
-                    ).flatten()
-                })
-                .unwrap_or_else(|e| {
-                    log::warn!("bad encrypted blob: {}", e);
-                    GroupAttributeBlob::default()
-                })
+            .decrypt_blob(bytes)
+            .map_err(|e| GroupDecryptionError::ZkGroupError(e))
+            .and_then(|b| {
+                //NOTE: This was written with Prost in mind, fix_protobuf_buf may be needed here. 
+                let mut stream = CodedInputStream::from_bytes(&b[4..]);
+                //Rust's type inference was confused by this, so I wrote it verbosely. 
+                let out: Result<GroupAttributeBlob, ProtobufError> = stream.read_message();
+                match out {
+                    Ok(val) => Ok(val),
+                    Err(e) => Err(GroupDecryptionError::ProtobufDecodeError(e)),
+                }
+            })
+            .unwrap_or_else(|e: GroupDecryptionError| {
+                log::warn!("Could not decrypt blob: {:?}", e);
+                GroupAttributeBlob::default()
+            })
         }
     }
 
@@ -226,7 +242,7 @@ impl GroupOperations {
             group_operations.decrypt_description(&group.description);
         let disappearing_messages_timer = group_operations
             .decrypt_disappearing_message_timer(
-                &group.disappearing_messages_timer,
+                &group.disappearingMessagesTimer,
             );
         let members = group
             .members
@@ -234,12 +250,12 @@ impl GroupOperations {
             .map(|m| group_operations.decrypt_member(m))
             .collect::<Result<_, _>>()?;
         let pending_members = group
-            .pending_members
+            .pendingMembers
             .into_iter()
             .map(|m| group_operations.decrypt_pending_member(m))
             .collect::<Result<_, _>>()?;
         let requesting_members = group
-            .requesting_members
+            .requestingMembers
             .into_iter()
             .map(|m| group_operations.decrypt_requesting_member(m))
             .collect::<Result<_, _>>()?;
@@ -247,14 +263,14 @@ impl GroupOperations {
         let mut result = DecryptedGroup::default();
         result.title = title;
         result.avatar = group.avatar;
-        result.disappearing_messages_timer = DecryptedGroup::default();
-        result.access_control = group.access_control;
+        result.disappearingMessagesTimer = disappearing_messages_timer.into();
+        result.accessControl = group.accessControl;
         result.revision = group.revision;
-        result.members = group.members;
-        result.pending_members = group.pending_members;
-        result.requesting_members = group.requestingMembers;
-        result.inviteLinkPassword = group.invite_link_password;
-        result.description = group.description;
+        result.members = members;
+        result.pendingMembers = pending_members;
+        result.requestingMembers = requesting_members;
+        result.inviteLinkPassword = group.inviteLinkPassword;
+        result.description = description;
         Ok(result)
     }
 }
@@ -355,21 +371,21 @@ impl CredentialsCache for InMemoryCredentialsCache {
         Ok(())
     }
 }
-
-pub struct GroupsManager<'a, S: PushService, C: CredentialsCache> {
-    push_service: S,
+/*
+pub struct GroupsManager<'a, N: AuxinHttpsConnection, C: CredentialsCache> {
+    https_client: N,
     credentials_cache: &'a mut C,
     server_public_params: ServerPublicParams,
 }
 
-impl<'a, S: PushService, C: CredentialsCache> GroupsManager<'a, S, C> {
+impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
     pub fn new(
-        push_service: S,
+        https_client: N,
         credentials_cache: &'a mut C,
         server_public_params: ServerPublicParams,
     ) -> Self {
         Self {
-            push_service,
+            https_client,
             credentials_cache,
             server_public_params,
         }
@@ -481,4 +497,4 @@ impl<'a, S: PushService, C: CredentialsCache> GroupsManager<'a, S, C> {
 
         Ok(decrypted_group)
     }
-}
+}*/

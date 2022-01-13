@@ -3,6 +3,7 @@
 
 #![feature(string_remove_matches)]
 #![feature(associated_type_bounds)]
+#![feature(result_flattening)]
 #![deny(bare_trait_objects)]
 
 //! Developer (and bot) friendly wrapper around the Signal protocol.
