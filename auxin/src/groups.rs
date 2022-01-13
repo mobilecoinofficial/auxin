@@ -39,7 +39,7 @@ use zkgroup::{
     profiles::{ProfileKey, ProfileKeyCredentialPresentation},
 };
 
-use crate::net::AuxinHttpsConnection;
+use crate::{net::AuxinHttpsConnection, LocalIdentity};
 
 pub(crate) struct GroupOperations {
     group_secret_params: GroupSecretParams,
@@ -317,7 +317,7 @@ impl CredentialResponse {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum CredentialsCacheError {
     #[error("failed to read values from cache: {0}")]
     ReadError(String),
@@ -371,46 +371,66 @@ impl CredentialsCache for InMemoryCredentialsCache {
         Ok(())
     }
 }
-/*
+
+#[derive(Clone, Debug)]
+pub struct HttpAuth {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum GroupApiError { 
+    #[error("Error encountered in response from an https request to Signal's web API for groups: {0}")]
+    ResponseError(String),
+    #[error("Could not use credentials cache for groups: {0}")]
+    CredentialCache(CredentialsCacheError),
+    #[error("Error parsing credentials response: {0}")]
+    ParsingError(String),
+    #[error("Groups v2 error")]
+    GroupsV2Error,
+    #[error("Bincode error: {0}")]
+    BincodeError(String),
+}
+
+impl From<CredentialsCacheError> for GroupApiError {
+    fn from(e: CredentialsCacheError) -> Self {
+        GroupApiError::CredentialCache(e)
+    }
+}
+
+impl From<Box<bincode::ErrorKind>> for GroupApiError {
+    fn from(e: Box<bincode::ErrorKind>) -> Self {
+        GroupApiError::BincodeError(format!("{:?}", e))
+    }
+}
+
 pub struct GroupsManager<'a, N: AuxinHttpsConnection, C: CredentialsCache> {
-    https_client: N,
-    credentials_cache: &'a mut C,
+    connection: &'a mut N,
+    credentials: &'a mut C,
     server_public_params: ServerPublicParams,
 }
 
 impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
-    pub fn new(
-        https_client: N,
-        credentials_cache: &'a mut C,
-        server_public_params: ServerPublicParams,
-    ) -> Self {
-        Self {
-            https_client,
-            credentials_cache,
-            server_public_params,
-        }
-    }
 
-    pub async fn get_authorization_for_today(
-        &mut self,
+    pub async fn get_authorization_for_today(&mut self,
+        server_public_params: &mut ServerPublicParams,
         uuid: Uuid,
         group_secret_params: GroupSecretParams,
-    ) -> Result<HttpAuth, ServiceError> {
+    ) -> Result<HttpAuth, GroupApiError> {
         let today = Self::current_time_days();
         let auth_credential_response = if let Some(auth_credential_response) =
-            self.credentials_cache.get(&today)?
+            self.credentials.get(&today)?.clone()
         {
             auth_credential_response
         } else {
             let credentials_map =
-                self.get_authorization(today).await?.parse()?;
-            self.credentials_cache.write(credentials_map)?;
-            self.credentials_cache.get(&today)?.ok_or_else(|| {
-                ServiceError::ResponseError {
-                    reason:
-                        "credentials received did not contain requested day"
-                            .into(),
-                }
+                self.get_authorization(today).await?.parse()
+                .map_err(|e| GroupApiError::ParsingError(format!("{:?}", e)))?;
+            self.credentials.write(credentials_map)?;
+            self.credentials.get(&today)?.ok_or_else(|| {
+                GroupApiError::ResponseError(
+                    "credentials received did not contain requested day".into()
+                )
             })?
         };
 
@@ -422,35 +442,34 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
         )
     }
 
-    async fn get_authorization(
-        &mut self,
+    async fn get_authorization(&mut self,
         today: i64,
-    ) -> Result<CredentialResponse, ServiceError> {
+    ) -> Result<CredentialResponse, GroupApiError> {
         let today_plus_7_days = today + 7;
 
         let path =
             format!("/v1/certificate/group/{}/{}", today, today_plus_7_days);
 
-        self.push_service
-            .get_json(Endpoint::Service, &path, HttpAuthOverride::NoOverride)
-            .await
+        todo!()
+        //self.push_service
+        //    .get_json(Endpoint::Service, &path, HttpAuthOverride::NoOverride)
+        //    .await
     }
 
     fn current_time_days() -> i64 {
+        //The number of (non-leap) seconds in days. Libsignal-service-rs also uses this so this must be the assumption Signal's servers are going on. 
+        const SECONDS_PER_DAY: i64 = 60 * 60 * 24;
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let today = chrono::Duration::from_std(now).unwrap();
-        today.num_days()
+        (now.as_secs_f64() / (SECONDS_PER_DAY as f64)) as i64
     }
 
-    fn get_authorization_string(
-        &self,
+    fn get_authorization_string(&self,
         uuid: Uuid,
         group_secret_params: GroupSecretParams,
         credential_response: &AuthCredentialResponse,
         today: u32,
-    ) -> Result<HttpAuth, ServiceError> {
-        let auth_credential = self
-            .server_public_params
+    ) -> Result<HttpAuth, GroupApiError> {
+        let auth_credential = self.server_public_params
             .receive_auth_credential(
                 *uuid.as_bytes(),
                 today,
@@ -458,14 +477,13 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
             )
             .map_err(|e| {
                 log::error!("zero-knowledge group error: {:?}", e);
-                ServiceError::GroupsV2Error
+                GroupApiError::GroupsV2Error
             })?;
 
         let mut random_bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut random_bytes);
 
-        let auth_credential_presentation = self
-            .server_public_params
+        let auth_credential_presentation = self.server_public_params
             .create_auth_credential_presentation(
                 random_bytes,
                 group_secret_params,
@@ -484,17 +502,18 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
         Ok(HttpAuth { username, password })
     }
 
-    pub async fn get_group(
-        &mut self,
+    pub async fn get_group(&mut self,
         group_secret_params: GroupSecretParams,
-        credentials: HttpAuth,
-    ) -> Result<DecryptedGroup, ServiceError> {
+        credentials: &LocalIdentity,
+    ) -> Result<DecryptedGroup, GroupApiError> {
+        /*
         let encrypted_group = self.push_service.get_group(credentials).await?;
         let decrypted_group = GroupOperations::decrypt_group(
             group_secret_params,
             encrypted_group,
         )?;
 
-        Ok(decrypted_group)
+        Ok(decrypted_group)*/
+        todo!();
     }
-}*/
+}
