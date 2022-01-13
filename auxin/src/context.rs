@@ -22,8 +22,16 @@ use crate::{
 pub const PROFILE_KEY_LEN: usize = 32;
 pub type ProfileKey = [u8; PROFILE_KEY_LEN];
 
-#[derive(Clone, Debug, Default)]
-pub struct AuxinConfig {}
+#[derive(Clone, Debug)]
+pub struct AuxinConfig {
+	pub enable_read_receipts: bool,
+}
+
+impl Default for AuxinConfig {
+    fn default() -> Self {
+        Self { enable_read_receipts: true }
+    }
+}
 
 /// Basic signal protocol information and key secrets for the local signal node.
 /// This is not intended to be used to represent peers - instead, this is your user account,

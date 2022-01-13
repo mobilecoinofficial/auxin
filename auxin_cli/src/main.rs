@@ -121,13 +121,16 @@ pub async fn main() -> Result<()> {
 		base_dir
 	);
 
+	let mut config = AuxinConfig::default();
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
 	let state = crate::state::StateManager::new(&base_dir);
+
+	config.enable_read_receipts = !arguments.no_read_receipt;
 	// Get it to all come together.
 	let mut app = AuxinApp::new(
 		arguments.user.clone(),
-		AuxinConfig {},
+		config,
 		net,
 		state,
 		OsRng::default(),
