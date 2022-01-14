@@ -30,7 +30,7 @@ use auxin_protos::protos::groups::{
 };
 
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zkgroup::{
     auth::AuthCredentialResponse,
@@ -39,7 +39,7 @@ use zkgroup::{
     profiles::{ProfileKey, ProfileKeyCredentialPresentation},
 };
 
-use crate::{net::AuxinHttpsConnection, LocalIdentity};
+use crate::{net::{AuxinHttpsConnection, common_http_headers}, LocalIdentity, message::fix_protobuf_buf};
 
 pub(crate) struct GroupOperations {
     group_secret_params: GroupSecretParams,
@@ -56,6 +56,17 @@ pub enum GroupDecryptionError {
     //"wrong group attribute blob"
     WrongBlob,
 }
+impl std::fmt::Display for GroupDecryptionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GroupDecryptionError::ZkGroupError(e) => write!(f, "Zero-knowledge group error: {:?}", e),
+            GroupDecryptionError::BincodeError(e) => write!(f, "Bincode error while attempting to decrypt group: {:?}", e),
+            GroupDecryptionError::ProtobufDecodeError(e) => write!(f, "Protobuf error while attempting to decrypt group: {:?}", e),
+            GroupDecryptionError::WrongBlob => write!(f, "Wrong group attribute blob"),
+        }
+    }
+}
+impl std::error::Error for GroupDecryptionError {}
 
 impl From<zkgroup::ZkGroupError> for GroupDecryptionError {
     fn from(e: zkgroup::ZkGroupError) -> Self {
@@ -372,14 +383,24 @@ impl CredentialsCache for InMemoryCredentialsCache {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HttpAuth {
     pub username: String,
     pub password: String,
 }
+impl HttpAuth { 
+    pub fn make_auth_token(&self) -> String { 
+		let mut auth_token = self.username.clone();
+		auth_token.push(':');
+		auth_token.push_str(&self.password);
+		base64::encode(auth_token)
+    }
+}
 
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum GroupApiError { 
+    #[error("Error encountered while trying to make a request to Signal's web API for groups: {0}")]
+    RequestError(String),
     #[error("Error encountered in response from an https request to Signal's web API for groups: {0}")]
     ResponseError(String),
     #[error("Could not use credentials cache for groups: {0}")]
@@ -390,6 +411,8 @@ pub enum GroupApiError {
     GroupsV2Error,
     #[error("Bincode error: {0}")]
     BincodeError(String),
+    #[error("Failed to decrypt group: {0}")]
+    CouldNotDecrypt(#[from] GroupDecryptionError)
 }
 
 impl From<CredentialsCacheError> for GroupApiError {
@@ -407,6 +430,7 @@ impl From<Box<bincode::ErrorKind>> for GroupApiError {
 pub struct GroupsManager<'a, N: AuxinHttpsConnection, C: CredentialsCache> {
     connection: &'a mut N,
     credentials: &'a mut C,
+    local_identity: &'a LocalIdentity,
     server_public_params: ServerPublicParams,
 }
 
@@ -447,13 +471,23 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
     ) -> Result<CredentialResponse, GroupApiError> {
         let today_plus_7_days = today + 7;
 
-        let path =
-            format!("/v1/certificate/group/{}/{}", today, today_plus_7_days);
+        let path = format!("https://textsecure-service.whispersystems.org/v1/certificate/group/{}/{}", today, today_plus_7_days);
 
-        todo!()
-        //self.push_service
-        //    .get_json(Endpoint::Service, &path, HttpAuthOverride::NoOverride)
-        //    .await
+        let auth_token = self.local_identity.make_auth_header();
+        let req_builder = common_http_headers(http::Method::GET, path.as_str(), auth_token.as_str() ).unwrap();
+
+        let req = req_builder.body(Vec::default()).unwrap();
+        let response = self.connection.request(req).await
+            .map_err(|e| GroupApiError::RequestError(format!("{:?}", e)))?;
+        
+        if !response.status().is_success() { 
+            return Err(GroupApiError::ResponseError(format!("{:?}", response)) );
+        }
+        
+        let body = response.body();
+        Ok(
+            serde_json::from_slice(body).map_err(|e| GroupApiError::ParsingError(format!("{:?}", e)))?
+        )
     }
 
     fn current_time_days() -> i64 {
@@ -504,16 +538,28 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 
     pub async fn get_group(&mut self,
         group_secret_params: GroupSecretParams,
-        credentials: &LocalIdentity,
+        identity: &LocalIdentity,
+        auth: &HttpAuth,
     ) -> Result<DecryptedGroup, GroupApiError> {
-        /*
-        let encrypted_group = self.push_service.get_group(credentials).await?;
+        let auth_token = auth.make_auth_token();
+        let req_builder = common_http_headers(http::Method::GET, "https://storage.signal.org/v1/groups/", auth_token.as_str() ).unwrap();
+        let req = req_builder.body(Vec::default()).unwrap();
+        let response = self.connection.request(req).await
+            .map_err(|e| GroupApiError::RequestError(format!("{:?}", e)))?;
+        
+        if !response.status().is_success() { 
+            return Err(GroupApiError::ResponseError(format!("{:?}", response)) );
+        }
+        let body = response.body();
+        let fixed_body = fix_protobuf_buf(body).unwrap();
+        let mut decoder = CodedInputStream::from_bytes(&fixed_body);
+        let encrypted_group = decoder.read_message()
+            .map_err(|e| GroupApiError::ParsingError(format!("Could not decode group response to a protobuf: {:?}", e)))?;
         let decrypted_group = GroupOperations::decrypt_group(
             group_secret_params,
             encrypted_group,
         )?;
 
-        Ok(decrypted_group)*/
-        todo!();
+        Ok(decrypted_group)
     }
 }
