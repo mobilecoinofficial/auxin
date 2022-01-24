@@ -2,10 +2,10 @@
 // Copyright (c) 2021 Emily Cultip
 
 use std::{
+	convert::TryFrom,
 	fs::{read_dir, File, OpenOptions},
 	io::{Read, Write},
 	path::Path,
-	str::FromStr,
 };
 
 use auxin::{
@@ -24,17 +24,106 @@ use libsignal_protocol::{
 	SignedPreKeyStore,
 };
 use log::{debug, info, warn};
+use serde::{Deserialize, Serialize};
+use serde_json::{from_reader, to_value};
 use uuid::Uuid;
 
 use crate::Context;
 
-/// Loads the needed information for a LocalIdentity from a json file
-/// - intended to be compatible with Libsignal-cli
-pub fn load_signal_cli_user(base_dir: &str, our_phone_number: &E164) -> Result<serde_json::Value> {
-	let identity_dir = Path::new(base_dir);
+/// The on-disk json format, as used by signal-cli
+///
+/// Signal-cli implements this format [here]
+///
+/// [here]: <https://github.com/AsamK/signal-cli/blob/v0.10.2/lib/src/main/java/org/asamk/signal/manager/storage/SignalAccount.java>
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LocalIdentityJson {
+	/// Currently supported is version is `3`
+	#[serde(default)]
+	version: u64,
 
-	let file = File::open(identity_dir.join(our_phone_number))?;
-	Ok(serde_json::from_reader(file)?)
+	/// Signal phone number
+	// TODO(Diana): Allegedly sometimes a UUID? When? Both? LocalIdentity claims this.
+	username: Option<E164>,
+
+	/// Signal account UUID
+	uuid: Option<Uuid>,
+
+	/// Signal account password?
+	password: Option<String>,
+
+	// u32 should be fine? signal-cli uses java ints which are only 32bits
+	registration_id: Option<u32>,
+
+	/// Signal profile key. Used for sealed sender?
+	profile_key: Option<String>,
+
+	/// Device ID. Defaults to 1 allegedly?
+	// TODO(Diana): Pretty sure this should always exist. signal-cli unconditionally writes this out.
+	// See https://github.com/AsamK/signal-cli/blob/166bec0f8d2f3291dde4f30964692b550ff8ac40/lib/src/main/java/org/asamk/signal/manager/storage/SignalAccount.java#L737
+	device_id: Option<u32>,
+
+	/// Private key
+	#[serde(rename = "identityPrivateKey")]
+	private_key: Option<String>,
+
+	/// Public key
+	#[serde(rename = "identityKey")]
+	public_key: Option<String>,
+}
+
+/// Attempts to convert the on-disk format to our [`LocalIdentity`] structure
+///
+/// Preserves nice error information about missing fields.
+impl TryFrom<LocalIdentityJson> for LocalIdentity {
+	type Error = Box<dyn std::error::Error>;
+
+	fn try_from(val: LocalIdentityJson) -> std::result::Result<Self, Self::Error> {
+		let phone_number = val
+			.username
+			.as_ref()
+			.ok_or(ErrBuildIdent::MissingUsername {
+				val: to_value(val.clone()).unwrap(),
+			})?
+			.clone();
+		let uuid = val.uuid.ok_or(ErrBuildIdent::MissingUuid {
+			phone_number: phone_number.clone(),
+		})?;
+		let profile_key =
+			base64::decode(val.profile_key.ok_or(ErrBuildIdent::MissingProfileKey {
+				phone_number: phone_number.clone(),
+			})?)?;
+		let profile_key = <[u8; PROFILE_KEY_LEN]>::try_from(profile_key)
+			.map_err(|v| ErrBuildIdent::InvalidProfileKey { num_bytes: v.len() })?;
+		let device_id = val.device_id.unwrap_or(1);
+		let private_key = val.private_key.ok_or(ErrBuildIdent::MissingPrivateKey {
+			phone_number: phone_number.clone(),
+		})?;
+		let private_key = base64::decode(private_key)?;
+		let private_key = PrivateKey::deserialize(private_key.as_slice())?;
+		let public_key = val.public_key.ok_or(ErrBuildIdent::MissingPublicKey {
+			phone_number: phone_number.clone(),
+		})?;
+		let public_key = base64::decode(public_key)?;
+		let public_key = PublicKey::deserialize(public_key.as_slice())?;
+
+		let address = AuxinDeviceAddress {
+			address: AuxinAddress::Both(phone_number.clone(), uuid),
+			device_id,
+		};
+
+		Ok(LocalIdentity {
+			address,
+			password: val.password.ok_or(ErrBuildIdent::MissingPassword {
+				phone_number: phone_number.clone(),
+			})?,
+			profile_key,
+			identity_keys: IdentityKeyPair::new(IdentityKey::new(public_key), private_key),
+			reg_id: val
+				.registration_id
+				.ok_or(ErrBuildIdent::MissingRegistrationId { phone_number })?,
+		})
+	}
 }
 
 custom_error! { pub ErrBuildIdent
@@ -49,128 +138,12 @@ custom_error! { pub ErrBuildIdent
 	MissingPublicKey{phone_number:E164} = "No public key found when trying to build a LocalIdentity from json structure for user: {phone_number}.",
 }
 
-/// Builds a LocalIdentity from the json structure loaded by load_signal_cli_user()
+/// Builds a LocalIdentity from a json structure
+///
 /// - intended to be compatible with Libsignal-cli
-pub fn local_identity_from_json(val: &serde_json::Value) -> Result<LocalIdentity> {
-	//Phone number.
-	let phone_number = val
-		.get("username")
-		.ok_or(ErrBuildIdent::MissingUsername { val: val.clone() })?;
-	let phone_number = phone_number
-		.as_str()
-		.ok_or(ErrBuildIdent::MissingUsername { val: val.clone() })?;
-
-	//UUID
-	let our_uuid = val.get("uuid").ok_or(ErrBuildIdent::MissingUuid {
-		phone_number: phone_number.to_string(),
-	})?;
-	let our_uuid = our_uuid.as_str().ok_or(ErrBuildIdent::MissingUuid {
-		phone_number: phone_number.to_string(),
-	})?;
-	let our_uuid = Uuid::from_str(our_uuid)?;
-
-	//Password
-	let password = val.get("password").ok_or(ErrBuildIdent::MissingPassword {
-		phone_number: phone_number.to_string(),
-	})?;
-	let password = password
-		.as_str()
-		.ok_or(ErrBuildIdent::MissingPassword {
-			phone_number: phone_number.to_string(),
-		})?
-		.to_string();
-
-	//Registration ID
-	let registration_id = val
-		.get("registrationId")
-		.ok_or(ErrBuildIdent::MissingRegistrationId {
-			phone_number: phone_number.to_string(),
-		})?
-		.as_u64()
-		.ok_or(ErrBuildIdent::MissingRegistrationId {
-			phone_number: phone_number.to_string(),
-		})?;
-	let registration_id =
-		u32::try_from(registration_id).map_err(|_| ErrBuildIdent::MissingRegistrationId {
-			phone_number: phone_number.to_string(),
-		})?;
-
-	//Profile key
-	let profile_key = val
-		.get("profileKey")
-		.ok_or(ErrBuildIdent::MissingProfileKey {
-			phone_number: phone_number.to_string(),
-		})?;
-	let profile_key = profile_key
-		.as_str()
-		.ok_or(ErrBuildIdent::MissingProfileKey {
-			phone_number: phone_number.to_string(),
-		})?
-		.to_string();
-	let profile_key = base64::decode(profile_key)?;
-	if profile_key.len() != PROFILE_KEY_LEN {
-		//Sanity check.
-		return Err(Box::new(ErrBuildIdent::InvalidProfileKey {
-			num_bytes: profile_key.len(),
-		}));
-	}
-	let mut decoded_profile_key: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
-	// NOTE: This won't panic because the check above ensures the slices have the same length.
-	decoded_profile_key.copy_from_slice(&profile_key);
-
-	//Device ID
-	let device_id = match val.get("deviceId") {
-		Some(id) => id
-			.as_u64()
-			.ok_or(ErrBuildIdent::DeviceIdNotUInt { val: id.clone() })?,
-		None => 1, //Default device ID is 1.
-	};
-	let device_id = u32::try_from(device_id).map_err(|_| ErrBuildIdent::DeviceIdNotUInt {
-		val: serde_json::Value::from(device_id),
-	})?;
-
-	//Private key
-	let private_key = val
-		.get("identityPrivateKey")
-		.ok_or(ErrBuildIdent::MissingPrivateKey {
-			phone_number: phone_number.to_string(),
-		})?;
-	let private_key = private_key
-		.as_str()
-		.ok_or(ErrBuildIdent::MissingPrivateKey {
-			phone_number: phone_number.to_string(),
-		})?
-		.to_string();
-	let private_key = base64::decode(private_key)?;
-	let private_key = PrivateKey::deserialize(private_key.as_slice())?;
-
-	//Public key
-	let public_key = val
-		.get("identityKey")
-		.ok_or(ErrBuildIdent::MissingPublicKey {
-			phone_number: phone_number.to_string(),
-		})?;
-	let public_key = public_key
-		.as_str()
-		.ok_or(ErrBuildIdent::MissingPublicKey {
-			phone_number: phone_number.to_string(),
-		})?
-		.to_string();
-	let public_key = base64::decode(public_key)?;
-	let public_key = PublicKey::deserialize(public_key.as_slice())?;
-
-	let our_address = AuxinDeviceAddress {
-		address: AuxinAddress::Both(phone_number.to_string(), our_uuid),
-		device_id,
-	};
-
-	Ok(LocalIdentity {
-		address: our_address,
-		password,
-		profile_key: decoded_profile_key,
-		identity_keys: IdentityKeyPair::new(IdentityKey::new(public_key), private_key),
-		reg_id: registration_id,
-	})
+pub fn local_identity_from_json(base_dir: &Path, our_phone_number: &E164) -> Result<LocalIdentity> {
+	let file = File::open(base_dir.join(our_phone_number))?;
+	from_reader::<_, LocalIdentityJson>(file)?.try_into()
 }
 
 /// Load any identity keys for known peers (recipients) present in our protocol store.
@@ -632,9 +605,9 @@ impl StateManager {
 }
 
 impl AuxinStateManager for StateManager {
+	/// Load the local identity for `phone_number`
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
-		let user_json = load_signal_cli_user(self.base_dir.as_str(), phone_number)?;
-		let local_identity = local_identity_from_json(&user_json)?;
+		let local_identity = local_identity_from_json(Path::new(&self.base_dir), phone_number)?;
 		Ok(local_identity)
 	}
 	fn load_context(
@@ -862,6 +835,41 @@ impl AuxinStateManager for StateManager {
 				std::fs::remove_file(&device_session_path)?;
 			}
 		} */
+		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::fs;
+	use terminator::Terminator;
+
+	type Result<T> = std::result::Result<T, Terminator>;
+
+	/// Test this module can parse a signal-cli json file.
+	///
+	/// This naturally requires that one is symlinked to `state`
+	/// in the root of the repository.
+	///
+	/// This picks an unspecified file to try and deserialize.
+	#[test]
+	#[ignore = "requires real config"]
+	fn test_config_parse() -> Result<()> {
+		let path = Path::new("../state/data");
+		// Ensure we actually parse *something* and the directory isnt just empty/missing files
+		// If anything fails to parse it'll error
+		let mut done = false;
+		for file in fs::read_dir(path)? {
+			let file = file?;
+			let name = file.file_name().to_str().unwrap().to_string();
+			if name.ends_with('d') {
+				continue;
+			}
+			let _local_identity = local_identity_from_json(path, &name.into())?;
+			done = true
+		}
+		assert!(done, "state is empty, didn't actually parse anything");
 		Ok(())
 	}
 }
