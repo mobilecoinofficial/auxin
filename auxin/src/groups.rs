@@ -3,9 +3,11 @@
 // which is permitted as both projects are under the AGPL. 
 // For reference please see https://github.com/whisperfish/libsignal-service-rs
 
+use auxin_protos::{SenderKeyStateStructure, SenderChainKey, SenderSigningKey, SenderMessageKey};
 use libsignal_protocol::error::SignalProtocolError;
-use protobuf::{CodedInputStream, ProtobufError};
-use zkgroup::groups::GroupMasterKey;
+use protobuf::{CodedInputStream, ProtobufError, Message};
+use ring::hmac;
+use zkgroup::{groups::GroupMasterKey, PROFILE_KEY_LEN};
 use zkgroup::GROUP_MASTER_KEY_LEN;
 
 use std::{
@@ -542,6 +544,7 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
         auth: &HttpAuth,
     ) -> Result<DecryptedGroup, GroupApiError> {
         let auth_token = auth.make_auth_token();
+        //Per Signal-Android's repo, groupsv2 requests DO go to "storage.signal.org/v1/", confirmed. See PushServiceSocket.java#L232
         let req_builder = common_http_headers(http::Method::GET, "https://storage.signal.org/v1/groups/", auth_token.as_str() ).unwrap();
         let req = req_builder.body(Vec::default()).unwrap();
         let response = self.connection.request(req).await
@@ -561,5 +564,237 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
         )?;
 
         Ok(decrypted_group)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GroupIdError { 
+    #[error("Error parsing group ID - valid sizes are 16 bytes for v1, or 32 bytes for v2. Instead, we got a group ID which is {0} bytes long. The group ID (in base-64) was: {1}")]
+    InvalidSize(usize, String),
+    #[error("Attempted to construct a GroupsV1 group ID but a GroupsV1 group ID is 16 bytes and the provided buffer was {0} bytes in size")]
+    WrongSizeV1(usize),
+    #[error("Attempted to construct a GroupsV2 group ID but a GroupsV2 group ID is 32 bytes and the provided buffer was {0} bytes in size")]
+    WrongSizeV2(usize),
+    #[error("Error parsing base64 into Group ID: {0:?}")]
+    ParsingError(#[from] base64::DecodeError ),
+}
+
+pub enum GroupId { 
+    V1([u8; 16]),
+    V2([u8; 32]),
+}
+
+impl GroupId { 
+    pub fn from_bytes_v1(val: &[u8]) -> Result<Self, GroupIdError> { 
+        if val.len() != 16 { 
+            Err(GroupIdError::WrongSizeV1(val.len()))
+        }
+        else {
+            let mut buf: [u8;16] = [0;16];
+            buf.copy_from_slice(&val[0..16]);
+            Ok(GroupId::V1(buf))
+        }
+    }
+    pub fn from_bytes_v2(val: &[u8]) -> Result<Self, GroupIdError> { 
+        if val.len() != 32 { 
+            Err(GroupIdError::WrongSizeV2(val.len()))
+        }
+        else {
+            let mut buf: [u8;32] = [0;32];
+            buf.copy_from_slice(&val[0..32]);
+            Ok(GroupId::V2(buf))
+        }
+    }
+    pub fn from_bytes(buffer: &Vec<u8>) -> Result<Self, GroupIdError>{ 
+        if buffer.len() == 16 { 
+            Ok(Self::from_bytes_v1(buffer.as_slice())?)
+        }
+        else if buffer.len() == 32 {
+            Ok(Self::from_bytes_v2(buffer.as_slice())?)
+        }
+        else { 
+            Err( GroupIdError::InvalidSize(buffer.len(), base64::encode(buffer)) )
+        }
+    }
+    pub fn from_base64(b64: &str) -> Result<Self, GroupIdError>{
+        let buf = base64::decode(b64)?;
+        Ok(Self::from_bytes(&buf)?)
+    }
+}
+
+
+#[derive(Debug, thiserror::Error)]
+pub enum GroupUtilsError { 
+    #[error("could not parse UUID: {0:?}")]
+    UuidError(#[from] uuid::Error ),
+    #[error("profile keys should be 32 bytes in size, but a group member with id {0:?} had a profile key which is {1} bytes.")]
+    InvalidSizedProfileKey(Uuid, usize)
+}
+
+#[derive(Clone)]
+pub struct GroupMemberInfo { 
+    pub id: Uuid, 
+    pub profile_key: Option<zkgroup::profiles::ProfileKey>,
+    pub member_role: auxin_protos::protos::groups::Member_Role, 
+    pub joined_at_revision: u32,
+}
+
+/// Ensure the Signal Service protocol buffer we got is valid and the data it contains is valid, 
+/// producing a rearranged GroupMemberInfo struct with a deserialized UUID and (potentially) profile key
+pub fn validate_group_member(group_member: &DecryptedMember) -> Result<GroupMemberInfo, GroupUtilsError> { 
+    let uuid_bytes = group_member.get_uuid();
+    let member_uuid = Uuid::from_slice(uuid_bytes)?;
+    let pk_bytes = group_member.get_profileKey();
+    let profile_key = if pk_bytes.len() == 32 { 
+        let mut buffer: [u8; PROFILE_KEY_LEN] = [0; PROFILE_KEY_LEN];
+        buffer.copy_from_slice(&pk_bytes[0..32]);
+        let pk = ProfileKey::create(buffer);
+        Some(pk)
+    } else if pk_bytes.len() != 0 {
+        // If it's not 32 bytes and not 0 bytes, this is invalid.
+        return Err(GroupUtilsError::InvalidSizedProfileKey(member_uuid, pk_bytes.len()))
+    } else { 
+        None
+    };
+
+    Ok(GroupMemberInfo { 
+        id: member_uuid, 
+        profile_key, 
+        member_role: group_member.get_role(),
+        joined_at_revision: group_member.get_joinedAtRevision(),
+    })
+}
+
+/// Returns results per-member, so that if invalid data is fetched for one user communication
+/// with other users is not prevented.
+pub fn get_group_members(group: &DecryptedGroup) -> Vec<Result<GroupMemberInfo, GroupUtilsError>> { 
+    let mut result = Vec::new();
+    for group_member in group.members.iter() { 
+        result.push(
+            validate_group_member(group_member)
+        );
+    }
+    result
+}
+/// Get the list of group members from a decrypted group, skipping one result
+/// This is used to elide our own local UUID from the list, to prevent the bot
+/// from sending itself a message.
+pub fn get_group_members_without(group: &DecryptedGroup, elide: &Uuid) -> Vec<Result<GroupMemberInfo, GroupUtilsError>> { 
+    let mut result = get_group_members(&group); 
+    result.retain(|value| {
+        let elide_inner = elide.clone();
+        match value { 
+            Err(_) => true,
+            Ok(elem) => elem.id != elide_inner
+        }
+    });
+    result
+}
+
+// A SenderKey "name" is a (groupId + senderId + deviceId) tuple
+// Most important point of reference is here: https://github.com/signalapp/libsignal-protocol-java/blob/fde96d22004f32a391554e4991e4e1f0a14c2d50/java/src/main/java/org/whispersystems/libsignal/groups/GroupCipher.java#L32
+
+pub const MAX_SENDER_MESSAGE_KEYS: u64 = 2000;
+
+const SENDER_MESSAGE_KEY_SEED: &'static [u8] = &[0x01];
+const SENDER_CHAIN_KEY_SEED: &'static [u8]   = &[0x02];
+
+/// Holds the state of an individual SenderKey ratchet.
+pub struct SenderKeyState {
+    pub structure: SenderKeyStateStructure,
+}
+
+impl SenderKeyState { 
+    pub fn new(id: u32, iteration: u32, chain_key_bytes: &[u8],
+            signature_key_public: libsignal_protocol::PublicKey,
+            signature_key_private: Option<libsignal_protocol::PrivateKey>) -> Self {
+        //Set up our chain key
+        let mut chain_key = SenderChainKey::default();
+        chain_key.set_iteration(iteration);
+        chain_key.set_seed(chain_key_bytes.to_vec());
+        protobuf::Message::compute_size(&mut chain_key);
+        
+        //Set up our signing key
+        let mut signing_key = SenderSigningKey::default();
+        signing_key.set_public(signature_key_public.serialize().to_vec());
+        //Optionally, check for a private key (Is this a Sender Key we're issuing?)
+        if let Some(private) = signature_key_private {
+            signing_key.set_private(private.serialize().to_vec());
+        }
+        protobuf::Message::compute_size(&mut signing_key);
+
+        //Wrap this all up. 
+        let mut result = SenderKeyStateStructure::default();
+        result.set_sender_key_id(id);
+        result.set_sender_chain_key(chain_key);
+        result.set_sender_signing_key(signing_key);
+        protobuf::Message::compute_size(&mut result);
+
+        SenderKeyState { 
+            structure: result,
+        }
+    }
+}
+
+// Make it easy to convert between the underlying 
+// type SenderKeyStateStructure and the wrapper SenderKeyState. 
+impl From<SenderKeyStateStructure> for SenderKeyState {
+    fn from(val: SenderKeyStateStructure) -> Self {
+        SenderKeyState { 
+            structure: val,
+        }
+    }
+}
+impl From<SenderKeyState> for SenderKeyStateStructure {
+    fn from(val: SenderKeyState) -> Self {
+        val.structure
+    }
+}
+
+pub fn chain_key_derivative(seed: &[u8], key: &[u8]) -> Vec<u8> { 
+    let digest_key = hmac::Key::new(hmac::HMAC_SHA256, &key);
+    let mut digest: hmac::Context = hmac::Context::with_key(&digest_key);
+
+    //"Derivative" key is a hash of the seed. 
+    digest.update(&seed);
+
+    let tag = digest.sign();
+
+    tag.as_ref().to_vec()
+}
+
+//Cannot define impl on types from other crates.
+//We can use the usual Rust naming scheme here: {Type}Ext
+pub trait SenderChainKeyExt { 
+    fn get_seed<'a>(&'a self) -> &'a [u8];
+    fn get_iteration(&self) -> u32;
+    fn make_sender_message_key<'a>(&'a self) -> SenderMessageKey { 
+        let derived_seed = chain_key_derivative( SENDER_MESSAGE_KEY_SEED, self.get_seed());
+        
+        let mut result = SenderMessageKey::default(); 
+        result.set_iteration(self.get_iteration());
+        result.set_seed(derived_seed);
+        result.compute_size();
+        result
+    }
+    fn make_next_chain<'a>(&'a self) -> SenderChainKey { 
+        let derived_seed = chain_key_derivative( SENDER_CHAIN_KEY_SEED, self.get_seed());
+        
+        let mut result = SenderChainKey::default(); 
+        //Increment "iteration" - this is the next one.
+        result.set_iteration(self.get_iteration() + 1);
+        result.set_seed(derived_seed);
+        result.compute_size();
+        result
+    }
+}
+
+impl SenderChainKeyExt for SenderChainKey {
+    fn get_seed<'a>(&'a self) -> &'a [u8] {
+        SenderChainKey::get_seed(&self)
+    }
+
+    fn get_iteration(&self) -> u32 {
+        self.iteration
     }
 }
