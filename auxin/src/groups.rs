@@ -3,7 +3,7 @@
 // which is permitted as both projects are under the AGPL. 
 // For reference please see https://github.com/whisperfish/libsignal-service-rs
 
-use auxin_protos::{SenderKeyStateStructure, SenderChainKey, SenderSigningKey, SenderMessageKey};
+use auxin_protos::{SenderKeyStateStructure, SenderChainKey, SenderSigningKey};
 use libsignal_protocol::error::SignalProtocolError;
 use protobuf::{CodedInputStream, ProtobufError, Message};
 use ring::hmac;
@@ -768,14 +768,10 @@ pub fn chain_key_derivative(seed: &[u8], key: &[u8]) -> Vec<u8> {
 pub trait SenderChainKeyExt { 
     fn get_seed<'a>(&'a self) -> &'a [u8];
     fn get_iteration(&self) -> u32;
-    fn make_sender_message_key<'a>(&'a self) -> SenderMessageKey { 
+    fn make_sender_message_key<'a>(&'a self) -> Result<SenderMessageKey, hkdf::InvalidLength> { 
         let derived_seed = chain_key_derivative( SENDER_MESSAGE_KEY_SEED, self.get_seed());
         
-        let mut result = SenderMessageKey::default(); 
-        result.set_iteration(self.get_iteration());
-        result.set_seed(derived_seed);
-        result.compute_size();
-        result
+        SenderMessageKey::new(self.get_iteration(), &derived_seed)
     }
     fn make_next_chain<'a>(&'a self) -> SenderChainKey { 
         let derived_seed = chain_key_derivative( SENDER_CHAIN_KEY_SEED, self.get_seed());
@@ -796,5 +792,52 @@ impl SenderChainKeyExt for SenderChainKey {
 
     fn get_iteration(&self) -> u32 {
         self.iteration
+    }
+}
+
+/* The final symmetric material (IV and Cipher Key) used for encrypting
+ * individual SenderKey messages.
+ */
+pub struct SenderMessageKey {
+    pub iteration: u32,
+    pub seed: Vec<u8>, 
+    pub iv: [u8; 16],
+    pub cipher_key: [u8; 32],
+}
+
+impl SenderMessageKey { 
+    pub fn new(iteration: u32, seed: &[u8]) -> Result<Self, hkdf::InvalidLength> { 
+
+        let mut derivative: [u8; 48] = [0; 48]; 
+        //Per usage in libsignal-protocol-java SenderMessageKey.java line 25, does not appear to use a salt. 
+        hkdf::Hkdf::<sha2::Sha256>::new(None, seed)
+            .expand(b"WhisperGroup", &mut derivative)?;
+            
+        let mut iv: [u8; 16] = [0;16];
+        iv.copy_from_slice(&derivative[0..16]); 
+        let mut cipher_key: [u8; 32] = [0;32];
+        cipher_key.copy_from_slice(&derivative[16..48]); 
+    
+        Ok(SenderMessageKey {
+            iteration,
+            seed: seed.to_vec(),
+            iv,
+            cipher_key,
+        })
+    }
+}
+
+impl TryFrom<auxin_protos::SenderMessageKey> for SenderMessageKey {
+    type Error = hkdf::InvalidLength;
+    fn try_from(val: auxin_protos::SenderMessageKey) -> Result<Self, Self::Error> {
+        Self::new(val.iteration, val.get_seed())
+    }
+}
+impl From<SenderMessageKey> for auxin_protos::SenderMessageKey {
+    fn from(val: SenderMessageKey) -> Self {
+        let mut result = auxin_protos::SenderMessageKey::default();
+        result.set_iteration(val.iteration);
+        result.set_seed(val.seed);
+        result
     }
 }
