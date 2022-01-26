@@ -771,7 +771,7 @@ pub trait SenderChainKeyExt {
     fn make_sender_message_key<'a>(&'a self) -> Result<SenderMessageKey, hkdf::InvalidLength> { 
         let derived_seed = chain_key_derivative( SENDER_MESSAGE_KEY_SEED, self.get_seed());
         
-        SenderMessageKey::new(self.get_iteration(), &derived_seed)
+        SenderMessageKey::derive(self.get_iteration(), &derived_seed)
     }
     fn make_next_chain<'a>(&'a self) -> SenderChainKey { 
         let derived_seed = chain_key_derivative( SENDER_CHAIN_KEY_SEED, self.get_seed());
@@ -806,7 +806,7 @@ pub struct SenderMessageKey {
 }
 
 impl SenderMessageKey { 
-    pub fn new(iteration: u32, seed: &[u8]) -> Result<Self, hkdf::InvalidLength> { 
+    pub fn derive(iteration: u32, seed: &[u8]) -> Result<Self, hkdf::InvalidLength> { 
 
         let mut derivative: [u8; 48] = [0; 48]; 
         //Per usage in libsignal-protocol-java SenderMessageKey.java line 25, does not appear to use a salt. 
@@ -830,7 +830,7 @@ impl SenderMessageKey {
 impl TryFrom<auxin_protos::SenderMessageKey> for SenderMessageKey {
     type Error = hkdf::InvalidLength;
     fn try_from(val: auxin_protos::SenderMessageKey) -> Result<Self, Self::Error> {
-        Self::new(val.iteration, val.get_seed())
+        Self::derive(val.iteration, val.get_seed())
     }
 }
 impl From<SenderMessageKey> for auxin_protos::SenderMessageKey {
