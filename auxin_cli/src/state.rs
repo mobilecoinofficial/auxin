@@ -5,7 +5,7 @@ use std::{
 	convert::TryFrom,
 	fs::{read_dir, File, OpenOptions},
 	io::{Read, Write},
-	path::Path,
+	path::{Path, PathBuf},
 };
 
 use auxin::{
@@ -583,43 +583,50 @@ pub async fn make_context(
 	})
 }
 
+/// Bridge between signal-cli state and auxin state
 pub struct StateManager {
-	pub base_dir: String,
+	/// Signal-cli data directory
+	data_dir: PathBuf,
 }
 
 impl StateManager {
-	pub fn new(base_dir: &str) -> Self {
+	/// Create a new state using the supplied state directory
+	pub fn new(state_dir: &str) -> Self {
 		StateManager {
-			base_dir: base_dir.to_string(),
+			data_dir: Path::new(state_dir).join("data"),
 		}
 	}
-	pub fn get_protocol_store_path(&self, context: &AuxinContext) -> String {
-		let our_id: String = context.identity.address.get_phone_number().unwrap().clone();
+
+	/// Get path to signal-cli protocol state
+	fn get_protocol_store_path(&self, context: &AuxinContext) -> String {
+		// TODO(Diana): Phone numbers, UUIDs, usernames, unwrap.
+		let our_id = context.identity.address.get_phone_number().unwrap();
 		//Figure out some directories.
-		let mut our_path = self.base_dir.clone();
-		our_path.push('/');
-		our_path.push_str(our_id.as_str());
-		our_path.push_str(".d/");
-		our_path
+		// TODO(Diana): Replace signature with PathBuf
+		self.data_dir
+			.join(our_id)
+			.with_extension(".d")
+			.to_str()
+			.unwrap()
+			.into()
 	}
 }
 
 impl AuxinStateManager for StateManager {
 	/// Load the local identity for `phone_number`
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
-		let local_identity = local_identity_from_json(Path::new(&self.base_dir), phone_number)?;
+		let local_identity = local_identity_from_json(Path::new(&self.data_dir), phone_number)?;
 		Ok(local_identity)
 	}
+
 	fn load_context(
 		&mut self,
 		credentials: &LocalIdentity,
 		config: AuxinConfig,
 	) -> crate::Result<AuxinContext> {
-		return block_on(make_context(
-			self.base_dir.as_str(),
-			credentials.clone(),
-			config,
-		));
+		// TODO(Diana): Unwrap
+		let data_dir = self.data_dir.to_str().unwrap();
+		return block_on(make_context(data_dir, credentials.clone(), config));
 	}
 
 	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer
@@ -712,6 +719,7 @@ impl AuxinStateManager for StateManager {
 		);
 		Ok(())
 	}
+
 	/// Save peer record info from all peers.
 	fn save_all_peer_records(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		info!(
@@ -773,6 +781,7 @@ impl AuxinStateManager for StateManager {
 		);
 		Ok(())
 	}
+
 	#[allow(dead_code, unused_variables)]
 	/// Save peer record info from a specific peer.
 	fn save_peer_record(
@@ -784,12 +793,14 @@ impl AuxinStateManager for StateManager {
 		// a libsignal-cli style json protocol store.
 		self.save_all_peer_records(context)
 	}
+
 	#[allow(dead_code, unused_variables)]
 	/// Saves both pre_key_store AND signed_pre_key_store from the context.
 	fn save_pre_keys(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		//TODO: Currently there is no circumstance where Auxin mutates pre-keys, so I do not know the specifics of what is necessary.
 		Ok(())
 	}
+
 	#[allow(dead_code, unused_variables)]
 	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
 	fn save_our_identity(&mut self, context: &AuxinContext) -> crate::Result<()> {
@@ -797,6 +808,7 @@ impl AuxinStateManager for StateManager {
 		//Most likely this will be relevant if we need to generate a new profile key.
 		Ok(())
 	}
+
 	#[allow(dead_code, unused_variables)]
 	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss.
 	fn flush(&mut self, context: &AuxinContext) -> crate::Result<()> {
