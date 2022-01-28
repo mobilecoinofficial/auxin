@@ -4,10 +4,10 @@
 // For reference please see https://github.com/whisperfish/libsignal-service-rs
 
 pub mod sender_key;
+//pub mod group_context;
 
 use libsignal_protocol::error::SignalProtocolError;
-use protobuf::{CodedInputStream, ProtobufError, Message};
-use ring::hmac;
+use protobuf::{CodedInputStream, ProtobufError};
 use zkgroup::{groups::GroupMasterKey, PROFILE_KEY_LEN};
 use zkgroup::GROUP_MASTER_KEY_LEN;
 
@@ -440,7 +440,6 @@ pub struct GroupsManager<'a, N: AuxinHttpsConnection, C: CredentialsCache> {
 impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 
     pub async fn get_authorization_for_today(&mut self,
-        server_public_params: &mut ServerPublicParams,
         uuid: Uuid,
         group_secret_params: GroupSecretParams,
     ) -> Result<HttpAuth, GroupApiError> {
@@ -541,7 +540,6 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 
     pub async fn get_group(&mut self,
         group_secret_params: GroupSecretParams,
-        identity: &LocalIdentity,
         auth: &HttpAuth,
     ) -> Result<DecryptedGroup, GroupApiError> {
         let auth_token = auth.make_auth_token();

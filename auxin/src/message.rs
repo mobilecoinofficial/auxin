@@ -57,6 +57,9 @@ pub mod envelope_types {
 	/// A sealed/sender message - this envelope will not have any phone number or UUID on it.
 	pub const UNIDENTIFIED_SENDER: u8 = 6;
 
+	/// Sender key for Groups
+	pub const SENDER_KEY: u8 = 7;
+
 	//
 	pub const PLAINTEXT_CONTENT: u8 = 8;
 
@@ -83,6 +86,7 @@ pub mod envelope_types {
 		Recipt = RECEIPT,
 		/// A sealed/sender message - this envelope will not have any phone number or UUID on it.
 		UnidentifiedSender = UNIDENTIFIED_SENDER,
+		SenderKey = SENDER_KEY,
 		PlaintextContent = PLAINTEXT_CONTENT,
 	}
 
@@ -97,6 +101,7 @@ pub mod envelope_types {
 				PREKEY_BUNDLE => Ok(EnvelopeType::PreKeyBundle),
 				RECEIPT => Ok(EnvelopeType::Recipt),
 				UNIDENTIFIED_SENDER => Ok(EnvelopeType::UnidentifiedSender),
+				SENDER_KEY => Ok(EnvelopeType::SenderKey),
 				PLAINTEXT_CONTENT => Ok(EnvelopeType::PlaintextContent),
 				_ => Err(EnvelopeTypeError::InvalidTypeId {
 					attempted_value: value as i128,
@@ -142,6 +147,7 @@ pub mod envelope_types {
 					EnvelopeType::UnidentifiedSender
 				}
 				auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => EnvelopeType::PlaintextContent,
+				auxin_protos::Envelope_Type::SENDER_KEY => EnvelopeType::SenderKey,
 			}
 		}
 	}
@@ -156,7 +162,8 @@ pub mod envelope_types {
 				EnvelopeType::Recipt => auxin_protos::Envelope_Type::RECEIPT,
 				EnvelopeType::UnidentifiedSender => {
 					auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER
-				}
+				},
+				EnvelopeType::SenderKey => auxin_protos::Envelope_Type::SENDER_KEY,
 				EnvelopeType::PlaintextContent => auxin_protos::Envelope_Type::PLAINTEXT_CONTENT,
 			}
 		}
@@ -728,6 +735,7 @@ impl MessageOut {
 				let envelope_type = match cyphertext_message.message_type() {
 					CiphertextMessageType::Whisper => envelope_types::CIPHERTEXT,
 					CiphertextMessageType::PreKey => envelope_types::PREKEY_BUNDLE,
+					CiphertextMessageType::SenderKey => envelope_types::SENDER_KEY,
 					_ => todo!(),
 				};
 

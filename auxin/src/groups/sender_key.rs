@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use auxin_protos::{SenderKeyStateStructure, SenderChainKey, SenderSigningKey};
-use libsignal_protocol::{SenderKeyDistributionMessage, SignalProtocolError, SenderKeyRecord};
+use libsignal_protocol::{SenderKeyDistributionMessage, SignalProtocolError, SenderKeyRecord, SenderKeyStore};
 use protobuf::{Message, ProtobufError};
 use rand::{Rng, CryptoRng};
 use ring::hmac;
@@ -62,8 +62,8 @@ impl DistributionIdStore for HashMap<DistributionId, GroupIdV2> {
 // Most important point of reference is here: https://github.com/signalapp/libsignal-protocol-java/blob/fde96d22004f32a391554e4991e4e1f0a14c2d50/java/src/main/java/org/whispersystems/libsignal/groups/GroupCipher.java#L32
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash)]
 pub struct SenderKeyName {
-    distribution_id: DistributionId,
-    sender: AuxinDeviceAddress,
+    pub distribution_id: DistributionId,
+    pub sender: AuxinDeviceAddress,
 }
 
 impl Eq for SenderKeyName {}
@@ -252,6 +252,7 @@ pub enum SenderKeyStorageError {
 
 pub const MAX_SENDER_KEY_RECORD_STATES: usize = 5;
 
+/*
 pub struct SenderKeyStore {
     store: HashMap<SenderKeyName, SenderKeyRecord>,
 }
@@ -316,22 +317,34 @@ impl libsignal_protocol::SenderKeyStore for SenderKeyStore {
         });
         Box::pin( futures::future::ready(result) )
     }
-
-}
+}*/
 
 pub const CIPHERTEXT_MESSAGE_VERSION: u8 = 3;
 
 /// GroupSessionBuilder is responsible for setting up group SenderKey encrypted sessions.
 /// Once a session has been established, GroupCipher can be used to encrypt/decrypt messages in that session.
 /// The built sessions are unidirectional: they can be used either for sending or for receiving, but not both.
-pub struct GroupSessionBuilder<'a> {
-    sender_key_store: &'a mut SenderKeyStore,
+pub struct GroupSessionBuilder<'a, Store: SenderKeyStore> {
+    sender_key_store: &'a mut Store,
 }
 
-impl<'a> GroupSessionBuilder<'a> {
-    pub fn new(sender_key_store: &'a mut SenderKeyStore) -> Self { 
+impl<'a, Store> GroupSessionBuilder<'a, Store> where Store: SenderKeyStore{
+    pub fn new(sender_key_store: &'a mut Store) -> Self { 
         GroupSessionBuilder { 
             sender_key_store,
+        }
+    }
+    /// Load or initialize a key. 
+    pub async fn load_or_new_key(&mut self, name: &SenderKeyName, ctx: &SignalCtx) -> Result<SenderKeyRecord, SignalProtocolError> {
+        let protocol_address = name.sender.uuid_protocol_address().unwrap();
+        let record_maybe = self.sender_key_store.load_sender_key(&protocol_address, name.distribution_id.clone(), ctx.get()).await?;
+    
+        if let Some(record) = record_maybe {
+            Ok(record)
+        } else { 
+            let new_record = SenderKeyRecord::new_empty();
+            self.sender_key_store.store_sender_key(&protocol_address, name.distribution_id.clone(), &new_record, ctx.get()).await?;
+            Ok(new_record)
         }
     }
     /// Construct a group session for receiving messages from sender_key_name.
@@ -340,14 +353,17 @@ impl<'a> GroupSessionBuilder<'a> {
 	///
 	/// * `sender_key_name` - The group id, sender id, and device id associated with the SenderKeyDistributionMessage.
 	/// * `distribution_message` - A received SenderKeyDistributionMessage.
-    pub fn process(&mut self, sender_key_name: SenderKeyName, distribution_message: SenderKeyDistributionMessage) -> Result<(), SignalProtocolError> {
-        let mut record = self.sender_key_store.load_or_new_key_mut(&sender_key_name);
+    pub async fn process(&mut self, sender_key_name: SenderKeyName, distribution_message: SenderKeyDistributionMessage, ctx: &SignalCtx) -> Result<(), SignalProtocolError> {
+        let mut record = self.load_or_new_key(&sender_key_name, ctx).await?;
         record.add_sender_key_state(CIPHERTEXT_MESSAGE_VERSION,
             distribution_message.chain_id()?,
             distribution_message.iteration()?,
             distribution_message.chain_key()?,
             distribution_message.signing_key()?.clone(),
             None)?;
+
+        let protocol_address = sender_key_name.sender.uuid_protocol_address().unwrap();
+        self.sender_key_store.store_sender_key(&protocol_address, sender_key_name.distribution_id.clone(), &record, ctx.get()).await?;
         Ok(())
     }
   
@@ -356,13 +372,14 @@ impl<'a> GroupSessionBuilder<'a> {
 	/// # Arguments
 	///
 	/// * `sender_key_name` - The group id, sender id, and device id associated with the SenderKeyDistributionMessage. In this case, `address` should be the caller (i.e. the bot, the "self" user's address).
-    pub async fn create_distribution_message<R: Rng + CryptoRng>(&mut self, sender_key_name: &SenderKeyName, csprng: &mut R, signal_ctx: SignalCtx) -> Result<SenderKeyDistributionMessage, SignalProtocolError> {
-        let mut record = self.sender_key_store.load_or_new_key_mut(sender_key_name);
+    pub async fn create_distribution_message<R: Rng + CryptoRng>(&mut self, sender_key_name: &SenderKeyName, csprng: &mut R, signal_ctx: &SignalCtx) -> Result<SenderKeyDistributionMessage, SignalProtocolError> {
+        let _record = self.load_or_new_key(sender_key_name , signal_ctx).await?;
         let protocol_address = sender_key_name.sender.uuid_protocol_address().map_err(|_| { 
             SignalProtocolError::InvalidArgument(
                 format!( "Could not creeate a sender key distribution message because this sender address cannot be used as a protocol address: {:?}", sender_key_name.sender )
             )
         })?;
-        libsignal_protocol::create_sender_key_distribution_message(&protocol_address, sender_key_name.distribution_id.clone(), self.sender_key_store, csprng, signal_ctx.get()).await
+        let distrib = libsignal_protocol::create_sender_key_distribution_message(&protocol_address, sender_key_name.distribution_id.clone(), self.sender_key_store, csprng, signal_ctx.get()).await?;
+        Ok(distrib)
     }
 }

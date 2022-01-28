@@ -87,7 +87,7 @@ use crate::{
 	profile_cipher::ProfileCipher,
 	state::{
 		try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode,
-	},
+	}, groups::sender_key::{GroupSessionBuilder, SenderKeyName},
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -1721,14 +1721,20 @@ where
 				}
 
 				//Handle possible sender key distribution message.
-
 				if let Some(content) = &result.content.source {
 					if content.has_senderKeyDistributionMessage() { 
 						let sender_key_distribution_message_bytes = content.get_senderKeyDistributionMessage();
 						let sender_key_distribution_message = SenderKeyDistributionMessage::try_from(sender_key_distribution_message_bytes)
 							.map_err(|e| HandleEnvelopeError::InvalidSenderKeyDistributionMessage(format!("{:?}", e)) )?;
 
+						let ctx = self.context.get_signal_ctx().clone();
 						debug!("Got a SenderKeyDistributionMessage: {:?}. GroupsV2 support is a work in progress so this doesn't do anything yet.", &sender_key_distribution_message);
+						//let protocol_address = result.remote_address.uuid_protocol_address().unwrap();
+						let sender_key_name = SenderKeyName{sender: result.remote_address.clone(), distribution_id: sender_key_distribution_message.distribution_id()?};
+
+						let mut session_builder = GroupSessionBuilder::new(&mut self.context.sender_key_store);
+						//Update or initialize ongoing group session.
+						session_builder.process(sender_key_name, sender_key_distribution_message, &ctx).await?;
 					}
 				}
 
@@ -1889,6 +1895,9 @@ where
 				result
 			})),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
+			auxin_protos::Envelope_Type::SENDER_KEY => { 
+				todo!("GroupsV2 support is a work in progress. Received a SenderKey message, but we cannot use it yet.")
+			},
 		}
 	}
 
