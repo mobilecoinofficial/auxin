@@ -580,11 +580,16 @@ pub enum GroupIdError {
     ParsingError(#[from] base64::DecodeError ),
 }
 
+pub type GroupIdV1 = [u8; 16];
+pub type GroupIdV2 = [u8; 32]; 
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, PartialOrd)]
 pub enum GroupId { 
-    V1([u8; 16]),
-    V2([u8; 32]),
+    V1(GroupIdV1),
+    V2(GroupIdV2),
 }
+
+
 // Mark equality as being complete here. 
 impl Eq for GroupId {}
 

@@ -1,21 +1,109 @@
-use aes_gcm::aead::generic_array::sequence::Shorten;
-use auxin_protos::{SenderKeyStateStructure, SenderKeyRecordStructure, SenderChainKey, SenderSigningKey};
-use libsignal_protocol::{DeviceId, SenderKeyDistributionMessage};
+use std::collections::HashMap;
+
+use auxin_protos::{SenderKeyStateStructure, SenderChainKey, SenderSigningKey};
+use libsignal_protocol::{SenderKeyDistributionMessage, SignalProtocolError, SenderKeyRecord};
+use protobuf::{Message, ProtobufError};
+use rand::{Rng, CryptoRng};
+use ring::hmac;
+use uuid::Uuid;
+
+use crate::{address::AuxinDeviceAddress, SignalCtx};
+
+use super::GroupIdV2;
+
+/// A DistributionId is a randomly-generated meaningless Uuid (also described as an opaque identifier) mapped to a GroupId internally in a Signal protocol implementation.
+pub type DistributionId = Uuid;
+
+pub fn generate_distribution_id() -> DistributionId { 
+    Uuid::new_v4()
+}
+
+/// Any object with a 1-to-1 mapping to track which DistributionIds we have mapped to which GroupIds, and vice-versa
+/// A given DistributionId will only ever point to one GroupId, so it's best to use DistributionId as the key and GroupId as the value.
+pub trait DistributionIdStore { 
+    fn get_group(&self, distribution_id: &DistributionId) -> Option<&GroupIdV2>; 
+    fn get_distribution(&self, group_id: &GroupIdV2) -> Option<&DistributionId>;
+
+    fn insert(&mut self, distribution_id: DistributionId, group_id: GroupIdV2);
+
+    /// Retrieves a distribution id from this storage. 
+    /// If none is present yet, it generates a new one, inserts the (GroupId, DistributionId) pair,
+    /// and returns a reference to the newly-added DistributionId entry.
+    fn get_or_generate_distribution_id(&mut self, group_id: &GroupIdV2) -> &DistributionId { 
+        let has_record = self.get_distribution(group_id).is_some();
+        if has_record {
+            return self.get_distribution(group_id).unwrap();
+        } else {
+            let new_distribution = generate_distribution_id();
+            self.insert(new_distribution, group_id.clone());
+        }
+        self.get_distribution(group_id).unwrap()
+    }
+}
+
+impl DistributionIdStore for HashMap<DistributionId, GroupIdV2> {
+    fn get_group(&self, distribution_id: &DistributionId) -> Option<&GroupIdV2> {
+        self.get(distribution_id)
+    }
+    fn get_distribution(&self, group_id: &GroupIdV2) -> Option<&DistributionId> {
+        for (distrib, matching_group) in self.iter() { 
+            if group_id == matching_group { 
+                return Some(distrib);
+            }
+        }
+        None
+    }
+    fn insert(&mut self, distribution_id: DistributionId, group_id: GroupIdV2) {
+        self.insert(distribution_id, group_id);
+    }
+}
 
 // A SenderKey "name" is a (groupId + senderId + deviceId) tuple
 // Most important point of reference is here: https://github.com/signalapp/libsignal-protocol-java/blob/fde96d22004f32a391554e4991e4e1f0a14c2d50/java/src/main/java/org/whispersystems/libsignal/groups/GroupCipher.java#L32
-
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash)]
-pub struct SenderKeyName { 
-    group_id: GroupId, 
-    address: AuxinAddress,
-    device_id: DeviceId, // Just a u32
+pub struct SenderKeyName {
+    distribution_id: DistributionId,
+    sender: AuxinDeviceAddress,
 }
+
+impl Eq for SenderKeyName {}
 
 pub const MAX_SENDER_MESSAGE_KEYS: u64 = 2000;
 
 const SENDER_MESSAGE_KEY_SEED: &'static [u8] = &[0x01];
 const SENDER_CHAIN_KEY_SEED: &'static [u8]   = &[0x02];
+
+//Cannot define impl on types from other crates.
+//We can use the usual Rust naming scheme here: {Type}Ext
+pub trait SenderChainKeyExt { 
+    fn get_seed<'a>(&'a self) -> &'a [u8];
+    fn get_iteration(&self) -> u32;
+    fn make_sender_message_key<'a>(&'a self) -> Result<SenderMessageKey, hkdf::InvalidLength> { 
+        let derived_seed = chain_key_derivative( SENDER_MESSAGE_KEY_SEED, self.get_seed());
+        
+        SenderMessageKey::derive(self.get_iteration(), &derived_seed)
+    }
+    fn make_next_chain<'a>(&'a self) -> SenderChainKey { 
+        let derived_seed = chain_key_derivative( SENDER_CHAIN_KEY_SEED, self.get_seed());
+        
+        let mut result = SenderChainKey::default(); 
+        //Increment "iteration" - this is the next one.
+        result.set_iteration(self.get_iteration() + 1);
+        result.set_seed(derived_seed);
+        result.compute_size();
+        result
+    }
+}
+
+impl SenderChainKeyExt for SenderChainKey {
+    fn get_seed<'a>(&'a self) -> &'a [u8] {
+        SenderChainKey::get_seed(&self)
+    }
+
+    fn get_iteration(&self) -> u32 {
+        self.iteration
+    }
+}
 
 /// Holds the state of an individual SenderKey ratchet.
 pub struct SenderKeyState {
@@ -52,12 +140,16 @@ impl SenderKeyState {
             structure: result,
         }
     }
-    pub fn get_state_id(&self) -> u32 { 
+    pub fn get_key_id(&self) -> u32 { 
         self.structure.get_sender_key_id()
     }
-    pub fn get_key_id(&self) -> Uuid { 
-        self.structure
+    pub fn get_iteration(&self) -> u32 { 
+        self.structure.get_sender_chain_key().get_iteration()
     }
+    pub fn get_seed(&self) -> &[u8] { 
+        self.structure.get_sender_chain_key().get_seed()
+    }
+
 }
 
 // Make it easy to convert between the underlying 
@@ -74,6 +166,11 @@ impl From<SenderKeyState> for SenderKeyStateStructure {
         val.structure
     }
 }
+impl From<&SenderKeyState> for SenderKeyStateStructure {
+    fn from(val: &SenderKeyState) -> Self {
+        val.structure.clone()
+    }
+}
 
 pub fn chain_key_derivative(seed: &[u8], key: &[u8]) -> Vec<u8> { 
     let digest_key = hmac::Key::new(hmac::HMAC_SHA256, &key);
@@ -85,38 +182,6 @@ pub fn chain_key_derivative(seed: &[u8], key: &[u8]) -> Vec<u8> {
     let tag = digest.sign();
 
     tag.as_ref().to_vec()
-}
-
-//Cannot define impl on types from other crates.
-//We can use the usual Rust naming scheme here: {Type}Ext
-pub trait SenderChainKeyExt { 
-    fn get_seed<'a>(&'a self) -> &'a [u8];
-    fn get_iteration(&self) -> u32;
-    fn make_sender_message_key<'a>(&'a self) -> Result<SenderMessageKey, hkdf::InvalidLength> { 
-        let derived_seed = chain_key_derivative( SENDER_MESSAGE_KEY_SEED, self.get_seed());
-        
-        SenderMessageKey::derive(self.get_iteration(), &derived_seed)
-    }
-    fn make_next_chain<'a>(&'a self) -> SenderChainKey { 
-        let derived_seed = chain_key_derivative( SENDER_CHAIN_KEY_SEED, self.get_seed());
-        
-        let mut result = SenderChainKey::default(); 
-        //Increment "iteration" - this is the next one.
-        result.set_iteration(self.get_iteration() + 1);
-        result.set_seed(derived_seed);
-        result.compute_size();
-        result
-    }
-}
-
-impl SenderChainKeyExt for SenderChainKey {
-    fn get_seed<'a>(&'a self) -> &'a [u8] {
-        SenderChainKey::get_seed(&self)
-    }
-
-    fn get_iteration(&self) -> u32 {
-        self.iteration
-    }
 }
 
 /* The final symmetric material (IV and Cipher Key) used for encrypting
@@ -166,10 +231,11 @@ impl From<SenderMessageKey> for auxin_protos::SenderMessageKey {
     }
 }
 
-#[derive(Debug)] //, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum SenderKeyStorageError { 
-    /*#[error("Error encountered while trying to make a request to Signal's web API for groups: {0}")]
-    RequestError(String),
+    #[error("could not parse protobuf into sender key record: {0:?}")]
+    ParseRecordError(ProtobufError),
+    /*
     #[error("Error encountered in response from an https request to Signal's web API for groups: {0}")]
     ResponseError(String),
     #[error("Could not use credentials cache for groups: {0}")]
@@ -186,90 +252,6 @@ pub enum SenderKeyStorageError {
 
 pub const MAX_SENDER_KEY_RECORD_STATES: usize = 5;
 
-/// A durable representation of a set of SenderKeyStates for a specific SenderKeyName.
-pub struct SenderKeyRecord {
-    states: VecDeque<SenderKeyState>,
-}
-impl SenderKeyRecord { 
-
-    pub fn new() -> Self { 
-        SenderKeyRecord { 
-            states: Vec::default(),
-        }
-    }
-
-    pub fn parse(serialized: &[u8]) -> Result<Self, SenderKeyStorageError> {
-        let reader = CodedInputStream::from_bytes(serialized); 
-        let record_structure: SenderKeyRecordStructure = reader.read_message()?;
-
-        let states: Vec<SenderKeyState> = Vec::default();
-        for structure in record_structure.get_sender_key_states() {
-            states.push( structure.into() );
-        }
-        Ok( Self {
-            states,
-        } )
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.states.empty()
-    }
-
-    pub fn get_newest_key_state(&self) -> Option<&SenderKeyState> {
-        self.states.front()
-    }
-
-    pub fn get_key_state(&self, key_id: u32) -> Option<&SenderKeyState> {
-        for state in self.states.iter() {
-            if state.get_key_id() == key_id {
-                return Some(state.clone);
-            }
-        }
-        None
-    }
-
-    pub fn add_key_state(&mut self, id: u32, iteration: u32, chain_key_bytes: &[u8], signature_key: &libsignal_protocol::PublicKey) {
-        self.states.push_front(SenderKeyState::new(id, iteration, chain_key_bytes, signature_key, None));
-
-        // Keep it within MAX_SENDER_KEY_RECORD_STATES
-        if self.states.len() > MAX_SENDER_KEY_RECORD_STATES {
-            self.states.pop_back();
-        }
-    }
-
-    /// Clears the list of key states and pushes one state to that list,
-    /// such that it is guaranteed to be the returned value of get_newest_key_state() until
-    /// add_key_state() is called again.
-    pub fn rebuild_with_just_one(&mut self, id: u32, iteration: u32, chain_key_bytes: &[u8], signature_key: &libsignal_protocol::PublicKey) {
-        senderKeyStates.clear();
-        senderKeyStates.add(SenderKeyState::new(id, iteration, chain_key_bytes, signature_key, None));
-    }
-
-    pub fn serialize_to_proto(&self) -> SenderKeyRecordStructure {
-        let mut structure = SenderKeyRecordStructure::default();
-
-        for state in self.states.iter() {
-            structure.mut_sender_key_states().push(state.clone().into());
-        }
-
-        structure
-    }
-
-    pub fn serialize_to_bytes(&self) -> Vec<u8> {
-        let structure = self.serialize_to_proto();
-
-        let mut serialized_structure: Vec<u8> = Vec::default();
-		let mut writer = CodedOutputStream::vec(&mut serialized_structure);
-		let _sz = protobuf::Message::compute_size(&content_message);
-
-		protobuf::Message::write_to_with_cached_sizes(&structure, &mut outstream)?;
-		outstream.flush()?;
-		drop(outstream);
-
-        serialized_structure
-    }
-}
-
 pub struct SenderKeyStore {
     store: HashMap<SenderKeyName, SenderKeyRecord>,
 }
@@ -279,85 +261,108 @@ impl SenderKeyStore {
         self.store.insert(name, record);
     }
     
-    pub fn load_or_new_key(&self, name: &SenderKeyName) -> &SenderKeyRecord {
-        match self.store.get(name) {
-            Some(record) => record,
-            None => { 
-                let new_record = SenderKeyRecord::new();
-                self.store.insert(name.clone(), new_record); 
-                self.store.get(name).unwrap()
-            }
+    pub fn load_or_new_key(&mut self, name: &SenderKeyName) -> &SenderKeyRecord {
+        let has_record = self.store.contains_key(name);
+    
+        if has_record {
+            self.store.get(name).unwrap()
+        } else { 
+            let new_record = SenderKeyRecord::new_empty();
+            self.store.insert(name.clone(), new_record); 
+            self.store.get(name).unwrap()
         }
     }
 
-    pub fn load_or_new_key_mut(&self, name: &SenderKeyName) -> &mut SenderKeyRecord {
-        //Must be written less cleanly than load_or_new_key() for borrow checker reasons.
-        //bool is Copy
-        let has_record = self.store.contains(name);
+    pub fn load_or_new_key_mut(&mut self, name: &SenderKeyName) -> &mut SenderKeyRecord {
+        let has_record = self.store.contains_key(name);
     
         if has_record {
             self.store.get_mut(name).unwrap()
         } else { 
-            let new_record = SenderKeyRecord::new();
+            let new_record = SenderKeyRecord::new_empty();
             self.store.insert(name.clone(), new_record); 
             self.store.get_mut(name).unwrap()
         }
     }
 }
 
-pub const CURRENT_CIPHERTEXT_MESSAGE_VERSION: u32 = 3;
+impl libsignal_protocol::SenderKeyStore for SenderKeyStore {
+    fn store_sender_key< 'life0, 'life1, 'life2, 'async_trait>(& 'life0 mut self,sender: & 'life1 libsignal_protocol::ProtocolAddress,distribution_id:Uuid,record: & 'life2 libsignal_protocol::SenderKeyRecord,ctx:libsignal_protocol::Context,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = libsignal_protocol::error::Result<()> > + 'async_trait> >where 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait,Self: 'async_trait {
+        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin| {
+            SenderKeyName { sender: sender_auxin, distribution_id }
+        });
+        let result = match sender_key_name_maybe { 
+            Ok(sender_key_name) => { 
+                self.store_key(sender_key_name, record.clone());
+                Ok(())
+            }
+            Err(_) => Err(SignalProtocolError::InvalidArgument( format!("Invalid sender name, could not turn {} into a phone number or UUID.",sender.name()) )),
+        };
+        // Trick Libsignal_protocol into thinking this is async code and not sync code
+        Box::pin( futures::future::ready(result) )
+    }
+
+    fn load_sender_key< 'life0, 'life1, 'async_trait>(& 'life0 mut self,sender: & 'life1 libsignal_protocol::ProtocolAddress,distribution_id:Uuid,ctx:libsignal_protocol::Context,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = libsignal_protocol::error::Result<Option<libsignal_protocol::SenderKeyRecord> > > + 'async_trait> >where 'life0: 'async_trait, 'life1: 'async_trait,Self: 'async_trait {
+        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin| {
+                SenderKeyName { sender: sender_auxin, distribution_id }
+            })
+            .map_err(|_| {
+                SignalProtocolError::InvalidArgument( format!("Invalid sender name, could not turn {} into a phone number or UUID.",sender.name() ) )
+            });
+
+        let result = sender_key_name_maybe.map(| name | { 
+            self.store.get(&name)
+                .map(|value| value.clone())
+        });
+        Box::pin( futures::future::ready(result) )
+    }
+
+}
+
+pub const CIPHERTEXT_MESSAGE_VERSION: u8 = 3;
 
 /// GroupSessionBuilder is responsible for setting up group SenderKey encrypted sessions.
 /// Once a session has been established, GroupCipher can be used to encrypt/decrypt messages in that session.
 /// The built sessions are unidirectional: they can be used either for sending or for receiving, but not both.
-pub struct GroupSessionBuilder {
-    sender_key_store: SenderKeyStore,
+pub struct GroupSessionBuilder<'a> {
+    sender_key_store: &'a mut SenderKeyStore,
 }
 
-impl GroupSessionBuilder {
-    pub fn new(sender_key_store: SenderKeyStore) -> Self { 
+impl<'a> GroupSessionBuilder<'a> {
+    pub fn new(sender_key_store: &'a mut SenderKeyStore) -> Self { 
         GroupSessionBuilder { 
             sender_key_store,
         }
     }
-    /// Construct a group session for receiving messages from senderKeyName.
+    /// Construct a group session for receiving messages from sender_key_name.
 	///
 	/// # Arguments
 	///
 	/// * `sender_key_name` - The group id, sender id, and device id associated with the SenderKeyDistributionMessage.
 	/// * `distribution_message` - A received SenderKeyDistributionMessage.
-    pub fn process(&mut self, sender_key_name: SenderKeyName, distribution_message: SenderKeyDistributionMessage) {
+    pub fn process(&mut self, sender_key_name: SenderKeyName, distribution_message: SenderKeyDistributionMessage) -> Result<(), SignalProtocolError> {
         let mut record = self.sender_key_store.load_or_new_key_mut(&sender_key_name);
-        record.add_key_state(distribution_message.get_id(),
-        distribution_message.get_iteration(),
-        distribution_message.get_chain_key(),
-        distribution_message.get_signature_key());
+        record.add_sender_key_state(CIPHERTEXT_MESSAGE_VERSION,
+            distribution_message.chain_id()?,
+            distribution_message.iteration()?,
+            distribution_message.chain_key()?,
+            distribution_message.signing_key()?.clone(),
+            None)?;
+        Ok(())
     }
   
-    /**
-     * Construct a group session for sending messages.
-     *
-     * @param senderKeyName The (groupId, senderId, deviceId) tuple.  In this case, 'senderId' should be the caller.
-     * @return A SenderKeyDistributionMessage that is individually distributed to each member of the group.
-     */
-    pub fn create_distribution_message(&mut self, sender_key_name: SenderKeyName) -> SenderKeyDistributionMessage {
-        let mut record = self.sender_key_store.load_or_new_key_mut(senderKeyName);
-
-        if record.is_empty() {
-            record.rebuild_with_just_one(KeyHelper.generateSenderKeyId(),
-            0,
-            KeyHelper.generateSenderKey(),
-            KeyHelper.generateSenderSigningKey());
-        }
-
-        //Should be impossible for this to be None per above record.is_empty() block, so unwrap
-        let state = record.get_newest_key_state().unwrap();
-
-        SenderKeyDistributionMessage::new(CURRENT_CIPHERTEXT_MESSAGE_VERSION,
-            state.get,
-            state.getSenderChainKey().getIteration(),
-            state.getSenderChainKey().getSeed(),
-            state.getSigningKeyPublic());
+    /// Construct a group session for sending messages.
+	///
+	/// # Arguments
+	///
+	/// * `sender_key_name` - The group id, sender id, and device id associated with the SenderKeyDistributionMessage. In this case, `address` should be the caller (i.e. the bot, the "self" user's address).
+    pub async fn create_distribution_message<R: Rng + CryptoRng>(&mut self, sender_key_name: &SenderKeyName, csprng: &mut R, signal_ctx: SignalCtx) -> Result<SenderKeyDistributionMessage, SignalProtocolError> {
+        let mut record = self.sender_key_store.load_or_new_key_mut(sender_key_name);
+        let protocol_address = sender_key_name.sender.uuid_protocol_address().map_err(|_| { 
+            SignalProtocolError::InvalidArgument(
+                format!( "Could not creeate a sender key distribution message because this sender address cannot be used as a protocol address: {:?}", sender_key_name.sender )
+            )
+        })?;
+        libsignal_protocol::create_sender_key_distribution_message(&protocol_address, sender_key_name.distribution_id.clone(), self.sender_key_store, csprng, signal_ctx.get()).await
     }
-  }
 }

@@ -27,7 +27,7 @@ use futures::TryFutureExt;
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
-	SignalProtocolError,
+	SignalProtocolError, SenderKeyDistributionMessage,
 };
 use log::{debug, error, info, trace, warn};
 
@@ -257,6 +257,7 @@ pub enum HandleEnvelopeError {
 	PreKeyNoAddress,
 	UnknownEnvelopeType(Envelope),
 	ProfileError(String),
+	InvalidSenderKeyDistributionMessage(String),
 }
 impl std::fmt::Display for HandleEnvelopeError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -266,7 +267,8 @@ impl std::fmt::Display for HandleEnvelopeError {
 			HandleEnvelopeError::PreKeyBundleErr(e) => write!(f, "Error occurred while handling a pre-key bundle: {}", e),
 			HandleEnvelopeError::PreKeyNoAddress => write!(f, "No peer / foreign address on a pre-key bundle message!"),
 			HandleEnvelopeError::UnknownEnvelopeType(e) => write!(f, "Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",e),
-			HandleEnvelopeError::ProfileError(e) => write!(f, "Attempted to retrieve profile information in the process of handling an envelope, but a problem was encountered: {:?}",e)
+			HandleEnvelopeError::ProfileError(e) => write!(f, "Attempted to retrieve profile information in the process of handling an envelope, but a problem was encountered: {:?}",e),
+			HandleEnvelopeError::InvalidSenderKeyDistributionMessage(e) => write!(f, "Could not deserialize a Sender Key Distribution Message: {:?}",e)
 		}
 	}
 }
@@ -1716,6 +1718,18 @@ where
 					self.clear_session(&result.remote_address.address)
 						.await
 						.unwrap(); // TODO: Proper error handling on clear_session();
+				}
+
+				//Handle possible sender key distribution message.
+
+				if let Some(content) = &result.content.source {
+					if content.has_senderKeyDistributionMessage() { 
+						let sender_key_distribution_message_bytes = content.get_senderKeyDistributionMessage();
+						let sender_key_distribution_message = SenderKeyDistributionMessage::try_from(sender_key_distribution_message_bytes)
+							.map_err(|e| HandleEnvelopeError::InvalidSenderKeyDistributionMessage(format!("{:?}", e)) )?;
+
+						debug!("Got a SenderKeyDistributionMessage: {:?}. GroupsV2 support is a work in progress so this doesn't do anything yet.", &sender_key_distribution_message);
+					}
 				}
 
 				info!(
