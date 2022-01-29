@@ -598,17 +598,12 @@ impl StateManager {
 	}
 
 	/// Get path to signal-cli protocol state
-	fn get_protocol_store_path(&self, context: &AuxinContext) -> String {
+	fn get_protocol_store_path(&self, context: &AuxinContext) -> PathBuf {
 		// TODO(Diana): Phone numbers, UUIDs, usernames, unwrap.
 		let our_id = context.identity.address.get_phone_number().unwrap();
 		//Figure out some directories.
 		// TODO(Diana): Replace signature with PathBuf
-		self.data_dir
-			.join(our_id)
-			.with_extension(".d")
-			.to_str()
-			.unwrap()
-			.into()
+		self.data_dir.join(our_id).with_extension(".d")
 	}
 }
 
@@ -653,17 +648,13 @@ impl AuxinStateManager for StateManager {
 		};
 		//Figure out some directories.
 		let our_path = self.get_protocol_store_path(context);
+		let session_path = our_path.join("sessions");
+		let known_peers_path = our_path.join("identities");
 
-		let mut session_path = our_path.clone();
-		session_path.push_str("sessions/");
-
-		let mut known_peers_path = our_path;
-		known_peers_path.push_str("identities/");
-
-		if !Path::new(&session_path).exists() {
+		if !session_path.exists() {
 			std::fs::create_dir(&session_path)?;
 		}
-		if !Path::new(&known_peers_path).exists() {
+		if !known_peers_path.exists() {
 			std::fs::create_dir(&known_peers_path)?;
 		}
 
@@ -672,15 +663,13 @@ impl AuxinStateManager for StateManager {
 			if let Some(uuid) = peer_record.uuid {
 				let address = ProtocolAddress::new(uuid.to_string().clone(), *device_id);
 
-				let mut file_path = session_path.clone();
-				let session_file_name = format!("{}_{}", peer_record.id, device_id);
-				file_path.push_str(session_file_name.as_str());
+				let file_path = session_path.join(format!("{}_{}", peer_record.id, device_id));
 
 				let mut file = OpenOptions::new()
 					.truncate(true)
 					.write(true)
 					.create(true)
-					.open(file_path.clone())?;
+					.open(file_path)?;
 
 				let session = block_on(
 					context
@@ -728,16 +717,14 @@ impl AuxinStateManager for StateManager {
 		);
 		let our_path = self.get_protocol_store_path(context);
 
-		let mut recipients_path = our_path.clone();
-		let mut recipients_bk_path = recipients_path.clone();
-		recipients_path.push_str("recipients-store");
-		recipients_bk_path.push_str(".bk");
+		let recipients_path = our_path.join("recipients-store");
+		let recipients_bk_path = our_path.with_extension("bk");
 
 		let mut file = OpenOptions::new()
 			.truncate(true)
 			.write(true)
 			.create(true)
-			.open(recipients_path.clone())?;
+			.open(recipients_path)?;
 
 		// Save recipient store:
 		let json_recipient_structure = serde_json::to_string_pretty(&context.peer_cache)?;
@@ -745,7 +732,7 @@ impl AuxinStateManager for StateManager {
 			.truncate(true)
 			.write(true)
 			.create(true)
-			.open(recipients_bk_path.clone())?;
+			.open(recipients_bk_path)?;
 
 		bk_file.write_all(json_recipient_structure.as_bytes())?;
 		bk_file.flush()?;
@@ -757,17 +744,16 @@ impl AuxinStateManager for StateManager {
 		//Ensure file is closed ASAP.
 		drop(file);
 
-		let mut identities_path = our_path;
-		identities_path.push_str("identities/");
+		let identities_path = our_path.join("identities");
 		for recip in context.peer_cache.peers.iter() {
 			if let Some(ident) = &recip.identity {
 				let id = recip.id;
-				let file_path = format!("{}/{}", identities_path, id);
+				let file_path = identities_path.join(id.to_string());
 				let mut file = OpenOptions::new()
 					.truncate(true)
 					.write(true)
 					.create(true)
-					.open(file_path.clone())?;
+					.open(file_path)?;
 				let json_identity = serde_json::to_string(ident)?;
 				file.write_all(json_identity.as_bytes())?;
 				file.flush()?;
