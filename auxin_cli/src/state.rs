@@ -782,11 +782,10 @@ impl AuxinStateManager for StateManager {
 		Ok(())
 	}
 
-	#[allow(dead_code, unused_variables)]
 	/// Save peer record info from a specific peer.
 	fn save_peer_record(
 		&mut self,
-		peer: &AuxinAddress,
+		_peer: &AuxinAddress,
 		context: &AuxinContext,
 	) -> crate::Result<()> {
 		// Unfortunately I do not see a way to save a single user without saving all users in
@@ -794,32 +793,33 @@ impl AuxinStateManager for StateManager {
 		self.save_all_peer_records(context)
 	}
 
-	#[allow(dead_code, unused_variables)]
 	/// Saves both pre_key_store AND signed_pre_key_store from the context.
-	fn save_pre_keys(&mut self, context: &AuxinContext) -> crate::Result<()> {
-		//TODO: Currently there is no circumstance where Auxin mutates pre-keys, so I do not know the specifics of what is necessary.
+	fn save_pre_keys(&mut self, _context: &AuxinContext) -> crate::Result<()> {
+		// TODO: Currently there is no circumstance where Auxin mutates pre-keys,
+		// so I do not know the specifics of what is necessary.
 		Ok(())
 	}
 
-	#[allow(dead_code, unused_variables)]
-	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
-	fn save_our_identity(&mut self, context: &AuxinContext) -> crate::Result<()> {
-		//TODO: Currently there is no circumstance where Auxin mutates our own identity, so I do not know the specifics of what is necessary.
-		//Most likely this will be relevant if we need to generate a new profile key.
+	/// Saves our identity - this is unlikely to change often,
+	/// but sometimes we may need to change things like, for example, our profile key.
+	fn save_our_identity(&mut self, _context: &AuxinContext) -> crate::Result<()> {
+		// TODO: Currently there is no circumstance where Auxin mutates our own identity,
+		// so I do not know the specifics of what is necessary.
+		// Most likely this will be relevant if we need to generate a new profile key.
 		Ok(())
 	}
 
-	#[allow(dead_code, unused_variables)]
-	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss.
-	fn flush(&mut self, context: &AuxinContext) -> crate::Result<()> {
-		// This implementation "Flush"s every time / writes changes immediately rather than queueing them, so this is unnecessary.
+	/// Ensure all changes are fully saved, not just queued.
+	/// Awaiting on this should block for as long as is required to ensure no data loss.
+	fn flush(&mut self, _context: &AuxinContext) -> crate::Result<()> {
+		// This implementation "Flush"s every time / writes changes
+		// immediately rather than queueing them, so this is unnecessary.
 		Ok(())
 	}
 
 	/// Delete or otherwise mark-dead a stored session for a peer.
 	/// Called when receiving a message with the END_SESSION flag enabled.
-	#[allow(unused_variables)]
-	fn end_session(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> auxin::Result<()> {
+	fn end_session(&mut self, _peer: &AuxinAddress, _context: &AuxinContext) -> auxin::Result<()> {
 		/*
 		// DELETING FILES MAY BE COUNTERPRODUCTIVE, pending further testing.
 
