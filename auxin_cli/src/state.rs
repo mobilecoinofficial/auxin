@@ -602,8 +602,7 @@ impl StateManager {
 		// TODO(Diana): Phone numbers, UUIDs, usernames, unwrap.
 		let our_id = context.identity.address.get_phone_number().unwrap();
 		//Figure out some directories.
-		// TODO(Diana): Replace signature with PathBuf
-		self.data_dir.join(our_id).with_extension(".d")
+		self.data_dir.join(our_id).with_extension("d")
 	}
 }
 
