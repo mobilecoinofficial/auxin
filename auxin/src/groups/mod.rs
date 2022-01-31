@@ -7,6 +7,7 @@ pub mod sender_key;
 //pub mod group_context;
 
 use libsignal_protocol::error::SignalProtocolError;
+use log::debug;
 use protobuf::{CodedInputStream, ProtobufError};
 use zkgroup::{groups::GroupMasterKey, PROFILE_KEY_LEN};
 use zkgroup::GROUP_MASTER_KEY_LEN;
@@ -43,6 +44,13 @@ use zkgroup::{
 };
 
 use crate::{net::{AuxinHttpsConnection, common_http_headers}, LocalIdentity, message::fix_protobuf_buf};
+
+pub const LIVE_ZKGROUP_SERVER_PUBLIC_PARAMS: &'static str = "AMhf5ywVwITZMsff/eCyudZx9JDmkkkbV6PInzG4p8x3VqVJSFiMvnvlEKWuRob/1eaIetR31IYeAbm0NdOuHH8Qi+Rexi1wLlpzIo1gstHWBfZzy1+qHRV5A4TqPp15YzBPm0WSggW6PbSn+F4lf57VCnHF7p8SvzAA2ZZJPYJURt8X7bbg+H3i+PEjH9DXItNEqs2sNcug37xZQDLm7X36nOoGPs54XsEGzPdEV+itQNGUFEjY6X9Uv+Acuks7NpyGvCoKxGwgKgE5XyJ+nNKlyHHOLb6N1NuHyBrZrgtY/JYJHRooo5CEqYKBqdFnmbTVGEkCvJKxLnjwKWf+fEPoWeQFj5ObDjcKMZf2Jm2Ae69x+ikU5gBXsRmoF94GXQ==";
+
+pub fn get_server_public_params() -> ServerPublicParams { 
+    let bytes = base64::decode(LIVE_ZKGROUP_SERVER_PUBLIC_PARAMS).unwrap();
+    bincode::deserialize(&bytes).unwrap()
+}
 
 pub(crate) struct GroupOperations {
     group_secret_params: GroupSecretParams,
@@ -90,7 +98,12 @@ impl From<protobuf::ProtobufError> for GroupDecryptionError {
 }
 
 impl GroupOperations {
-    fn decrypt_uuid(
+    pub fn new(params: GroupSecretParams) -> Self {
+        Self { 
+            group_secret_params: params,
+        }
+    }
+    pub fn decrypt_uuid(
         &self,
         uuid: &[u8],
     ) -> Result<[u8; 16], GroupDecryptionError> {
@@ -101,7 +114,7 @@ impl GroupOperations {
         Ok(bytes)
     }
 
-    fn decrypt_profile_key(
+    pub fn decrypt_profile_key(
         &self,
         profile_key: &[u8],
         decrypted_uuid: [u8; 16],
@@ -112,7 +125,7 @@ impl GroupOperations {
         )?)
     }
 
-    fn decrypt_member(
+    pub fn decrypt_member(
         &self,
         member: EncryptedMember,
     ) -> Result<DecryptedMember, GroupDecryptionError> {
@@ -141,7 +154,7 @@ impl GroupOperations {
         Ok(result)
     }
 
-    fn decrypt_pending_member(
+    pub fn decrypt_pending_member(
         &self,
         member: EncryptedPendingMember,
     ) -> Result<DecryptedPendingMember, GroupDecryptionError> {
@@ -161,7 +174,7 @@ impl GroupOperations {
         Ok(result)
     }
 
-    fn decrypt_requesting_member(
+    pub fn decrypt_requesting_member(
         &self,
         member: EncryptedRequestingMember,
     ) -> Result<DecryptedRequestingMember, GroupDecryptionError> {
@@ -189,7 +202,7 @@ impl GroupOperations {
         Ok(result)
     }
 
-    fn decrypt_blob(&self, bytes: &[u8]) -> GroupAttributeBlob {
+    pub fn decrypt_blob(&self, bytes: &[u8]) -> GroupAttributeBlob {
         if bytes.is_empty() {
             GroupAttributeBlob::default()
         } else if bytes.len() < 29 {
@@ -199,10 +212,16 @@ impl GroupOperations {
             self.group_secret_params
             .decrypt_blob(bytes)
             .map_err(|e| GroupDecryptionError::ZkGroupError(e))
+            .and_then(|buf | {
+                let out = fix_protobuf_buf(&buf[4..]);
+
+                match out {
+                    Ok(val) => Ok(val),
+                    Err(e) => Err(GroupDecryptionError::ProtobufDecodeError(e)),
+                }
+            })
             .and_then(|b| {
-                //NOTE: This was written with Prost in mind, fix_protobuf_buf may be needed here. 
-                let mut stream = CodedInputStream::from_bytes(&b[4..]);
-                //Rust's type inference was confused by this, so I wrote it verbosely. 
+                let mut stream = CodedInputStream::from_bytes(&b);
                 let out: Result<GroupAttributeBlob, ProtobufError> = stream.read_message();
                 match out {
                     Ok(val) => Ok(val),
@@ -216,21 +235,21 @@ impl GroupOperations {
         }
     }
 
-    fn decrypt_title(&self, ciphertext: &[u8]) -> String {
+    pub fn decrypt_title(&self, ciphertext: &[u8]) -> String {
         match self.decrypt_blob(ciphertext).content {
             Some(GroupAttributeBlob_oneof_content::title(title)) => title,
             _ => "".into(), // TODO: return an error here?
         }
     }
 
-    fn decrypt_description(&self, ciphertext: &[u8]) -> String {
+    pub fn decrypt_description(&self, ciphertext: &[u8]) -> String {
         match self.decrypt_blob(ciphertext).content {
             Some(GroupAttributeBlob_oneof_content::description(description)) => description,
             _ => "".into(), // TODO: return an error here?
         }
     }
 
-    fn decrypt_disappearing_message_timer(
+    pub fn decrypt_disappearing_message_timer(
         &self,
         ciphertext: &[u8],
     ) -> Option<DecryptedTimer> {
@@ -244,34 +263,30 @@ impl GroupOperations {
         }
     }
 
-    pub fn decrypt_group(
-        group_secret_params: GroupSecretParams,
+    pub fn decrypt_group( &self,
         group: EncryptedGroup,
     ) -> Result<DecryptedGroup, GroupDecryptionError> {
-        let group_operations = Self {
-            group_secret_params,
-        };
-        let title = group_operations.decrypt_title(&group.title);
+        let title = self.decrypt_title(&group.title);
         let description =
-            group_operations.decrypt_description(&group.description);
-        let disappearing_messages_timer = group_operations
+        self.decrypt_description(&group.description);
+        let disappearing_messages_timer = self
             .decrypt_disappearing_message_timer(
                 &group.disappearingMessagesTimer,
             );
         let members = group
             .members
             .into_iter()
-            .map(|m| group_operations.decrypt_member(m))
+            .map(|m| self.decrypt_member(m))
             .collect::<Result<_, _>>()?;
         let pending_members = group
             .pendingMembers
             .into_iter()
-            .map(|m| group_operations.decrypt_pending_member(m))
+            .map(|m| self.decrypt_pending_member(m))
             .collect::<Result<_, _>>()?;
         let requesting_members = group
             .requestingMembers
             .into_iter()
-            .map(|m| group_operations.decrypt_requesting_member(m))
+            .map(|m| self.decrypt_requesting_member(m))
             .collect::<Result<_, _>>()?;
 
         let mut result = DecryptedGroup::default();
@@ -363,6 +378,13 @@ pub trait CredentialsCache {
 pub struct InMemoryCredentialsCache {
     map: HashMap<i64, AuthCredentialResponse>,
 }
+impl InMemoryCredentialsCache { 
+    pub fn new() -> Self { 
+        InMemoryCredentialsCache {
+            map: HashMap::default(),
+        }
+    }
+}
 
 impl CredentialsCache for InMemoryCredentialsCache {
     fn clear(&mut self) -> Result<(), CredentialsCacheError> {
@@ -387,16 +409,19 @@ impl CredentialsCache for InMemoryCredentialsCache {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HttpAuth {
+pub struct GroupsHttpAuth {
     pub username: String,
     pub password: String,
 }
-impl HttpAuth { 
+impl GroupsHttpAuth { 
     pub fn make_auth_token(&self) -> String { 
 		let mut auth_token = self.username.clone();
 		auth_token.push(':');
 		auth_token.push_str(&self.password);
-		base64::encode(auth_token)
+		let mut result = String::from("Basic "); 
+        let encoded  = base64::encode(auth_token);
+        result.push_str(&encoded);
+        result
     }
 }
 
@@ -439,10 +464,23 @@ pub struct GroupsManager<'a, N: AuxinHttpsConnection, C: CredentialsCache> {
 
 impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 
+    pub fn new(connection: &'a mut N,
+        credentials: &'a mut C,
+        local_identity: &'a LocalIdentity,
+        server_public_params: ServerPublicParams,) -> Self { 
+
+        Self{ 
+            connection,
+            credentials, 
+            local_identity,
+            server_public_params,
+        }
+    }
+
     pub async fn get_authorization_for_today(&mut self,
         uuid: Uuid,
         group_secret_params: GroupSecretParams,
-    ) -> Result<HttpAuth, GroupApiError> {
+    ) -> Result<GroupsHttpAuth, GroupApiError> {
         let today = Self::current_time_days();
         let auth_credential_response = if let Some(auth_credential_response) =
             self.credentials.get(&today)?.clone()
@@ -475,9 +513,11 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 
         let path = format!("https://textsecure-service.whispersystems.org/v1/certificate/group/{}/{}", today, today_plus_7_days);
 
-        let auth_token = self.local_identity.make_auth_header();
+        let auth_token = self.local_identity.make_auth_header(); // This is the only place it is used. 
         let req_builder = common_http_headers(http::Method::GET, path.as_str(), auth_token.as_str() ).unwrap();
 
+        debug!("Attempting to pull in Groups authorization with request: {:?}", req_builder);
+        
         let req = req_builder.body(Vec::default()).unwrap();
         let response = self.connection.request(req).await
             .map_err(|e| GroupApiError::RequestError(format!("{:?}", e)))?;
@@ -504,7 +544,7 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
         group_secret_params: GroupSecretParams,
         credential_response: &AuthCredentialResponse,
         today: u32,
-    ) -> Result<HttpAuth, GroupApiError> {
+    ) -> Result<GroupsHttpAuth, GroupApiError> {
         let auth_credential = self.server_public_params
             .receive_auth_credential(
                 *uuid.as_bytes(),
@@ -526,6 +566,27 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
                 auth_credential,
             );
 
+        //    String username = Hex.toStringCondensed(groupSecretParams.getPublicParams().serialize());
+        //    String password = Hex.toStringCondensed(authCredentialPresentation.serialize());
+        //    authString = Credentials.basic(username, password);
+        /* And then you've got 
+        /** Factory for HTTP authorization credentials. */
+            object Credentials {
+            /** Returns an auth credential for the Basic scheme. */
+            @JvmStatic @JvmOverloads fun basic(
+                username: String,
+                password: String,
+                charset: Charset = ISO_8859_1
+            ): String {
+                val usernameAndPassword = "$username:$password"
+                val encoded = usernameAndPassword.encode(charset).base64()
+                return "Basic $encoded"
+            }
+            } 
+            
+            The most likely issue was that we were missing the "Basic " at the front, honestly. 
+        */
+
         // see simpleapi.rs GroupSecretParams_getPublicParams, everything is bincode encoded
         // across the boundary of Rust/Java
         let username = hex::encode(bincode::serialize(
@@ -534,13 +595,14 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 
         let password =
             hex::encode(bincode::serialize(&auth_credential_presentation)?);
+        //It appears that 
 
-        Ok(HttpAuth { username, password })
+        Ok(GroupsHttpAuth { username, password })
     }
 
     pub async fn get_group(&mut self,
         group_secret_params: GroupSecretParams,
-        auth: &HttpAuth,
+        auth: &GroupsHttpAuth,
     ) -> Result<DecryptedGroup, GroupApiError> {
         let auth_token = auth.make_auth_token();
         //Per Signal-Android's repo, groupsv2 requests DO go to "storage.signal.org/v1/", confirmed. See PushServiceSocket.java#L232
@@ -557,8 +619,8 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
         let mut decoder = CodedInputStream::from_bytes(&fixed_body);
         let encrypted_group = decoder.read_message()
             .map_err(|e| GroupApiError::ParsingError(format!("Could not decode group response to a protobuf: {:?}", e)))?;
-        let decrypted_group = GroupOperations::decrypt_group(
-            group_secret_params,
+        let group_ops = GroupOperations::new(group_secret_params);
+        let decrypted_group = group_ops.decrypt_group(
             encrypted_group,
         )?;
 
@@ -639,10 +701,10 @@ pub enum GroupUtilsError {
 }
 
 #[derive(Clone)]
-pub struct GroupMemberInfo { 
-    pub id: Uuid, 
+pub struct GroupMemberInfo {
+    pub id: Uuid,
     pub profile_key: Option<zkgroup::profiles::ProfileKey>,
-    pub member_role: auxin_protos::protos::groups::Member_Role, 
+    pub member_role: auxin_protos::protos::groups::Member_Role,
     pub joined_at_revision: u32,
 }
 
@@ -696,4 +758,10 @@ pub fn get_group_members_without(group: &DecryptedGroup, elide: &Uuid) -> Vec<Re
         }
     });
     result
+}
+
+#[test]
+fn test_server_public_params() { 
+    //Most of the purpose of this test is to see if get_server_public_params() panics.
+    let _params = get_server_public_params();
 }

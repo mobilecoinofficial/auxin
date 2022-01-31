@@ -24,6 +24,7 @@ use auxin_protos::{AttachmentPointer, Envelope};
 
 use custom_error::custom_error;
 use futures::TryFutureExt;
+use groups::{GroupIdV2, GroupApiError};
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
@@ -40,6 +41,7 @@ use profile::ProfileConfig;
 use protobuf::CodedInputStream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use zkgroup::{groups::{GroupSecretParams, GroupMasterKey}, ServerSecretParams};
 use std::{
 	collections::{HashMap, HashSet},
 	convert::TryFrom,
@@ -87,7 +89,7 @@ use crate::{
 	profile_cipher::ProfileCipher,
 	state::{
 		try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode,
-	}, groups::sender_key::{GroupSessionBuilder, SenderKeyName},
+	}, groups::{sender_key::{GroupSessionBuilder, SenderKeyName}, InMemoryCredentialsCache, GroupsManager, GroupOperations, get_server_public_params, get_group_members_without, GroupMemberInfo},
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -248,6 +250,30 @@ impl From<ProfileRetrievalError> for PaymentAddressRetrievalError {
 	}
 }
 
+/// An error encountered when an AuxinApp is attempting to send or receive group messages.
+#[derive(Debug)]
+pub enum GroupsError {
+	FillPeerInfoError(String),
+	InvalidMasterKeyLength(usize),
+	ApiError(GroupApiError),
+}
+
+impl std::fmt::Display for GroupsError {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match &self {
+			GroupsError::FillPeerInfoError(e) => write!(f, "There were unknown users in the group. While trying to retrieve device Ids for them, an error was encountered: {:?}", e),
+			GroupsError::InvalidMasterKeyLength(size) => write!(f, "Invalid Master Key length on a Groups data message. The size was {} bytes and a Master Key is expected to be 32 bytes long.", size),
+			GroupsError::ApiError(e) => write!(f, "Groups API error: {:?}.", e),
+		}
+	}
+}
+impl std::error::Error for GroupsError {}
+impl From<GroupApiError> for GroupsError {
+	fn from(val: GroupApiError) -> Self {
+		GroupsError::ApiError(val)
+	}
+}
+
 /// An error encountered when an AuxinApp is attempting to handle an incoming envelope.
 #[derive(Debug)]
 pub enum HandleEnvelopeError {
@@ -258,6 +284,7 @@ pub enum HandleEnvelopeError {
 	UnknownEnvelopeType(Envelope),
 	ProfileError(String),
 	InvalidSenderKeyDistributionMessage(String),
+	GroupError(GroupsError)
 }
 impl std::fmt::Display for HandleEnvelopeError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -268,11 +295,11 @@ impl std::fmt::Display for HandleEnvelopeError {
 			HandleEnvelopeError::PreKeyNoAddress => write!(f, "No peer / foreign address on a pre-key bundle message!"),
 			HandleEnvelopeError::UnknownEnvelopeType(e) => write!(f, "Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",e),
 			HandleEnvelopeError::ProfileError(e) => write!(f, "Attempted to retrieve profile information in the process of handling an envelope, but a problem was encountered: {:?}",e),
-			HandleEnvelopeError::InvalidSenderKeyDistributionMessage(e) => write!(f, "Could not deserialize a Sender Key Distribution Message: {:?}",e)
+			HandleEnvelopeError::InvalidSenderKeyDistributionMessage(e) => write!(f, "Could not deserialize a Sender Key Distribution Message: {:?}",e),
+			HandleEnvelopeError::GroupError(e) => write!(f, "Issue encountered while handing an inbound Group message: {:?}",e),
 		}
 	}
 }
-
 impl std::error::Error for HandleEnvelopeError {}
 
 impl From<SignalProtocolError> for HandleEnvelopeError {
@@ -283,6 +310,11 @@ impl From<SignalProtocolError> for HandleEnvelopeError {
 impl From<MessageInError> for HandleEnvelopeError {
 	fn from(val: MessageInError) -> Self {
 		HandleEnvelopeError::MessageDecodingErr(val)
+	}
+}
+impl From<GroupsError> for HandleEnvelopeError {
+	fn from(val: GroupsError) -> Self {
+		HandleEnvelopeError::GroupError(val)
 	}
 }
 
@@ -1687,6 +1719,118 @@ where
 		}
 	}
 
+	/// Examine a Signal Service "Content" message, checking to see if it has a sender key distribution message and processing that incoming message if there is one. 
+	async fn check_sender_key_distribution(&mut self, content: &auxin_protos::Content, remote_address: &AuxinDeviceAddress) -> std::result::Result<(), HandleEnvelopeError> { 
+		if content.has_senderKeyDistributionMessage() { 
+			let sender_key_distribution_message_bytes = content.get_senderKeyDistributionMessage();
+			let sender_key_distribution_message = SenderKeyDistributionMessage::try_from(sender_key_distribution_message_bytes)
+				.map_err(|e| HandleEnvelopeError::InvalidSenderKeyDistributionMessage(format!("{:?}", e)) )?;
+
+			let ctx = self.context.get_signal_ctx().clone();
+			debug!("Got a SenderKeyDistributionMessage: {:?}. GroupsV2 support is a work in progress so this doesn't do anything yet.", &sender_key_distribution_message);
+			//let protocol_address = result.remote_address.uuid_protocol_address().unwrap();
+			let sender_key_name = SenderKeyName{sender: remote_address.clone(), distribution_id: sender_key_distribution_message.distribution_id()?};
+
+			let mut session_builder = GroupSessionBuilder::new(&mut self.context.sender_key_store);
+			//Update or initialize ongoing group session.
+			session_builder.process(sender_key_name, sender_key_distribution_message, &ctx).await?;
+		}
+		Ok(())
+	}
+
+	/// Examine a Signal Service "DataMessage", checking to see if it has groups or Groupsv2 metadata. 
+	/// Note: This one doesn't check Sender Keys. Try check_sender_key_distribution() or the wrapper
+	/// for this function and that one, update_groups_from()
+	async fn inner_update_groups_from(&mut self, data_message: &auxin_protos::DataMessage, remote_address: &AuxinDeviceAddress) -> std::result::Result<(), GroupsError> { 
+		// GroupsV1
+		if data_message.has_group() {
+			let group_context = data_message.get_group();
+			debug!("Got GroupContext from {:?}, containing: {:?}", remote_address, group_context);
+		}
+		// GroupsV2
+		if data_message.has_groupV2() {
+			let group_context = data_message.get_groupV2();
+			debug!("Got GroupContextV2 from {:?}, containing: {:?}", remote_address, group_context);
+			// In testing, group_context.master_key is 32 bytes (I counted, hah)
+			if group_context.get_masterKey().len() == 32 { 
+				let mut master_key_bytes: [u8;32] = [0;32]; 
+				master_key_bytes.copy_from_slice(&group_context.get_masterKey()[0..32]);
+				let master_key = GroupMasterKey::new(master_key_bytes);
+				let group_secret_params = GroupSecretParams::derive_from_master_key(master_key);
+				//let group_public_params = secret_params.get_public_params();
+				// In zkgroup::constants.rs: pub const GROUP_IDENTIFIER_LEN: usize = 32;
+				let group_id: GroupIdV2 = group_secret_params.get_group_identifier();
+
+				let group_ops = GroupOperations::new(group_secret_params);
+				let mut credentials_manager = InMemoryCredentialsCache::new();
+
+				let mut group_manager = GroupsManager::new(&mut self.http_client,
+				&mut credentials_manager,
+				&self.context.identity,
+				get_server_public_params());
+
+				let our_uuid = self.context.identity.address.get_uuid().unwrap().clone();
+
+				let auth = group_manager.get_authorization_for_today(our_uuid.clone(), group_secret_params.clone()).await?;
+
+				let group = group_manager.get_group(group_secret_params, &auth).await?;
+
+				// Get a list of group members without ourselves.
+				let group_members: Vec<GroupMemberInfo> = get_group_members_without(&group, &our_uuid).iter().map(|m| m.as_ref().unwrap().clone() ).collect();
+				
+				/*
+				// "Store profile keys for known peers" step. 
+				for group_member in group_members.iter() { 
+					if let Some(pk) = group_member.profile_key { 
+						if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) { 
+							peer.profile_key = Some(base64::encode(&pk.get_bytes()));
+						}
+					}
+				}
+				// "Import new peers" step. 
+				for group_member in group_members.iter() {
+					let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+					if !self.context.peer_cache.has_peer(&peer_address) {
+						let new_id = self.context.peer_cache.last_id + 1;
+						self.context.peer_cache.last_id = new_id;
+						let record = PeerRecord {
+							id: new_id,
+							number: None,
+							uuid: Some(group_member.id.clone()),
+							profile_key: group_member.profile_key.map(|pk| base64::encode(&pk.get_bytes())),
+							profile_key_credential: None,
+							contact: None,
+							profile: None,
+							device_ids_used: HashSet::default(),
+							registration_ids: HashMap::default(),
+							identity: None,
+						};
+						self.context.peer_cache.push(record);
+						self.fill_peer_info(&peer_address).await
+							.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
+					}
+				}
+				*/
+			}
+			else {
+				return Err(GroupsError::InvalidMasterKeyLength(group_context.get_masterKey().len() as usize));
+			}
+		}
+		Ok(())
+	}
+	async fn update_groups_from(&mut self, content: &auxin_protos::Content, remote_address: &AuxinDeviceAddress) -> std::result::Result<(), HandleEnvelopeError> { 
+		if content.has_senderKeyDistributionMessage() { 
+			debug!("Got SenderKeyDistributionMessage from {:?}", remote_address);
+			self.check_sender_key_distribution(content, remote_address).await?;
+		}
+		if content.has_dataMessage() { 
+			let data_message = content.get_dataMessage(); 
+			self.inner_update_groups_from(data_message, remote_address).await?;
+		}
+		Ok(())
+	}
+
+
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
 	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
 	/// If it's something intended to be read by the end-user / externally to Signal, it returns a Some(MessageIn)
@@ -1722,20 +1866,7 @@ where
 
 				//Handle possible sender key distribution message.
 				if let Some(content) = &result.content.source {
-					if content.has_senderKeyDistributionMessage() { 
-						let sender_key_distribution_message_bytes = content.get_senderKeyDistributionMessage();
-						let sender_key_distribution_message = SenderKeyDistributionMessage::try_from(sender_key_distribution_message_bytes)
-							.map_err(|e| HandleEnvelopeError::InvalidSenderKeyDistributionMessage(format!("{:?}", e)) )?;
-
-						let ctx = self.context.get_signal_ctx().clone();
-						debug!("Got a SenderKeyDistributionMessage: {:?}. GroupsV2 support is a work in progress so this doesn't do anything yet.", &sender_key_distribution_message);
-						//let protocol_address = result.remote_address.uuid_protocol_address().unwrap();
-						let sender_key_name = SenderKeyName{sender: result.remote_address.clone(), distribution_id: sender_key_distribution_message.distribution_id()?};
-
-						let mut session_builder = GroupSessionBuilder::new(&mut self.context.sender_key_store);
-						//Update or initialize ongoing group session.
-						session_builder.process(sender_key_name, sender_key_distribution_message, &ctx).await?;
-					}
+					self.update_groups_from(content, &result.remote_address).await?;
 				}
 
 				info!(
@@ -1885,6 +2016,12 @@ where
 					self.clear_session(&result.remote_address.address)
 						.await
 						.unwrap(); // TODO: Proper error handling on clear_session();
+				}
+
+
+				//Handle possible sender key distribution message.
+				if let Some(content) = &result.content.source {
+					self.update_groups_from(content, &result.remote_address).await?;
 				}
 
 				info!(

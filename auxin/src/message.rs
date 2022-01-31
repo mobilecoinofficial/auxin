@@ -343,13 +343,13 @@ pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>,
 /// * `buf` - A buffer containing a protocol buffer message sent to us from Signal's Web API.
 #[allow(clippy::ptr_arg)]
 // TODO(Diana): buf
-pub fn fix_protobuf_buf(buf: &Vec<u8>) -> Result<Vec<u8>> {
+pub fn fix_protobuf_buf(buf: &[u8]) -> std::result::Result<Vec<u8>, protobuf::ProtobufError> {
 	let mut new_buf: Vec<u8> = Vec::new();
 	// It is expecting this to start with "Len".
 	let mut writer = protobuf::CodedOutputStream::vec(&mut new_buf);
 	writer.write_raw_varint64(buf.len() as u64)?;
 	writer.flush()?;
-	new_buf.append(&mut buf.clone());
+	new_buf.append(&mut buf.to_vec());
 	Ok(new_buf)
 }
 

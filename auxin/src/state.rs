@@ -312,6 +312,11 @@ pub trait PeerStore {
 			})
 			.filter(|v: &Vec<AuxinDeviceAddress>| !v.is_empty())
 	}
+	/// Query whether we have a peer or not. Useful helper method in cases where get()'s reference into this data structure 
+	/// leads to borrow checker trouble 
+	fn has_peer(&self, address: &AuxinAddress) -> bool { 
+		self.get(address).is_some()
+	}
 }
 
 // Many helper functions.
