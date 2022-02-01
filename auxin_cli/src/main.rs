@@ -526,9 +526,10 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
-	let sleep_time = Duration::from_millis(100);
+	println!("finished syncing context");
+	let sleep_time = Duration::from_millis(5000);
 	block_on(tokio::time::sleep(sleep_time));
-
+	println!("exiting!");
 	exit_oneshot.send(exit_code).unwrap();
 	Ok(())
 }
