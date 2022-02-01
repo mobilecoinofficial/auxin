@@ -128,16 +128,10 @@ pub async fn main() -> Result<()> {
 
 	config.enable_read_receipts = !arguments.no_read_receipt;
 	// Get it to all come together.
-	let mut app = AuxinApp::new(
-		arguments.user.clone(),
-		config,
-		net,
-		state,
-		OsRng::default(),
-	)
-	.instrument(tracing::info_span!("AuxinApp"))
-	.await
-	.unwrap();
+	let mut app = AuxinApp::new(arguments.user.clone(), config, net, state, OsRng::default())
+		.instrument(tracing::info_span!("AuxinApp"))
+		.await
+		.unwrap();
 
 	/*-----------------------------------------------\\
 	||--------------- COMMAND DISPATCH --------------||
