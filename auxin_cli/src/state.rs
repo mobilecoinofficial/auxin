@@ -750,6 +750,7 @@ impl AuxinStateManager for StateManager {
 		Ok(())
 	}
 
+	/// Saves all peer records, as there currently is not a way to save just one.
 	fn save_peer_record(
 		&mut self,
 		_peer: &AuxinAddress,
@@ -760,12 +761,14 @@ impl AuxinStateManager for StateManager {
 		self.save_all_peer_records(context)
 	}
 
+	/// Currently no-ops
 	fn save_pre_keys(&mut self, _context: &AuxinContext) -> crate::Result<()> {
 		// TODO: Currently there is no circumstance where Auxin mutates pre-keys,
 		// so I do not know the specifics of what is necessary.
 		Ok(())
 	}
 
+	/// Currently no-ops
 	fn save_our_identity(&mut self, _context: &AuxinContext) -> crate::Result<()> {
 		// TODO: Currently there is no circumstance where Auxin mutates our own identity,
 		// so I do not know the specifics of what is necessary.
@@ -773,9 +776,8 @@ impl AuxinStateManager for StateManager {
 		Ok(())
 	}
 
+	/// This does nothing for signal-cli, since we flush immediately.
 	fn flush(&mut self, _context: &AuxinContext) -> crate::Result<()> {
-		// This implementation "Flush"s every time / writes changes
-		// immediately rather than queueing them, so this is unnecessary.
 		Ok(())
 	}
 
