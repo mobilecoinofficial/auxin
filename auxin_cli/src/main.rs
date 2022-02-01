@@ -98,7 +98,10 @@ pub fn main() {
 			.block_on(async_main(tx))
 			.unwrap();
 	});
-	match rx.blocking_recv() {
+	let exit_code = rx.blocking_recv();
+	let sleep_time = Duration::from_millis(1000);
+	std::thread::sleep(sleep_time);
+	match exit_code {
 		Ok(code) => {
 			runtime.shutdown_background();
 			std::process::exit(code);
@@ -527,9 +530,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	println!("finished syncing context");
-	let sleep_time = Duration::from_millis(5000);
-	block_on(tokio::time::sleep(sleep_time));
-	println!("exiting!");
 	exit_oneshot.send(exit_code).unwrap();
 	Ok(())
 }
