@@ -2091,6 +2091,7 @@ where
 	S: AuxinStateManager,
 {
 	fn drop(&mut self) {
+		// TODO(Diana): Should maybe silently ignore errors
 		// Make sure all data gets saved first.
 		self.state_manager
 			.save_entire_context(&self.context)
