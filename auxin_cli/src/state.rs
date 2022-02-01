@@ -3,7 +3,7 @@
 
 use std::{
 	convert::TryFrom,
-	fs::{read_dir, File, OpenOptions},
+	fs::{File, OpenOptions},
 	io::{Read, Write},
 	path::{Path, PathBuf},
 };
@@ -138,57 +138,49 @@ custom_error! { pub ErrBuildIdent
 	MissingPublicKey{phone_number:E164} = "No public key found when trying to build a LocalIdentity from json structure for user: {phone_number}.",
 }
 
-/// Builds a LocalIdentity from a json structure
-///
-/// - intended to be compatible with Libsignal-cli
-pub fn local_identity_from_json(base_dir: &Path, our_phone_number: &E164) -> Result<LocalIdentity> {
-	let file = File::open(base_dir.join(our_phone_number))?;
-	from_reader::<_, LocalIdentityJson>(file)?.try_into()
-}
-
 /// Load any identity keys for known peers (recipients) present in our protocol store.
+///
 /// These end up in identity_store.known_keys
-#[allow(unused_must_use)]
-#[allow(clippy::ptr_arg)]
-// TODO(Diana): our_id
+// #[allow(unused_must_use)]
+// TODO(Diana): Why is this async. No awaits in here.
 pub async fn load_known_peers(
-	our_id: &String,
-	base_dir: &str,
+	our_id: &E164,
+	data_dir: &Path,
 	recipients: &mut PeerRecordStructure,
 	identity_store: &mut InMemIdentityKeyStore,
 	ctx: libsignal_protocol::Context,
 ) -> Result<()> {
-	let mut our_path = base_dir.to_string();
-	our_path.push('/');
-	our_path.push_str(our_id);
-	our_path.push_str(".d/");
-	let mut known_peers_path = our_path.clone();
-	known_peers_path.push_str("identities/");
+	let our_path = data_dir.join(&our_id).with_extension("d");
+	let known_peers_path = our_path.join("identities");
 
 	for recip in recipients.peers.iter_mut() {
-		let mut this_peer_path = known_peers_path.clone();
-		this_peer_path.push_str(format!("{}", recip.id).as_str());
-		debug!("Attempting to load peer identity from {}", this_peer_path);
-		if Path::new(this_peer_path.as_str()).exists() {
-			let mut peer_string = String::default();
-			debug!("Loading peer identity store from path: {}", this_peer_path);
+		let this_peer_path = known_peers_path.join(recip.id.to_string());
 
-			{
-				File::open(&this_peer_path)?.read_to_string(&mut peer_string)?;
-			}
+		debug!(
+			"Attempting to load peer identity from {}",
+			this_peer_path.display()
+		);
 
-			let peer_identity: PeerIdentity = serde_json::from_str(peer_string.as_str())?;
+		if this_peer_path.exists() {
+			debug!(
+				"Loading peer identity store from path: {}",
+				this_peer_path.display()
+			);
+
+			let peer_identity: PeerIdentity = from_reader(File::open(&this_peer_path)?)?;
 
 			let decoded_key: Vec<u8> = base64::decode(&peer_identity.identity_key)?;
 			let id_key = IdentityKey::decode(decoded_key.as_slice())?;
 			for i in recip.device_ids_used.iter() {
 				if let Some(uuid) = &recip.uuid {
 					let addr = ProtocolAddress::new(uuid.to_string(), *i);
-					identity_store.save_identity(&addr, &id_key, ctx);
+					// TODO(Diana): Why are we ignoring these errors?
+					let _ = identity_store.save_identity(&addr, &id_key, ctx);
 				}
 				if let Some(number) = &recip.number {
 					let addr = ProtocolAddress::new(number.clone(), *i);
-					identity_store.save_identity(&addr, &id_key, ctx);
+					// TODO(Diana): Why are we ignoring these errors?
+					let _ = identity_store.save_identity(&addr, &id_key, ctx);
 				}
 			}
 			recip.identity = Some(peer_identity);
@@ -198,49 +190,45 @@ pub async fn load_known_peers(
 	Ok(())
 }
 
-#[allow(clippy::ptr_arg)]
-// TODO(Diana): our_id
+/// Load cached peers and sessions from signal-cli
 pub async fn load_sessions(
-	our_id: &String,
-	base_dir: &str,
+	our_phone: &E164,
+	data_dir: &Path,
 	ctx: libsignal_protocol::Context,
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
-	let mut our_path = base_dir.to_string();
-	our_path.push('/');
-	our_path.push_str(our_id);
-	our_path.push_str(".d/");
-	let mut recipients_path = our_path.clone();
-	recipients_path.push_str("recipients-store");
+	let our_path = data_dir.join(our_phone).with_extension("d");
+	let recipients_path = our_path.join("recipients-store");
 
-	let mut recipients_string = String::default();
-	debug!("Loading recipients store from path: {}", recipients_path);
+	debug!(
+		"Loading recipients store from path: {}",
+		recipients_path.display()
+	);
 
 	//----Load session metadata
 
 	//Load recipients file.
-	let mut recipient_structure: PeerRecordStructure =
-		match File::open(&recipients_path) {
-			Ok(mut file) => {
-				file.read_to_string(&mut recipients_string)?;
-				let mut recip: PeerRecordStructure =
-					serde_json::from_str(recipients_string.as_str())?;
-				recip.peers.sort();
-				recip
+	let mut recipient_structure: PeerRecordStructure = match File::open(&recipients_path) {
+		Ok(file) => {
+			let mut recip: PeerRecordStructure = from_reader(file)?;
+			recip.peers.sort();
+			recip
+		}
+		Err(error) => {
+			debug!(
+				"Unable to open recipients-store: {}, generating an empty recipients structure",
+				error
+			);
+			PeerRecordStructure {
+				peers: Vec::default(),
+				last_id: 0,
 			}
-			Err(error) => {
-				debug!("Unable to open recipients-store: {:?}, generating an empty recipients structure", error);
-				PeerRecordStructure {
-					peers: Vec::default(),
-					last_id: 0,
-				}
-			}
-		};
+		}
+	};
 
 	//---Look for recorded sessions in our sessions directory.
 
-	let mut session_path = our_path.clone();
-	session_path.push_str("sessions/");
-	let directory_contents = read_dir(session_path.clone());
+	let session_path = our_path.join("sessions");
+	let directory_contents = session_path.read_dir();
 
 	let session_store = match directory_contents {
 		Ok(directory_contents) => {
@@ -269,11 +257,12 @@ pub async fn load_sessions(
 			let mut session_store = InMemSessionStore::default();
 
 			for file_name in session_file_list {
-				let mut file_path = session_path.clone();
-				file_path.push_str(file_name.as_str());
+				let file_path = session_path.join(&file_name);
+
 				let (recipient_id, recipient_device_id) = file_name.split_once('_').unwrap();
-				//Address retrieval from oru previously-built session list
+				//Address retrieval from our previously-built session list
 				//TODO: More informative error handling.
+				// TODO(Diana): Why usize?
 				let recipient_id_num: usize = recipient_id.parse::<usize>()?;
 				debug!(
 					"Loading a recipient. Recipient ID number {:?}",
@@ -296,12 +285,12 @@ pub async fn load_sessions(
 
 					//Open session file.
 					let mut buffer = Vec::new();
-					let mut f = File::open(file_path.as_str())?;
+					let mut f = File::open(&file_path)?;
 					f.read_to_end(&mut buffer)?;
 					//Call into libsignal-client-rs's decoding generated by protobuf
 					let record = SessionRecord::deserialize(buffer.as_slice())?;
 
-					debug!("Loaded {} bytes from {}", buffer.len(), &file_path);
+					debug!("Loaded {} bytes from {}", buffer.len(), file_path.display());
 
 					//Store the registration ID if we've got it.
 					if let Ok(reg_id) = record.remote_registration_id() {
@@ -325,7 +314,7 @@ pub async fn load_sessions(
 		}
 		Err(e) => {
 			debug!(
-				"Could not open directory: {:?}, generating new session store.",
+				"Could not open directory: {}, generating new session store.",
 				e
 			);
 			InMemSessionStore::new()
@@ -334,30 +323,22 @@ pub async fn load_sessions(
 	Ok((session_store, recipient_structure))
 }
 
-#[allow(clippy::ptr_arg)]
-// TODO(Diana): our_id
 pub async fn load_prekeys(
-	our_id: &String,
-	base_dir: &str,
+	our_phone: &E164,
+	data_dir: &Path,
 	ctx: libsignal_protocol::Context,
 ) -> Result<(InMemPreKeyStore, InMemSignedPreKeyStore)> {
 	let mut pre_key_store = InMemPreKeyStore::default();
 	let mut signed_pre_key_store = InMemSignedPreKeyStore::default();
 
 	//Figure out some directories.
-	let mut our_path = base_dir.to_string();
-	our_path.push('/');
-	our_path.push_str(our_id);
-	our_path.push_str(".d/");
-	let mut pre_keys_path = our_path.clone();
-	pre_keys_path.push_str("pre-keys/");
-	let mut signed_pre_keys_path = our_path.clone();
-	signed_pre_keys_path.push_str("signed-pre-keys/");
+	let our_path = data_dir.join(our_phone).with_extension("d");
+	let pre_keys_path = our_path.join("pre-keys");
+	let signed_pre_keys_path = our_path.join("signed-pre-keys");
 
 	//Iterate through files in pre_keys_path
-
-	if Path::new(pre_keys_path.as_str()).exists() {
-		let directory_contents = read_dir(pre_keys_path.clone())?;
+	if pre_keys_path.exists() {
+		let directory_contents = pre_keys_path.read_dir()?;
 
 		let mut pre_key_file_list: Vec<String> = Vec::default();
 
@@ -381,13 +362,13 @@ pub async fn load_prekeys(
 		}
 
 		for file_name in pre_key_file_list {
-			let mut file_path = pre_keys_path.clone();
-			file_path.push_str(file_name.as_str());
+			let file_path = pre_keys_path.join(&file_name);
+
 			//These files should be named 0, 1, 2, etc...
 			let _id: u32 = file_name.parse()?;
 
 			let mut buffer = Vec::new();
-			let mut f = File::open(file_path.as_str())?;
+			let mut f = File::open(file_path)?;
 			f.read_to_end(&mut buffer)?;
 
 			let record = PreKeyRecord::deserialize(buffer.as_slice())?;
@@ -398,9 +379,9 @@ pub async fn load_prekeys(
 		}
 	}
 
-	if Path::new(signed_pre_keys_path.as_str()).exists() {
+	if signed_pre_keys_path.exists() {
 		//Iterate through files in signed_pre_keys_path
-		let directory_contents = read_dir(signed_pre_keys_path.clone())?;
+		let directory_contents = signed_pre_keys_path.read_dir()?;
 
 		let mut signed_pre_key_file_list: Vec<String> = Vec::default();
 
@@ -424,13 +405,13 @@ pub async fn load_prekeys(
 		}
 
 		for file_name in signed_pre_key_file_list {
-			let mut file_path = signed_pre_keys_path.clone();
-			file_path.push_str(file_name.as_str());
+			let file_path = signed_pre_keys_path.join(&file_name);
+
 			//These files should be named 0, 1, 2, etc...
 			let id: u32 = file_name.parse()?;
 
 			let mut buffer = Vec::new();
-			let mut f = File::open(file_path.as_str())?;
+			let mut f = File::open(file_path)?;
 			f.read_to_end(&mut buffer)?;
 
 			let record = SignedPreKeyRecord::deserialize(buffer.as_slice())?;
@@ -546,7 +527,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 }
 
 pub async fn make_context(
-	base_dir: &str,
+	data_dir: &Path,
 	local_identity: LocalIdentity,
 	config: AuxinConfig,
 ) -> Result<Context> {
@@ -556,17 +537,18 @@ pub async fn make_context(
 		InMemIdentityKeyStore::new(local_identity.identity_keys, local_identity.reg_id);
 
 	//Load cached peers and sessions.
-	let (sessions, mut peers) = load_sessions(our_phone_number, base_dir, None).await?;
+	let (sessions, mut peers) = load_sessions(our_phone_number, data_dir, None).await?;
+
 	//Load identity keys we saved for peers previously. Writes to the identity store.
 	load_known_peers(
 		our_phone_number,
-		base_dir,
+		data_dir,
 		&mut peers,
 		&mut identity_store,
 		None,
 	)
 	.await?;
-	let (pre_keys, signed_pre_keys) = load_prekeys(our_phone_number, base_dir, None).await?;
+	let (pre_keys, signed_pre_keys) = load_prekeys(our_phone_number, data_dir, None).await?;
 
 	Ok(Context {
 		identity: local_identity,
@@ -606,11 +588,12 @@ impl StateManager {
 	}
 }
 
+/// Auxin state, compatible with signal-cli
 impl AuxinStateManager for StateManager {
-	/// Load the local identity for `phone_number`
+	/// Load the local identity for `phone_number` from signal-cli
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
-		let local_identity = local_identity_from_json(Path::new(&self.data_dir), phone_number)?;
-		Ok(local_identity)
+		let file = File::open(self.data_dir.join(phone_number))?;
+		from_reader::<_, LocalIdentityJson>(file)?.try_into()
 	}
 
 	fn load_context(
@@ -618,9 +601,8 @@ impl AuxinStateManager for StateManager {
 		credentials: &LocalIdentity,
 		config: AuxinConfig,
 	) -> crate::Result<AuxinContext> {
-		// TODO(Diana): Unwrap
-		let data_dir = self.data_dir.to_str().unwrap();
-		return block_on(make_context(data_dir, credentials.clone(), config));
+		// TODO(Diana): Why so much async in this file for a sync interface??
+		return block_on(make_context(&self.data_dir, credentials.clone(), config));
 	}
 
 	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer
@@ -717,7 +699,7 @@ impl AuxinStateManager for StateManager {
 		let our_path = self.get_protocol_store_path(context);
 
 		let recipients_path = our_path.join("recipients-store");
-		let recipients_bk_path = our_path.with_extension("bk");
+		let recipients_bk_path = recipients_path.with_extension("bk");
 
 		let mut file = OpenOptions::new()
 			.truncate(true)
