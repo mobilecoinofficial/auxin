@@ -89,8 +89,28 @@ pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
 }
 
-#[tokio::main(flavor = "current_thread")]
-pub async fn main() -> Result<()> {
+pub fn main() {
+	let (tx, rx) = tokio::sync::oneshot::channel::<i32>();
+	let runtime = tokio::runtime::Runtime::new().unwrap();
+	std::thread::spawn(move || {
+		tokio::runtime::Runtime::new()
+			.unwrap()
+			.block_on(async_main(tx))
+			.unwrap();
+	});
+	match rx.blocking_recv() {
+		Ok(code) => {
+			runtime.shutdown_background();
+			std::process::exit(code);
+		}
+		Err(x) => {
+			println!("Error: {}", x);
+			std::process::exit(1)
+		}
+	}
+}
+
+pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Result<()> {
 	/*-----------------------------------------------\\
 	||------------ LOGGER INITIALIZATION ------------||
 	\\-----------------------------------------------*/
@@ -113,6 +133,7 @@ pub async fn main() -> Result<()> {
 	||------------ INIT CONTEXT/IDENTITY ------------||
 	\\-----------------------------------------------*/
 
+	let mut exit_code = 0;
 	let arguments = AppArgs::from_args();
 
 	let base_dir = format!("{}/data", arguments.config.as_str());
@@ -266,11 +287,11 @@ pub async fn main() -> Result<()> {
 		AuxinCommand::JsonRPC => {
 			// TODO: Permit people to configure receive behavior in the JsonRPC command,
 			// including interval and whether or not to do receive ticks at all.
-
 			let stdin = tokio::io::stdin();
 			let reader = tokio::io::BufReader::new(stdin);
 			let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
-
+			// JsonRPC never exits cleanly
+			exit_code = 1;
 			// --- SET UP OUR STDIN READER TASK
 
 			//How many lines can we receive in one pass?
@@ -321,29 +342,34 @@ pub async fn main() -> Result<()> {
 			) = mpsc::channel(MESSAGE_BUF_COUNT);
 
 			tokio::task::spawn_blocking(move || {
-				let mut receiver =
-					block_on(AuxinTungsteniteConnection::new(receiver_credentials)).unwrap();
-
-				loop {
-					while let Some(msg) = block_on(receiver.next()) {
-						block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
+				match block_on(AuxinTungsteniteConnection::new(receiver_credentials)) {
+					Err(msg) => {
+						println!("Failed to connect! {}", msg)
+					}
+					Ok(mut receiver) => {
+						// once we've built: this will either receive forever, reconnect as needed, or die
+						loop {
+							while let Some(msg) = block_on(receiver.next()) {
+								block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
 							panic!(
 								"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
 								MESSAGE_BUF_COUNT
 							)
 						});
-					}
-					trace!("Entering sleep...");
-					let sleep_time = Duration::from_millis(100);
-					block_on(tokio::time::sleep(sleep_time));
+							}
+							trace!("Entering sleep...");
+							let sleep_time = Duration::from_millis(100);
+							block_on(tokio::time::sleep(sleep_time));
 
-					if let Err(e) = block_on(receiver.refresh()) {
-						log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-						block_on(receiver.reconnect())
-							.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
-							.unwrap();
+							if let Err(e) = block_on(receiver.refresh()) {
+								log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+								block_on(receiver.reconnect())
+									.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+									.unwrap();
+							}
+						}
 					}
-				}
+				};
 			});
 
 			// Prepare to (potentially) download attachments
@@ -500,5 +526,9 @@ pub async fn main() -> Result<()> {
 		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
+	let sleep_time = Duration::from_millis(100);
+	block_on(tokio::time::sleep(sleep_time));
+
+	exit_oneshot.send(exit_code).unwrap();
 	Ok(())
 }
