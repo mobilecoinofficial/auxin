@@ -3,6 +3,7 @@
 
 use std::{
 	convert::TryFrom,
+	fs,
 	fs::{File, OpenOptions},
 	io::{Read, Write},
 	path::{Path, PathBuf},
@@ -23,7 +24,7 @@ use libsignal_protocol::{
 	PrivateKey, ProtocolAddress, PublicKey, SessionRecord, SessionStore, SignedPreKeyRecord,
 	SignedPreKeyStore,
 };
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_value};
 use uuid::Uuid;
@@ -579,7 +580,13 @@ impl StateManager {
 		}
 	}
 
-	/// Get path to signal-cli protocol state
+	/// Used in tests
+	#[cfg(test)]
+	fn new_test(data_dir: PathBuf) -> Self {
+		StateManager { data_dir }
+	}
+
+	/// Get path to signal-cli protocol state, `<phone_number>.d`
 	fn get_protocol_store_path(&self, context: &AuxinContext) -> PathBuf {
 		// TODO(Diana): Phone numbers, UUIDs, usernames, unwrap.
 		let our_id = context.identity.address.get_phone_number().unwrap();
@@ -629,6 +636,7 @@ impl AuxinStateManager for StateManager {
 				return Ok(());
 			}
 		};
+
 		//Figure out some directories.
 		let our_path = self.get_protocol_store_path(context);
 		let session_path = our_path.join("sessions");
@@ -647,12 +655,16 @@ impl AuxinStateManager for StateManager {
 				let address = ProtocolAddress::new(uuid.to_string().clone(), *device_id);
 
 				let file_path = session_path.join(format!("{}_{}", peer_record.id, device_id));
+				let file_bk_path = file_path.with_extension("bk");
 
-				let mut file = OpenOptions::new()
-					.truncate(true)
-					.write(true)
-					.create(true)
-					.open(file_path)?;
+				if file_bk_path.exists() {
+					error!(
+						"Working copy of session store {} already exists, \
+and cannot automatically be repaired.",
+						file_bk_path.display()
+					);
+					return Err("sessions corrupt".into());
+				}
 
 				let session = block_on(
 					context
@@ -668,9 +680,15 @@ impl AuxinStateManager for StateManager {
 						//} else {
 
 						let bytes = s.serialize()?;
+						let mut file = OpenOptions::new()
+							.truncate(true)
+							.write(true)
+							.create(true)
+							.open(&file_bk_path)?;
 						file.write_all(bytes.as_slice())?;
 						file.flush()?;
-						drop(file);
+						file.sync_all()?;
+						fs::rename(file_bk_path, file_path)?;
 						//}
 					}
 					None => {
@@ -700,46 +718,53 @@ impl AuxinStateManager for StateManager {
 		let our_path = self.get_protocol_store_path(context);
 
 		let recipients_path = our_path.join("recipients-store");
+
+		// Working copy
 		let recipients_bk_path = recipients_path.with_extension("bk");
 
-		let mut file = OpenOptions::new()
-			.truncate(true)
-			.write(true)
-			.create(true)
-			.open(recipients_path)?;
+		if recipients_bk_path.exists() {
+			error!(
+				"Working copy of recipients-store {} already exists, \
+and cannot automatically be repaired.",
+				recipients_bk_path.display()
+			);
+			return Err("recipients-store corrupt".into());
+		}
 
 		// Save recipient store:
-		let json_recipient_structure = serde_json::to_string_pretty(&context.peer_cache)?;
 		let mut bk_file = OpenOptions::new()
 			.truncate(true)
 			.write(true)
 			.create(true)
-			.open(recipients_bk_path)?;
-
-		bk_file.write_all(json_recipient_structure.as_bytes())?;
+			.open(&recipients_bk_path)?;
+		serde_json::to_writer_pretty(&mut bk_file, &context.peer_cache)?;
 		bk_file.flush()?;
-		drop(bk_file);
-
-		file.write_all(json_recipient_structure.as_bytes())?;
-		file.flush()?;
-
-		//Ensure file is closed ASAP.
-		drop(file);
+		bk_file.sync_all()?;
+		fs::rename(recipients_bk_path, recipients_path)?;
 
 		let identities_path = our_path.join("identities");
 		for recip in context.peer_cache.peers.iter() {
 			if let Some(ident) = &recip.identity {
 				let id = recip.id;
 				let file_path = identities_path.join(id.to_string());
+				let file_bk_path = file_path.with_extension("bk");
+				if file_bk_path.exists() {
+					error!(
+						"Working copy of peer identity {} already exists, \
+and cannot automatically be repaired.",
+						file_bk_path.display()
+					);
+					return Err("peer corrupt".into());
+				}
 				let mut file = OpenOptions::new()
 					.truncate(true)
 					.write(true)
 					.create(true)
-					.open(file_path)?;
-				let json_identity = serde_json::to_string(ident)?;
-				file.write_all(json_identity.as_bytes())?;
+					.open(&file_bk_path)?;
+				serde_json::to_writer_pretty(&mut file, ident)?;
 				file.flush()?;
-				drop(file);
+				file.sync_all()?;
+				fs::rename(file_bk_path, file_path)?;
 			}
 		}
 
@@ -832,15 +857,16 @@ mod tests {
 	fn test_config_parse() -> Result<()> {
 		let path = Path::new("../state/data");
 		// Ensure we actually parse *something* and the directory isnt just empty/missing files
-		// If anything fails to parse it'll error
+		// If anything fails to parse it'll error, failing the test.
 		let mut done = false;
+		let mut state = StateManager::new_test(path.to_path_buf());
 		for file in fs::read_dir(path)? {
 			let file = file?;
 			let name = file.file_name().to_str().unwrap().to_string();
 			if name.ends_with('d') {
 				continue;
 			}
-			let _local_identity = local_identity_from_json(path, &name.into())?;
+			let _local_identity = state.load_local_identity(&name)?;
 			done = true
 		}
 		assert!(done, "state is empty, didn't actually parse anything");
