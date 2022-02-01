@@ -591,6 +591,9 @@ impl StateManager {
 /// Auxin state, compatible with signal-cli
 impl AuxinStateManager for StateManager {
 	/// Load the local identity for `phone_number` from signal-cli
+	///
+	/// In signal_cli's protocol store structure,
+	/// this comes from the file with a name which is your phone number inside the "data" directory.
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
 		let file = File::open(self.data_dir.join(phone_number))?;
 		from_reader::<_, LocalIdentityJson>(file)?.try_into()
@@ -605,7 +608,6 @@ impl AuxinStateManager for StateManager {
 		return block_on(make_context(&self.data_dir, credentials.clone(), config));
 	}
 
-	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer
 	fn save_peer_sessions(
 		&mut self,
 		peer: &AuxinAddress,
@@ -690,7 +692,6 @@ impl AuxinStateManager for StateManager {
 		Ok(())
 	}
 
-	/// Save peer record info from all peers.
 	fn save_all_peer_records(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		info!(
 			"Start of auxin_cli's save_all_peer_records() at {}",
@@ -749,7 +750,6 @@ impl AuxinStateManager for StateManager {
 		Ok(())
 	}
 
-	/// Save peer record info from a specific peer.
 	fn save_peer_record(
 		&mut self,
 		_peer: &AuxinAddress,
@@ -760,15 +760,12 @@ impl AuxinStateManager for StateManager {
 		self.save_all_peer_records(context)
 	}
 
-	/// Saves both pre_key_store AND signed_pre_key_store from the context.
 	fn save_pre_keys(&mut self, _context: &AuxinContext) -> crate::Result<()> {
 		// TODO: Currently there is no circumstance where Auxin mutates pre-keys,
 		// so I do not know the specifics of what is necessary.
 		Ok(())
 	}
 
-	/// Saves our identity - this is unlikely to change often,
-	/// but sometimes we may need to change things like, for example, our profile key.
 	fn save_our_identity(&mut self, _context: &AuxinContext) -> crate::Result<()> {
 		// TODO: Currently there is no circumstance where Auxin mutates our own identity,
 		// so I do not know the specifics of what is necessary.
@@ -776,16 +773,12 @@ impl AuxinStateManager for StateManager {
 		Ok(())
 	}
 
-	/// Ensure all changes are fully saved, not just queued.
-	/// Awaiting on this should block for as long as is required to ensure no data loss.
 	fn flush(&mut self, _context: &AuxinContext) -> crate::Result<()> {
 		// This implementation "Flush"s every time / writes changes
 		// immediately rather than queueing them, so this is unnecessary.
 		Ok(())
 	}
 
-	/// Delete or otherwise mark-dead a stored session for a peer.
-	/// Called when receiving a message with the END_SESSION flag enabled.
 	fn end_session(&mut self, _peer: &AuxinAddress, _context: &AuxinContext) -> auxin::Result<()> {
 		/*
 		// DELETING FILES MAY BE COUNTERPRODUCTIVE, pending further testing.

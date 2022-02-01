@@ -498,7 +498,6 @@ impl PeerInfoReply {
 
 pub trait AuxinStateManager {
 	/// Load the local identity for this node, for the user account Auxin will operate as.
-	/// In signal_cli's protocol store structure, this would come from the file with a name which is your phone number inside the "data" directory.
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
 
 	/// Load the context for the local identity, holds critical protocol information
@@ -537,13 +536,15 @@ pub trait AuxinStateManager {
 		peer: &AuxinAddress,
 		context: &AuxinContext,
 	) -> crate::Result<()>;
+
 	/// Saves both pre_key_store AND signed_pre_key_store from the context.
 	fn save_pre_keys(&mut self, context: &AuxinContext) -> crate::Result<()>;
 
-	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
+	/// Saves our identity - this is unlikely to change often,
+	/// but sometimes we may need to change things like, for example, our profile key.
 	fn save_our_identity(&mut self, context: &AuxinContext) -> crate::Result<()>;
 
-	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss.
+	/// Ensure all changes are fully saved, not just queued.
 	fn flush(&mut self, context: &AuxinContext) -> crate::Result<()>;
 
 	/// Saves absolutely every relevant scrap of data we have loaded
