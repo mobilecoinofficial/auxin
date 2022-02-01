@@ -90,20 +90,22 @@ pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 }
 
 pub fn main() {
+	// used to send the exit code from async_main to the main task
 	let (tx, rx) = tokio::sync::oneshot::channel::<i32>();
-	let runtime = tokio::runtime::Runtime::new().unwrap();
+	// async_main never returns because stdin blocking task never exits
 	std::thread::spawn(move || {
 		tokio::runtime::Runtime::new()
 			.unwrap()
 			.block_on(async_main(tx))
 			.unwrap();
 	});
+	// so we just run async_main in its own thread and do a blocking_recv call on the exit pipe
 	let exit_code = rx.blocking_recv();
+	// we sleep a bit so all the Drop()s get a chance to run (re-flushing keystate)
 	let sleep_time = Duration::from_millis(1000);
 	std::thread::sleep(sleep_time);
 	match exit_code {
 		Ok(code) => {
-			runtime.shutdown_background();
 			std::process::exit(code);
 		}
 		Err(x) => {
@@ -307,6 +309,8 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			) = mpsc::channel(LINE_BUF_COUNT);
 
 			tokio::task::spawn_blocking(move || loop {
+				// TODO: add a oneshot here and select across lines.next_line and the oneshot rx,
+				// send a message to trigger this task's termination
 				// Poll stdin
 				let maybe_input = block_on(lines.next_line());
 				// What did we get back from stdin?
