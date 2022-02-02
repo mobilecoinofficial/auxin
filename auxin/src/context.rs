@@ -28,9 +28,11 @@ pub struct AuxinConfig {
 }
 
 impl Default for AuxinConfig {
-    fn default() -> Self {
-        Self { enable_read_receipts: true }
-    }
+	fn default() -> Self {
+		Self {
+			enable_read_receipts: true,
+		}
+	}
 }
 
 /// Basic signal protocol information and key secrets for the local signal node.

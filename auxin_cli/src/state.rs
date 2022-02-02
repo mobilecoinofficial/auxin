@@ -534,7 +534,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 
 				let bytes = s.serialize()?;
 				file.write_all(bytes.as_slice())?;
-				file.flush()?;
+				file.sync_all()?;
 				drop(file);
 				//}
 			}
@@ -555,7 +555,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 		.open(recipients_bk_path.clone())?;
 
 	bk_file.write_all(json_recipient_structure.as_bytes())?;
-	bk_file.flush()?;
+	bk_file.sync_all()?;
 	drop(bk_file);
 
 	let mut file = OpenOptions::new()
@@ -565,7 +565,7 @@ pub async fn save_all(context: &Context, base_dir: &str) -> Result<()> {
 		.open(recipients_path.clone())?;
 
 	file.write_all(json_recipient_structure.as_bytes())?;
-	file.flush()?;
+	file.sync_all()?;
 	//Ensure file is closed ASAP.
 	drop(file);
 
@@ -717,7 +717,7 @@ impl AuxinStateManager for StateManager {
 
 						let bytes = s.serialize()?;
 						file.write_all(bytes.as_slice())?;
-						file.flush()?;
+						file.sync_all()?;
 						drop(file);
 						//}
 					}
@@ -767,11 +767,11 @@ impl AuxinStateManager for StateManager {
 			.open(recipients_bk_path.clone())?;
 
 		bk_file.write_all(json_recipient_structure.as_bytes())?;
-		bk_file.flush()?;
+		bk_file.sync_all()?;
 		drop(bk_file);
 
 		file.write_all(json_recipient_structure.as_bytes())?;
-		file.flush()?;
+		file.sync_all()?;
 
 		//Ensure file is closed ASAP.
 		drop(file);
@@ -789,7 +789,7 @@ impl AuxinStateManager for StateManager {
 					.open(file_path.clone())?;
 				let json_identity = serde_json::to_string(ident)?;
 				file.write_all(json_identity.as_bytes())?;
-				file.flush()?;
+				file.sync_all()?;
 				drop(file);
 			}
 		}
