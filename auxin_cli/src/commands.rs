@@ -843,6 +843,7 @@ pub async fn handle_send_command(
 			.content
 			.build_signal_content(
 				&base64::encode(&app.context.identity.profile_key),
+				None,
 				timestamp,
 			)
 			.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;

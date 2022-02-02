@@ -24,7 +24,7 @@ use auxin_protos::{AttachmentPointer, Envelope};
 
 use custom_error::custom_error;
 use futures::TryFutureExt;
-use groups::{GroupIdV2, GroupApiError};
+use groups::GroupApiError;
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
@@ -41,7 +41,7 @@ use profile::ProfileConfig;
 use protobuf::CodedInputStream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use zkgroup::{groups::{GroupSecretParams, GroupMasterKey}, ServerSecretParams};
+use zkgroup::groups::{GroupSecretParams, GroupMasterKey};
 use std::{
 	collections::{HashMap, HashSet},
 	convert::TryFrom,
@@ -89,7 +89,7 @@ use crate::{
 	profile_cipher::ProfileCipher,
 	state::{
 		try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode,
-	}, groups::{sender_key::{GroupSessionBuilder, SenderKeyName}, InMemoryCredentialsCache, GroupsManager, GroupOperations, get_server_public_params, get_group_members_without, GroupMemberInfo},
+	}, groups::{sender_key::{SenderKeyName, process_sender_key}, InMemoryCredentialsCache, GroupsManager, get_server_public_params, get_group_members_without, GroupMemberInfo, GroupIdV2},
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -602,7 +602,7 @@ where
 		let timestamp = generate_timestamp();
 		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
 		let outgoing_push_list = message_list
-			.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, timestamp)
+			.generate_messages_to_all_devices(&mut self.context, mode, None, &mut self.rng, timestamp)
 			.await
 			.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
 
@@ -829,6 +829,7 @@ where
 			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
 
 			recipient.profile = Some(prof.to_local());
+
 		}
 
 		let peer_info = self.request_peer_info(&uuid).await?;
@@ -1731,9 +1732,8 @@ where
 			//let protocol_address = result.remote_address.uuid_protocol_address().unwrap();
 			let sender_key_name = SenderKeyName{sender: remote_address.clone(), distribution_id: sender_key_distribution_message.distribution_id()?};
 
-			let mut session_builder = GroupSessionBuilder::new(&mut self.context.sender_key_store);
 			//Update or initialize ongoing group session.
-			session_builder.process(sender_key_name, sender_key_distribution_message, &ctx).await?;
+			process_sender_key(&mut self.context.sender_key_store, sender_key_name, sender_key_distribution_message, &ctx).await?;
 		}
 		Ok(())
 	}
@@ -1755,13 +1755,14 @@ where
 			if group_context.get_masterKey().len() == 32 { 
 				let mut master_key_bytes: [u8;32] = [0;32]; 
 				master_key_bytes.copy_from_slice(&group_context.get_masterKey()[0..32]);
-				let master_key = GroupMasterKey::new(master_key_bytes);
+				let master_key = GroupMasterKey::new(master_key_bytes.clone());
 				let group_secret_params = GroupSecretParams::derive_from_master_key(master_key);
 				//let group_public_params = secret_params.get_public_params();
 				// In zkgroup::constants.rs: pub const GROUP_IDENTIFIER_LEN: usize = 32;
-				let group_id: GroupIdV2 = group_secret_params.get_group_identifier();
 
-				let group_ops = GroupOperations::new(group_secret_params);
+				let group_id: GroupIdV2 = group_secret_params.get_group_identifier();
+				//let group_ops = GroupOperations::new(group_secret_params);
+
 				let mut credentials_manager = InMemoryCredentialsCache::new();
 
 				let mut group_manager = GroupsManager::new(&mut self.http_client,
@@ -1772,22 +1773,22 @@ where
 				let our_uuid = self.context.identity.address.get_uuid().unwrap().clone();
 
 				let auth = group_manager.get_authorization_for_today(our_uuid.clone(), group_secret_params.clone()).await?;
-
 				let group = group_manager.get_group(group_secret_params, &auth).await?;
 
 				// Get a list of group members without ourselves.
 				let group_members: Vec<GroupMemberInfo> = get_group_members_without(&group, &our_uuid).iter().map(|m| m.as_ref().unwrap().clone() ).collect();
 				
-				/*
 				// "Store profile keys for known peers" step. 
 				for group_member in group_members.iter() { 
-					if let Some(pk) = group_member.profile_key { 
+					if let Some(pk) = group_member.profile_key {
 						if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) { 
+							// I have manually checked - these are valid profile keys for the users, not some key-derivation thing. 
 							peer.profile_key = Some(base64::encode(&pk.get_bytes()));
 						}
 					}
 				}
-				// "Import new peers" step. 
+				/*
+				// "Import new peers" step.
 				for group_member in group_members.iter() {
 					let peer_address = AuxinAddress::Uuid(group_member.id.clone());
 					if !self.context.peer_cache.has_peer(&peer_address) {
@@ -1810,7 +1811,18 @@ where
 							.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
 					}
 				}
-				*/
+
+				// "Make sure we know their names now that we probably have a profile key" step
+				for group_member in group_members.iter() { 
+					let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+					if let Some(_pk) = group_member.profile_key {
+						let profile_response = self.get_and_decrypt_profile(&peer_address).await
+							.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
+						if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) {
+							peer.profile = Some(profile_response);
+						}
+					}
+				}*/
 			}
 			else {
 				return Err(GroupsError::InvalidMasterKeyLength(group_context.get_masterKey().len() as usize));

@@ -5,7 +5,7 @@ use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress},
 	generate_timestamp, sealed_sender_trust_root,
 	state::PeerStore,
-	AuxinContext, ProfileKey, Result,
+	AuxinContext, ProfileKey, Result, groups::group_message::GroupSendContext,
 };
 use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope, Envelope_Type};
 use custom_error::custom_error;
@@ -14,7 +14,7 @@ use libsignal_protocol::{
 	CiphertextMessage, CiphertextMessageType, SessionRecord, SessionStore, SignalMessage,
 	SignalProtocolError,
 };
-use log::debug;
+use log::{debug, info};
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -541,6 +541,7 @@ impl MessageContent {
 	pub fn build_signal_content(
 		&self,
 		our_profile_key: &String,
+		group: Option<&GroupSendContext>,
 		timestamp: Timestamp,
 	) -> Result<auxin_protos::Content> {
 		// Did we create this message using a content message directly?
@@ -599,6 +600,12 @@ impl MessageContent {
 				result.set_receiptMessage(receipt_message);
 			}
 
+			//Add Group information to the DataMessage if necessary. 
+			if let Some(group_info) = group { 
+				use_data_message = true;
+				group_info.add_group_data_to(&mut data_message)?;
+			}
+
 			if use_data_message {
 				result.set_dataMessage(data_message);
 				let _ = protobuf::Message::compute_size(&result);
@@ -633,6 +640,7 @@ impl MessageOut {
 		&self,
 		address_to: &AuxinDeviceAddress,
 		mode: MessageSendMode,
+		group: Option<&GroupSendContext>,
 		context: &mut AuxinContext,
 		rng: &mut Rng,
 		timestamp: u64,
@@ -702,7 +710,7 @@ impl MessageOut {
 		let b64_profile_key = base64::encode(context.identity.profile_key);
 		let content_message = self
 			.content
-			.build_signal_content(&b64_profile_key, timestamp)?;
+			.build_signal_content(&b64_profile_key, group, timestamp)?;
 
 		let sz = protobuf::Message::compute_size(&content_message);
 		debug!("Estimated content message size: {}", sz);
@@ -718,13 +726,28 @@ impl MessageOut {
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len());
 
-		// Do we have a valid session?
+		//Is this a gorup message? 
+		if let Some(group_info) = group { 
+			info!("Encrypting as a group message.");
+			let (envelope_type, ciphertext_bytes) = group_info.group_encrypt(&address_to, &our_message_bytes, context, mode, rng).await?;
+			let envelope_type_int: u8 = envelope_type.try_into()?;
+			let content = base64::encode(&ciphertext_bytes);
+			debug!("Encoded to {} bytes of base64", content.len());
 
+			return Ok(OutgoingPushMessage {
+				envelope_type: envelope_type_int,
+				destination_device_id: their_address.device_id(),
+				destination_registration_id: reg_id,
+				content,
+			});
+		}
+
+		// Not a group message, proceed with regular one user to one user cryptography. 
 		Ok(match mode {
 			MessageSendMode::Standard => {
 				//It is critically important that, at the very least, process_prekey_bundle (or something else that can start a session)
 				//is called before this. In Auxin, process_prekey_bundle is called in AuxinApp.fill_peer_info()
-				let cyphertext_message = message_encrypt(
+				let ciphertext_message = message_encrypt(
 					&our_message_bytes,
 					&their_address,
 					&mut context.session_store,
@@ -732,14 +755,14 @@ impl MessageOut {
 					signal_ctx,
 				)
 				.await?;
-				let envelope_type = match cyphertext_message.message_type() {
+				let envelope_type = match ciphertext_message.message_type() {
 					CiphertextMessageType::Whisper => envelope_types::CIPHERTEXT,
 					CiphertextMessageType::PreKey => envelope_types::PREKEY_BUNDLE,
 					CiphertextMessageType::SenderKey => envelope_types::SENDER_KEY,
 					_ => todo!(),
 				};
 
-				let content = base64::encode(cyphertext_message.serialize());
+				let content = base64::encode(ciphertext_message.serialize());
 				debug!("Encoded to {} bytes of base64", content.len());
 
 				OutgoingPushMessage {
@@ -758,7 +781,7 @@ impl MessageOut {
 				)?;
 
 				//Encipher the content we just encoded.
-				let cyphertext_message = sealed_sender_encrypt(
+				let ciphertext_message = sealed_sender_encrypt(
 					&their_address,
 					sender_cert,
 					our_message_bytes.as_slice(),
@@ -770,7 +793,7 @@ impl MessageOut {
 				.await?;
 
 				//Serialize our cyphertext.
-				let content = base64::encode(cyphertext_message);
+				let content = base64::encode(ciphertext_message);
 
 				debug!("Encoded to {} bytes of base64", content.len());
 				OutgoingPushMessage {
@@ -1224,6 +1247,7 @@ impl AuxinMessageList {
 		&self,
 		context: &mut AuxinContext,
 		mode: MessageSendMode,
+		group: Option<&GroupSendContext>,
 		rng: &mut Rng,
 		timestamp: u64,
 	) -> Result<OutgoingPushMessageList> {
@@ -1256,6 +1280,7 @@ impl AuxinMessageList {
 							device_id: *i,
 						},
 						mode,
+						group,
 						context,
 						rng,
 						timestamp,

@@ -4,6 +4,7 @@
 // For reference please see https://github.com/whisperfish/libsignal-service-rs
 
 pub mod sender_key;
+pub mod group_message;
 //pub mod group_context;
 
 use libsignal_protocol::error::SignalProtocolError;
