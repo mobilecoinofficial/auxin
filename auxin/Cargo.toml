@@ -23,8 +23,8 @@ getrandom = { version = "0.2", features = ["js"] }
 #Internal dependency - protocol buffers for our application. 
 auxin_protos = { path = "../auxin_protos" }
 #Signal protocol & zero knowledge proof stuff.
-libsignal-protocol = { git = "https://github.com/signalapp/libsignal-client", tag = "v0.9.7"}
-zkgroup = { git = "https://github.com/signalapp/zkgroup", tag = "v0.8.2" }
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal-client", tag = "v0.12.0"}
+zkgroup = { git = "https://github.com/signalapp/zkgroup", tag = "v0.9.0" }
 
 hkdf = "0.11"
 sha2 = "0.9.8"

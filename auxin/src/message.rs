@@ -462,7 +462,7 @@ impl OutgoingPushMessageList {
 
 /// Does this receipt represent a DELIVERY (on a technical level, the endpoint has gotten the message),
 /// or a READ (a user or program has seen this message)?
-type ReceiptMode = auxin_protos::ReceiptMessage_Type;
+pub type ReceiptMode = auxin_protos::ReceiptMessage_Type;
 
 /// A simple indicator of whether the message is being sent by us, or received by us.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
@@ -1133,17 +1133,12 @@ impl MessageIn {
 	/// Do we need to generate a receipt in response to this Message, and then send that to Signal's servers to indicate it has been received?
 	/// Returns false for receipt messages (no infinite receipt loops) and true for all others.
 	pub fn needs_receipt(&self) -> bool {
-		// TODO: Evaluate if Receipt Messages are ever delivered alongside anything else in the same envelope.
-		#[cfg(TODO)]
-		if let Some(_) = self.content.receipt_message {
-			false
-		} else if self.content.end_session {
-			//End-session messages do not get receipts.
+		if self.content.receipt_message.is_some() {
 			false
 		} else {
-			true
+			// End-session messages do not get receipts.
+			!self.content.end_session
 		}
-		false
 	}
 }
 
