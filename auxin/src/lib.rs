@@ -152,12 +152,18 @@ custom_error! { pub AuxinInitError
 	CannotConnect{msg: String} = "Attempt to connect to Signal via HTTPS failed: {msg}.",
 	CannotRequestSenderCert{msg: String} = "Unable to send a \"Sender Certificate\" request: {msg}.",
 }
-
+/// Received with a 409 http response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MismatchedDevices {
 	pub missing_devices: Vec<u32>,
 	pub extra_devices: Vec<u32>,
+}
+/// Received with a 410 http response, most often in a group context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaleDevices {
+	pub stale_devices: Vec<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -1787,6 +1793,11 @@ where
 						}
 					}
 				}
+				let group_id_b64 = base64::encode(&group_id);
+				debug!("Group ID when converted to base64 is: {}", group_id_b64);
+
+				let master_key_b64 = base64::encode(&master_key_bytes);
+				debug!("Master key when converted to base64 is: {}", master_key_b64);
 				/*
 				// "Import new peers" step.
 				for group_member in group_members.iter() {

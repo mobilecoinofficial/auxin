@@ -9,11 +9,10 @@ use super::{GroupApiError, sender_key::DistributionId};
 
 pub type MasterKeyBytes = [u8; GROUP_MASTER_KEY_LEN];
 
-pub enum GroupProtocolVersion { 
+pub enum GroupProtocolVersion {
     V1, 
     V2
 }
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum GroupEncryptionError {
