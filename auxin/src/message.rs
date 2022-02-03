@@ -1102,13 +1102,11 @@ impl MessageIn {
 	/// Do we need to generate a receipt in response to this Message, and then send that to Signal's servers to indicate it has been received?
 	/// Returns false for receipt messages (no infinite receipt loops) and true for all others.
 	pub fn needs_receipt(&self) -> bool {
-		if let Some(_) = self.content.receipt_message {
-			false
-		} else if self.content.end_session {
-			//End-session messages do not get receipts.
+		if self.content.receipt_message.is_some() {
 			false
 		} else {
-			true
+			// End-session messages do not get receipts.
+			!self.content.end_session
 		}
 	}
 }

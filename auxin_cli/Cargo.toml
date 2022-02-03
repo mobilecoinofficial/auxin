@@ -58,6 +58,9 @@ x25519-dalek = "1.1.1"
 
 zkgroup = { git = "https://github.com/signalapp/zkgroup", tag = "v0.9.0" }
 
+[dev-dependencies]
+terminator = "0.1.0"
+
 [features]
 default = []
 repl = ["papyrus"]

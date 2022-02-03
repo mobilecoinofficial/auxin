@@ -498,13 +498,15 @@ impl PeerInfoReply {
 
 pub trait AuxinStateManager {
 	/// Load the local identity for this node, for the user account Auxin will operate as.
-	/// In signal_cli's protocol store structure, this would come from the file with a name which is your phone number inside the "data" directory.
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
+
+	/// Load the context for the local identity, holds critical protocol information
 	fn load_context(
 		&mut self,
 		credentials: &LocalIdentity,
 		config: AuxinConfig,
 	) -> crate::Result<AuxinContext>;
+
 	/// Save the entire InMemSessionStore from this AuxinContext to wherever state is held
 	fn save_all_sessions(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		for peer in context.peer_cache.peers.iter() {
@@ -513,29 +515,38 @@ pub trait AuxinStateManager {
 		}
 		Ok(())
 	}
+
 	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer
 	fn save_peer_sessions(
 		&mut self,
 		peer: &AuxinAddress,
 		context: &AuxinContext,
 	) -> crate::Result<()>;
+
 	/// Delete or otherwise mark-dead a stored session for a peer.
 	/// Called when receiving a message with the END_SESSION flag enabled.
 	fn end_session(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()>;
+
 	/// Save peer record info from all peers.
 	fn save_all_peer_records(&mut self, context: &AuxinContext) -> crate::Result<()>;
+
 	/// Save peer record info from a specific peer.
 	fn save_peer_record(
 		&mut self,
 		peer: &AuxinAddress,
 		context: &AuxinContext,
 	) -> crate::Result<()>;
+
 	/// Saves both pre_key_store AND signed_pre_key_store from the context.
 	fn save_pre_keys(&mut self, context: &AuxinContext) -> crate::Result<()>;
-	/// Saves our identity - this is unlikely to change often, but sometimes we may need to change things like, for example, our profile key.
+
+	/// Saves our identity - this is unlikely to change often,
+	/// but sometimes we may need to change things like, for example, our profile key.
 	fn save_our_identity(&mut self, context: &AuxinContext) -> crate::Result<()>;
-	/// Ensure all changes are fully saved, not just queued. Awaiting on this should block for as long as is required to ensure no data loss.
+
+	/// Ensure all changes are fully saved, not just queued.
 	fn flush(&mut self, context: &AuxinContext) -> crate::Result<()>;
+
 	/// Saves absolutely every relevant scrap of data we have loaded
 	fn save_entire_context(&mut self, context: &AuxinContext) -> crate::Result<()> {
 		self.save_our_identity(context)?;

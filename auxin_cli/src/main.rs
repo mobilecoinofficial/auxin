@@ -141,16 +141,15 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	let mut exit_code = 0;
 	let arguments = AppArgs::from_args();
 
-	let base_dir = format!("{}/data", arguments.config.as_str());
 	debug!(
 		"Using {} as the directory which holds our Signal protocol state.",
-		base_dir
+		arguments.config
 	);
 
 	let mut config = AuxinConfig::default();
 	let cert = load_root_tls_cert().unwrap();
 	let net = crate::net::NetManager::new(cert);
-	let state = crate::state::StateManager::new(&base_dir);
+	let state = crate::state::StateManager::new(&arguments.config);
 
 	config.enable_read_receipts = !arguments.no_read_receipt;
 	// Get it to all come together.
