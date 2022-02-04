@@ -26,6 +26,7 @@ use libsignal_protocol::{
 	SignedPreKeyStore,
 };
 use log::{debug, error, info, warn};
+use protobuf::CodedInputStream;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_value};
 use uuid::Uuid;
@@ -747,6 +748,17 @@ and cannot automatically be repaired.",
 		} */
 		Ok(())
 	}
+
+	fn load_group(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId) -> auxin::Result<auxin_protos::DecryptedGroup> {
+        let group_file_name = group_id.to_base64();
+		let group_file_path = self.get_protocol_store_path(&context).join("group-cache").join(&group_file_name);
+
+		let file = File::open(&group_file_path)?;
+		let mut buf_reader = BufReader::new(file);
+		let mut file_stream = CodedInputStream::from_buffered_reader(&mut buf_reader);
+		// Deserialize an auxin_protos::DecryptedGroup
+		Ok( file_stream.read_message()? )
+    }
 }
 
 #[cfg(test)]

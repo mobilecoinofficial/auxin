@@ -21,7 +21,7 @@ use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
 	message::fix_protobuf_buf,
-	AuxinConfig, AuxinContext, LocalIdentity,
+	AuxinConfig, AuxinContext, LocalIdentity, groups::GroupId,
 };
 
 /// Represents one of the three configurations a user can set for how to handle sealed-sender messages.
@@ -561,6 +561,8 @@ pub trait AuxinStateManager {
 		self.flush(context)?;
 		Ok(())
 	}
+
+	fn load_group(&mut self, context: &AuxinContext, group_id: &GroupId) -> crate::Result<auxin_protos::DecryptedGroup>;
 }
 
 /// Attempt to get a registration ID from the previous-session records.

@@ -690,6 +690,12 @@ impl GroupId {
         let buf = base64::decode(b64)?;
         Ok(Self::from_bytes(&buf)?)
     }
+    pub fn to_base64(&self) -> String { 
+        match &self {
+            GroupId::V1(inner) => base64::encode(inner),
+            GroupId::V2(inner) => base64::encode(inner),
+        }
+    }
 }
 
 
