@@ -21,7 +21,7 @@ use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
 	message::fix_protobuf_buf,
-	AuxinConfig, AuxinContext, LocalIdentity, groups::GroupId,
+	AuxinConfig, AuxinContext, LocalIdentity, groups::{GroupId, group_storage::GroupInfoStorage},
 };
 
 /// Represents one of the three configurations a user can set for how to handle sealed-sender messages.
@@ -561,8 +561,10 @@ pub trait AuxinStateManager {
 		self.flush(context)?;
 		Ok(())
 	}
-
-	fn load_group(&mut self, context: &AuxinContext, group_id: &GroupId) -> crate::Result<auxin_protos::DecryptedGroup>;
+	// An implementation of the signal_cli-compatible group data store for the DecryptedGroup protobuf. 
+	fn load_group_protobuf(&mut self, context: &AuxinContext, group_id: &GroupId) -> crate::Result<auxin_protos::DecryptedGroup>;
+	fn load_group_info(&mut self, context: &AuxinContext, group_id: &GroupId) -> crate::Result<GroupInfoStorage>;
+	fn save_group_info(&mut self, context: &AuxinContext, group_id: &GroupId, group_info: GroupInfoStorage) -> crate::Result<()>;
 }
 
 /// Attempt to get a registration ID from the previous-session records.

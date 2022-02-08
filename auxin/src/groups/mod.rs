@@ -5,7 +5,7 @@
 
 pub mod sender_key;
 pub mod group_message;
-//pub mod group_context;
+pub mod group_storage;
 
 use libsignal_protocol::error::SignalProtocolError;
 use log::debug;
@@ -713,6 +713,38 @@ pub struct GroupMemberInfo {
     pub profile_key: Option<zkgroup::profiles::ProfileKey>,
     pub member_role: auxin_protos::protos::groups::Member_Role,
     pub joined_at_revision: u32,
+}
+impl PartialEq for GroupMemberInfo {
+    fn eq(&self, other: &Self) -> bool {
+        //Should be unique on user ID. 
+        self.id == other.id
+    }
+}
+impl PartialOrd for GroupMemberInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        //Should be unique on user ID. 
+        self.id.partial_cmp(&other.id)
+    }
+}
+impl std::hash::Hash for GroupMemberInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        //Should be unique on user ID. 
+        self.id.hash(state);
+    }
+}
+impl Eq for GroupMemberInfo {}
+
+
+impl std::fmt::Debug for GroupMemberInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupMemberInfo")
+            .field("id", &self.id)
+                // Debug as base64 encoded bytes.
+            .field("profile_key", &self.profile_key.map(|val| base64::encode( &val.get_bytes() )) )
+            .field("member_role", &self.member_role)
+            .field("joined_at_revision", &self.joined_at_revision)
+            .finish()
+    }
 }
 
 /// Ensure the Signal Service protocol buffer we got is valid and the data it contains is valid, 

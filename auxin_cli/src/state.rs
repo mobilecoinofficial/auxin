@@ -749,7 +749,7 @@ and cannot automatically be repaired.",
 		Ok(())
 	}
 
-	fn load_group(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId) -> auxin::Result<auxin_protos::DecryptedGroup> {
+	fn load_group_protobuf(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId) -> auxin::Result<auxin_protos::DecryptedGroup> {
         let group_file_name = group_id.to_base64();
 		let group_file_path = self.get_protocol_store_path(&context).join("group-cache").join(&group_file_name);
 
@@ -759,6 +759,14 @@ and cannot automatically be repaired.",
 		// Deserialize an auxin_protos::DecryptedGroup
 		Ok( file_stream.read_message()? )
     }
+
+	fn load_group_info(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId) -> auxin::Result<auxin::groups::group_storage::GroupInfoStorage> {
+		todo!()
+	}
+
+	fn save_group_info(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId, group_info: auxin::groups::group_storage::GroupInfoStorage) -> auxin::Result<()> {
+		todo!()
+	}
 }
 
 #[cfg(test)]

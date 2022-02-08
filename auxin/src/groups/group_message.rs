@@ -1,4 +1,4 @@
-use libsignal_protocol::{SenderCertificate, SignalProtocolError, group_encrypt, sealed_sender_encrypt_from_usmc, UnidentifiedSenderMessageContent, CiphertextMessageType, ContentHint};
+use libsignal_protocol::{SignalProtocolError, group_encrypt, sealed_sender_encrypt_from_usmc, UnidentifiedSenderMessageContent, CiphertextMessageType, ContentHint};
 use rand::{Rng, CryptoRng};
 use uuid::Uuid;
 use zkgroup::GROUP_MASTER_KEY_LEN;
