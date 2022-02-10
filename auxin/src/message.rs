@@ -423,21 +423,24 @@ impl OutgoingPushMessageList {
 	{
 		let json_message = serde_json::to_string(&self)?;
 
-		let mut msg_path =
-			String::from("https://textsecure-service.whispersystems.org/v1/messages/");
+		let mut msg_path = String::from("https://chat.signal.org/v1/messages/");
 		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
 
-		let mut req = crate::net::common_http_headers(
-			http::Method::PUT,
-			msg_path.as_str(),
-			context.identity.make_auth_header().as_str(),
-		)?;
-
+		let mut req = match mode == MessageSendMode::SealedSender {
+			false => crate::net::common_http_headers(
+				http::Method::PUT,
+				msg_path.as_str(),
+				context.identity.make_auth_header().as_str(),
+			)?,
+			true => crate::net::uncommon_http_headers(http::Method::PUT, msg_path.as_str())?,
+		};
 		if mode == MessageSendMode::SealedSender {
-			let unidentified_access_key = context.get_unidentified_access_for(peer_address, rng)?;
+			let mut unidentified_access_key =
+				context.get_unidentified_access_for(peer_address, rng)?;
+			unidentified_access_key.truncate(16);
 			let unidentified_access_key = base64::encode(unidentified_access_key);
 			debug!(
-				"Attempting to send with unidentified access key {}",
+				"Attempting to send with unidentified access key {:?}",
 				unidentified_access_key
 			);
 			req = req.header("Unidentified-Access-Key", unidentified_access_key);

@@ -8,7 +8,7 @@ use futures::Future;
 
 #[allow(unused_must_use)]
 pub mod api_paths {
-	pub const API_ROOT: &str = "https://textsecure-service.whispersystems.org";
+	pub const API_ROOT: &str = "https://chat.signal.org";
 	pub const SENDER_CERT: &str = "/v1/certificate/delivery";
 	pub const MESSAGES: &str = "/v1/messages/";
 	pub const SIGNAL_CDN: &str = "https://cdn.signal.org";
@@ -59,6 +59,15 @@ pub fn common_http_headers(
 	req = req.uri(uri);
 	req = req.method(verb);
 	req = req.header("Authorization", auth);
+	req = req.header("X-Signal-Agent", X_SIGNAL_AGENT);
+	req = req.header("User-Agent", USER_AGENT);
+
+	Ok(req)
+}
+pub fn uncommon_http_headers(verb: http::Method, uri: &str) -> Result<http::request::Builder> {
+	let mut req = http::Request::builder();
+	req = req.uri(uri);
+	req = req.method(verb);
 	req = req.header("X-Signal-Agent", X_SIGNAL_AGENT);
 	req = req.header("User-Agent", USER_AGENT);
 
