@@ -24,7 +24,7 @@ use auxin_protos::{AttachmentPointer, Envelope};
 
 use custom_error::custom_error;
 use futures::TryFutureExt;
-use groups::GroupApiError;
+use groups::{GroupApiError, sender_key::DistributionId};
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
@@ -263,6 +263,8 @@ pub enum GroupsError {
 	InvalidMasterKeyLength(usize),
 	ApiError(GroupApiError),
 	CannotSave(String),
+	NoGroupInfo(GroupId),
+	ProtocolError(SignalProtocolError),
 }
 
 impl std::fmt::Display for GroupsError {
@@ -272,6 +274,8 @@ impl std::fmt::Display for GroupsError {
 			GroupsError::InvalidMasterKeyLength(size) => write!(f, "Invalid Master Key length on a Groups data message. The size was {} bytes and a Master Key is expected to be 32 bytes long.", size),
 			GroupsError::ApiError(e) => write!(f, "Groups API error: {:?}.", e),
 			GroupsError::CannotSave(e) => write!(f, "Unable to save group info: {:?}.", e),
+			GroupsError::NoGroupInfo(id) => write!(f, "No group info on file for group {}, implying we have not joined that group or not recevied any messsages inside it.", id.to_base64()),
+			GroupsError::ProtocolError(e) => write!(f, "Signal Protocol error in group operations: {:?}.", e),
 		}
 	}
 }
@@ -279,6 +283,11 @@ impl std::error::Error for GroupsError {}
 impl From<GroupApiError> for GroupsError {
 	fn from(val: GroupApiError) -> Self {
 		GroupsError::ApiError(val)
+	}
+}
+impl From<SignalProtocolError> for GroupsError {
+	fn from(val: SignalProtocolError) -> Self {
+		GroupsError::ProtocolError(val)
 	}
 }
 
@@ -1736,6 +1745,41 @@ where
 				Ok(None)
 			}
 		}
+	}
+
+	fn get_or_create_distribution_id(&mut self, group_id: &GroupId) -> std::result::Result<DistributionId, GroupsError> {
+		if self.context.groups.get(group_id).is_none() {
+			return Err(GroupsError::NoGroupInfo(group_id.clone()));
+		}
+		let needs_generate = self.context.groups.get(group_id).unwrap().local_distribution_id.is_none();
+
+		let new_id = match needs_generate { 
+			true => Uuid::new_v4(),
+			false => self.context.groups.get(group_id).unwrap().local_distribution_id.unwrap().clone(),
+		};
+
+		self.context.groups.get_mut(group_id).unwrap().local_distribution_id = Some(new_id);
+		Ok(new_id)
+	}
+
+	async fn produce_sender_key_distribution(&mut self, group_id: &GroupId) -> std::result::Result<SenderKeyDistributionMessage, GroupsError> {
+		let sender_key_name = SenderKeyName{
+			distribution_id: self.get_or_create_distribution_id(group_id)?,
+			sender: self.context.identity.address.clone(),
+		};
+		let sender_key_distribution_message = groups::sender_key::create_distribution_message(&mut self.context.sender_key_store, &sender_key_name, &mut self.rng, &self.context.ctx).await?;
+		//Make sure we don't lose the information we just set up.
+		process_sender_key(&mut self.context.sender_key_store, sender_key_name, sender_key_distribution_message.clone(), &self.context.ctx).await?;
+		self.state_manager.save_all_sender_keys(&mut self.context)
+			.map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
+		Ok(sender_key_distribution_message)
+	}
+
+	pub async fn broadcast_sender_key_distribution(&mut self, group_id: &GroupId) -> std::result::Result<SenderKeyDistributionMessage, GroupsError> {
+		let distribution_message = self.produce_sender_key_distribution(group_id).await?;
+		let mut content = auxin_protos::Content::default();
+		content.set_senderKeyDistributionMessage(distribution_message.serialized().to_vec());
+		todo!()
 	}
 
 	/// Examine a Signal Service "Content" message, checking to see if it has a sender key distribution message and processing that incoming message if there is one. 
