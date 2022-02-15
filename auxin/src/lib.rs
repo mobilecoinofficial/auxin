@@ -28,7 +28,7 @@ use groups::GroupApiError;
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
-	SignalProtocolError, SenderKeyDistributionMessage,
+	SignalProtocolError, SenderKeyDistributionMessage, SenderKeyStore,
 };
 use log::{debug, error, info, trace, warn};
 
@@ -89,7 +89,7 @@ use crate::{
 	profile_cipher::ProfileCipher,
 	state::{
 		try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode,
-	}, groups::{sender_key::{SenderKeyName, process_sender_key}, InMemoryCredentialsCache, GroupsManager, get_server_public_params, get_group_members_without, GroupMemberInfo, GroupIdV2},
+	}, groups::{sender_key::{SenderKeyName, process_sender_key}, GroupsManager, get_server_public_params, get_group_members_without, GroupMemberInfo, GroupIdV2, group_storage::GroupInfo, GroupId},
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -262,6 +262,7 @@ pub enum GroupsError {
 	FillPeerInfoError(String),
 	InvalidMasterKeyLength(usize),
 	ApiError(GroupApiError),
+	CannotSave(String),
 }
 
 impl std::fmt::Display for GroupsError {
@@ -270,6 +271,7 @@ impl std::fmt::Display for GroupsError {
 			GroupsError::FillPeerInfoError(e) => write!(f, "There were unknown users in the group. While trying to retrieve device Ids for them, an error was encountered: {:?}", e),
 			GroupsError::InvalidMasterKeyLength(size) => write!(f, "Invalid Master Key length on a Groups data message. The size was {} bytes and a Master Key is expected to be 32 bytes long.", size),
 			GroupsError::ApiError(e) => write!(f, "Groups API error: {:?}.", e),
+			GroupsError::CannotSave(e) => write!(f, "Unable to save group info: {:?}.", e),
 		}
 	}
 }
@@ -290,6 +292,7 @@ pub enum HandleEnvelopeError {
 	UnknownEnvelopeType(Envelope),
 	ProfileError(String),
 	InvalidSenderKeyDistributionMessage(String),
+	CouldntSaveSenderKey(String),
 	GroupError(GroupsError)
 }
 impl std::fmt::Display for HandleEnvelopeError {
@@ -302,6 +305,7 @@ impl std::fmt::Display for HandleEnvelopeError {
 			HandleEnvelopeError::UnknownEnvelopeType(e) => write!(f, "Received an \"Unknown\" message type from Websocket! Envelope is: {:?}",e),
 			HandleEnvelopeError::ProfileError(e) => write!(f, "Attempted to retrieve profile information in the process of handling an envelope, but a problem was encountered: {:?}",e),
 			HandleEnvelopeError::InvalidSenderKeyDistributionMessage(e) => write!(f, "Could not deserialize a Sender Key Distribution Message: {:?}",e),
+			HandleEnvelopeError::CouldntSaveSenderKey(e) => write!(f, "Failed to store sender key: {:?}",e),
 			HandleEnvelopeError::GroupError(e) => write!(f, "Issue encountered while handing an inbound Group message: {:?}",e),
 		}
 	}
@@ -1749,6 +1753,10 @@ where
 			//Update or initialize ongoing group session.
 			process_sender_key(&mut self.context.sender_key_store, sender_key_name, sender_key_distribution_message, &ctx).await?;
 		}
+		//TODO: Refactor some of process_sender_key into here so that we don't waste work saving all
+		//sender keys every time rather than just one. 
+		self.state_manager.save_all_sender_keys(&mut self.context)
+			.map_err(|e| HandleEnvelopeError::CouldntSaveSenderKey(format!("{:?}", e)))?;
 		Ok(())
 	}
 
@@ -1777,10 +1785,8 @@ where
 				let group_id: GroupIdV2 = group_secret_params.get_group_identifier();
 				//let group_ops = GroupOperations::new(group_secret_params);
 
-				let mut credentials_manager = InMemoryCredentialsCache::new();
-
 				let mut group_manager = GroupsManager::new(&mut self.http_client,
-				&mut credentials_manager,
+				&mut self.context.credentials_manager,
 				&self.context.identity,
 				get_server_public_params());
 
@@ -1792,7 +1798,7 @@ where
 				// Get a list of group members without ourselves.
 				let group_members: Vec<GroupMemberInfo> = get_group_members_without(&group, &our_uuid).iter().map(|m| m.as_ref().unwrap().clone() ).collect();
 				
-				// "Store profile keys for known peers" step. 
+				// "Store profile keys for known peers" step.
 				for group_member in group_members.iter() { 
 					if let Some(pk) = group_member.profile_key {
 						if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) { 
@@ -1806,6 +1812,35 @@ where
 
 				let master_key_b64 = base64::encode(&master_key_bytes);
 				debug!("Master key when converted to base64 is: {}", master_key_b64);
+
+
+				let group_id_qualified = GroupId::V2(group_id);
+				// Keep track of our Auxin-specific retained state per group.  
+				// Avoid overwriting if we already have it. 
+				let group_info = match self.context.groups.get(&group_id_qualified) {
+					Some(group) => {
+						let mut new_group = group.clone();
+						if group_context.get_revision() >= group.revision { 
+							new_group.master_key = master_key_bytes;
+							new_group.revision = group_context.get_revision();
+							new_group.members = group_members.iter().map(|val| val.clone()).collect();
+						}
+						new_group
+					},
+					None => {
+						GroupInfo {
+							revision: group_context.get_revision(),
+							master_key: master_key_bytes,
+							members: group_members.iter().map(|val| val.clone()).collect(),
+							// We haven't sent a sender key distribution message here yet. 
+							local_distribution_id: None,
+						}
+					},
+				};
+				self.state_manager.save_group_info(&self.context, &group_id_qualified, (&group_info).into())
+					.map_err(|e| GroupsError::CannotSave( format!("{:?}", e) ))?;
+				self.context.groups.insert(group_id_qualified.clone(), group_info);
+				
 				/*
 				// "Import new peers" step.
 				for group_member in group_members.iter() {

@@ -288,3 +288,50 @@ pub async fn create_distribution_message<R: Rng + CryptoRng, Store: SenderKeySto
     let distrib = libsignal_protocol::create_sender_key_distribution_message(&protocol_address, sender_key_name.distribution_id.clone(), sender_key_store, csprng, signal_ctx.get()).await?;
     Ok(distrib)
 }
+
+/// Stores and retrieves SenderKeys. 
+/// Signal-protocol's InMemSenderKeyStore was unsuitable because there was no way to retrieve all currently-loaded keys at once, 
+/// which makes it difficult to save all modified keys on exit. 
+#[derive(Clone, Debug)]
+pub struct AuxinSenderKeyStore { 
+    pub sender_keys: HashMap<SenderKeyName, SenderKeyRecord>,
+}
+
+impl AuxinSenderKeyStore { 
+    pub fn new() -> Self { 
+        AuxinSenderKeyStore { 
+            sender_keys: HashMap::default(),
+        }
+    }
+}
+/// The type signatures here are so odd entirely so that we can implement this without relying on the async_trait crate. 
+impl libsignal_protocol::SenderKeyStore for AuxinSenderKeyStore {
+    fn store_sender_key< 'life0, 'life1, 'life2, 'async_trait>(& 'life0 mut self,sender: & 'life1 libsignal_protocol::ProtocolAddress,distribution_id:Uuid,record: & 'life2 libsignal_protocol::SenderKeyRecord, ctx:libsignal_protocol::Context,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = libsignal_protocol::error::Result<()> > + 'async_trait> >where 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait,Self: 'async_trait {
+        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin| {
+            SenderKeyName { sender: sender_auxin, distribution_id }
+        });
+        let result = match sender_key_name_maybe { 
+            Ok(sender_key_name) => { 
+                self.sender_keys.insert(sender_key_name, record.clone());
+                Ok(())
+            }
+            Err(_) => Err(SignalProtocolError::InvalidArgument( format!("Invalid sender name, could not turn {} into a phone number or UUID.",sender.name()) )),
+        };
+        // Trick Libsignal_protocol into thinking this is async code and not sync code
+        Box::pin( futures::future::ready(result) )
+    }
+    fn load_sender_key< 'life0, 'life1, 'async_trait>(& 'life0 mut self,sender: & 'life1 libsignal_protocol::ProtocolAddress,distribution_id:Uuid, ctx:libsignal_protocol::Context,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = libsignal_protocol::error::Result<Option<libsignal_protocol::SenderKeyRecord> > > + 'async_trait> >where 'life0: 'async_trait, 'life1: 'async_trait,Self: 'async_trait {
+        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin| {
+                SenderKeyName { sender: sender_auxin, distribution_id }
+            })
+            .map_err(|_| {
+                SignalProtocolError::InvalidArgument( format!("Invalid sender name, could not turn {} into a phone number or UUID.",sender.name() ) )
+            });
+        let result = sender_key_name_maybe.map(| name | { 
+            self.sender_keys.get(&name)
+                .map(|value| value.clone())
+        });
+        // Trick Libsignal_protocol into thinking this is async code and not sync code
+        Box::pin( futures::future::ready(result) )
+    }
+}

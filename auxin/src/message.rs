@@ -10,9 +10,9 @@ use crate::{
 use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope, Envelope_Type};
 use custom_error::custom_error;
 use libsignal_protocol::{
-	message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt,
+	message_decrypt, message_encrypt, sealed_sender_encrypt,
 	CiphertextMessage, CiphertextMessageType, SessionRecord, SessionStore, SignalMessage,
-	SignalProtocolError,
+	SignalProtocolError, sealed_sender_decrypt_to_usmc, ProtocolAddress, message_decrypt_signal, PreKeySignalMessage, message_decrypt_prekey, SealedSenderDecryptionResult, group_decrypt,
 };
 use log::{debug, info};
 use protobuf::{CodedInputStream, CodedOutputStream};
@@ -854,21 +854,92 @@ pub async fn decrypt_unidentified_sender(
 	context: &mut AuxinContext,
 ) -> std::result::Result<(MessageContent, AuxinDeviceAddress), MessageInError> {
 	let signal_ctx = context.get_signal_ctx().ctx;
-	let decrypted = sealed_sender_decrypt(
-		envelope.get_content(),
-		&sealed_sender_trust_root(),
-		generate_timestamp() as u64,
-		context.identity.address.get_phone_number().ok().cloned(),
-		context.identity.address.get_uuid().unwrap().to_string(),
-		context.identity.address.device_id,
-		&mut context.identity_store,
-		&mut context.session_store,
-		&mut context.pre_key_store,
-		&mut context.signed_pre_key_store,
-		signal_ctx,
-	)
-	.await
-	.map_err(MessageInError::ProtocolError)?;
+	debug!("Decrypting unidentified sender message of type {:?}", envelope.get_field_type());
+	let unidentified_message_content = sealed_sender_decrypt_to_usmc(envelope.get_content(), &mut context.identity_store, signal_ctx).await?;
+
+	let local_e164 = context.identity.address.get_phone_number().ok().cloned();
+	let local_uuid = context.identity.address.get_uuid().unwrap().to_string();
+	let trust_root = sealed_sender_trust_root();
+	
+    if !unidentified_message_content.sender()?.validate(&trust_root, generate_timestamp() as u64)? {
+        return Err(MessageInError::ProtocolError(SignalProtocolError::InvalidSealedSenderMessage(
+            "trust root validation failed".to_string(),
+        )));
+    }
+
+    let is_local_uuid = local_uuid == unidentified_message_content.sender()?.sender_uuid()?;
+
+    let is_local_e164 = match (local_e164, unidentified_message_content.sender()?.sender_e164()?) {
+        (Some(l), Some(s)) => l == s,
+        (_, _) => false,
+    };
+
+    if (is_local_e164 || is_local_uuid) && unidentified_message_content.sender()?.sender_device_id()? == context.identity.address.device_id {
+        return Err(MessageInError::ProtocolError(SignalProtocolError::SealedSenderSelfSend));
+    }
+
+    let mut rng = rand::rngs::OsRng;
+
+    let remote_address = ProtocolAddress::new(
+        unidentified_message_content.sender()?.sender_uuid()?.to_string(),
+        unidentified_message_content.sender()?.sender_device_id()?,
+    );
+	let sender_uuid = unidentified_message_content.sender()?.sender_uuid()?.to_string();
+	let sender_protocol_address = ProtocolAddress::new(sender_uuid.clone(), unidentified_message_content.sender()?.sender_device_id()?);
+
+    let message = match unidentified_message_content.msg_type()? {
+        CiphertextMessageType::Whisper => {
+            let ctext = SignalMessage::try_from(unidentified_message_content.contents()?)?;
+            message_decrypt_signal(
+                &ctext,
+                &remote_address,
+                &mut context.session_store,
+                &mut context.identity_store,
+                &mut rng,
+                signal_ctx,
+            )
+            .await?
+        },
+        CiphertextMessageType::PreKey => {
+            let ctext = PreKeySignalMessage::try_from(unidentified_message_content.contents()?)?;
+            message_decrypt_prekey(
+                &ctext,
+                &remote_address,
+                &mut context.session_store,
+                &mut context.identity_store,
+                &mut context.pre_key_store,
+                &mut context.signed_pre_key_store,
+                &mut rng,
+                signal_ctx,
+            )
+            .await?
+        },
+		CiphertextMessageType::SenderKey => { 
+			// Sender key / group behavior.
+			let skm = libsignal_protocol::SenderKeyMessage::try_from(unidentified_message_content.contents()?)?;
+			debug!("SenderKeyMessage has distribution id: {:?}", skm.distribution_id());
+			debug!("SenderKeyMessage has chain id: {:?}", skm.chain_id());
+			debug!("SenderKeyMessage has iteration: {:?}", skm.iteration());
+			group_decrypt(
+				unidentified_message_content.contents()?,
+				&mut context.sender_key_store,
+				&sender_protocol_address,
+				signal_ctx,
+			).await?
+		},
+        msg_type => {
+            return Err(MessageInError::ProtocolError(SignalProtocolError::InvalidSealedSenderMessage(format!(
+                "Unexpected message type {}",
+                msg_type as i32,
+            ))))
+        }
+    };
+	let decrypted = SealedSenderDecryptionResult {
+        sender_uuid,
+        sender_e164: unidentified_message_content.sender()?.sender_e164()?.map(|s| s.to_string()),
+        device_id: unidentified_message_content.sender()?.sender_device_id()?,
+        message,
+    };
 
 	debug!("Length of decrypted message: {:?}", decrypted.message.len());
 

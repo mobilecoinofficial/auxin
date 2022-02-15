@@ -642,16 +642,15 @@ pub enum GroupIdError {
 }
 
 pub type GroupIdV1 = [u8; 16];
-pub type GroupIdV2 = [u8; 32]; 
+pub type GroupIdV2 = [u8; 32];
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, PartialOrd)]
-pub enum GroupId { 
+pub enum GroupId {
     V1(GroupIdV1),
     V2(GroupIdV2),
 }
 
-
-// Mark equality as being complete here. 
+// Mark equality as being complete here.
 impl Eq for GroupId {}
 
 impl GroupId { 

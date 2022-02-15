@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use auxin_protos::Member_Role;
+use auxin_protos::{Member_Role, SenderKeyRecordStructure};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use zkgroup::{GROUP_MASTER_KEY_LEN, PROFILE_KEY_LEN, profiles::ProfileKey};
@@ -77,12 +77,26 @@ impl From<GroupMemberInfo> for GroupMemberStorage {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, )]
 pub struct GroupInfo {
     pub revision: u32,
     pub master_key: [u8; GROUP_MASTER_KEY_LEN],
     pub members: HashSet<GroupMemberInfo>,
+    /// What is the most recent distribution ID we made for this group? 
+    pub local_distribution_id: Option<Uuid>,
 }
+
+impl PartialOrd for GroupInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.master_key.partial_cmp(&other.master_key)
+    }
+}
+impl std::hash::Hash for GroupInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.master_key.hash(state);
+    }
+}
+impl Eq for GroupInfo {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GroupInfoStorage {
@@ -91,6 +105,8 @@ pub struct GroupInfoStorage {
     #[serde(with="serde_base64")]
     master_key: Vec<u8>,
     members: HashSet<GroupMemberStorage>,
+    /// What is the most recent distribution ID we made for this group? 
+    pub local_distribution_id: Option<Uuid>,
 }
 
 impl TryFrom<GroupInfoStorage> for GroupInfo {
@@ -113,12 +129,13 @@ impl TryFrom<GroupInfoStorage> for GroupInfo {
             revision: value.revision,
             master_key,
             members,
+            local_distribution_id: value.local_distribution_id,
         })
     }
 }
 
-impl From<GroupInfo> for GroupInfoStorage {
-    fn from(value: GroupInfo) -> Self {
+impl From<&GroupInfo> for GroupInfoStorage {
+    fn from(value: &GroupInfo) -> Self {
         let mut members = HashSet::new();
         for member in value.members.iter() { 
             members.insert(member.clone().into());
@@ -128,6 +145,15 @@ impl From<GroupInfo> for GroupInfoStorage {
             revision: value.revision,
             master_key: value.master_key.to_vec(),
             members,
+            local_distribution_id: value.local_distribution_id,
         }
     }
+}
+
+/// Used to keep track of which sender keys this Signal node has *sent*,
+/// i.e. device ID is implicit and there's no "peer ID"
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LocalSenderKeyRecord {
+    pub distribution_id: Uuid, 
+    pub record: SenderKeyRecordStructure, 
 }

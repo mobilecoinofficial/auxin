@@ -1,13 +1,15 @@
 // Copyright (c) 2021 MobileCoin Inc.
 // Copyright (c) 2021 Emily Cultip
 
+use std::collections::HashMap;
+
 use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
 	Nonce,
 };
 use custom_error::custom_error;
 use libsignal_protocol::{
-	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore,
+	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore,
 	InMemSessionStore, InMemSignedPreKeyStore, SenderCertificate,
 };
 use log::debug;
@@ -16,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
 	address::*,
-	state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode},
+	state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode}, groups::{group_storage::GroupInfo, GroupId, sender_key::AuxinSenderKeyStore, InMemoryCredentialsCache},
 };
 
 pub const PROFILE_KEY_LEN: usize = 32;
@@ -123,12 +125,15 @@ pub struct AuxinContext {
 	pub signed_pre_key_store: InMemSignedPreKeyStore,
 	/// Stores public keys from peers.
 	pub identity_store: InMemIdentityKeyStore,
-	pub sender_key_store: InMemSenderKeyStore,
+	pub sender_key_store: AuxinSenderKeyStore,
 
 	/// Configuration for the Auxin library.
 	pub config: AuxinConfig,
 	/// Should we show up as "Online" to other Signal users?
 	pub report_as_online: bool,
+
+	pub groups: HashMap<GroupId, GroupInfo>,
+	pub credentials_manager: InMemoryCredentialsCache,
 
 	/// Signal context - pointer to a C data type.
 	///
