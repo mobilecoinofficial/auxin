@@ -499,7 +499,7 @@ pub fn load_sender_keys(data_dir: &Path,
 	let our_phone_number = local_identity.address.address.get_phone_number().unwrap();
 
 	// Set up a HashMap we will return from this function.
-	let mut output: HashMap<SenderKeyName, libsignal_protocol::SenderKeyRecord> = HashMap::default();
+	let mut output = AuxinSenderKeyStore::new();
 
 	//Figure out some directories.
 	let our_path = data_dir.join(our_phone_number).with_extension("d");
@@ -514,6 +514,8 @@ pub fn load_sender_keys(data_dir: &Path,
 						if ty.is_file() {
 							//This is a file in the sender key path, we're getting warmer. 
 							let file_path = inner.path();
+							
+							info!("Loading a sender key with filename {}", file_path.to_str().unwrap());
 
 							let name_component = file_path.file_stem().unwrap().to_str().unwrap();
 							let name_parts: Vec<&str> = name_component.split("_").collect();
@@ -546,7 +548,7 @@ pub fn load_sender_keys(data_dir: &Path,
 									assert!(sz == buf.len());
 
 									let skr = libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
-									output.insert(sender_key_name, skr);
+									output.import_sender_key(sender_key_name, skr);
 
 								},
 								Some("unknown") => { 
@@ -572,7 +574,7 @@ pub fn load_sender_keys(data_dir: &Path,
 									assert!(sz == buf.len());
 
 									let skr = libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
-									output.insert(sender_key_name, skr);
+									output.import_sender_key(sender_key_name, skr);
 								},
 								None => {
 									// Normal sender key. It will be {peer id}_{device id}_{distribution id}
@@ -598,7 +600,7 @@ pub fn load_sender_keys(data_dir: &Path,
 									assert!(sz == buf.len());
 
 									let skr = libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
-									output.insert(sender_key_name, skr);
+									output.import_sender_key(sender_key_name, skr);
 								},
 								_ => {
 									warn!("Ignoring invalid extension for a sender key. File was: {}", file_path.display());
@@ -615,11 +617,11 @@ pub fn load_sender_keys(data_dir: &Path,
 				}
 			}
 		}
-		Ok( AuxinSenderKeyStore { sender_keys: output } )
+		Ok( output )
 	}
 	else { 
 		warn!("Groups directory in our data store does not exist!");
-		Ok( AuxinSenderKeyStore { sender_keys: HashMap::default() })
+		Ok( output )
 	}
 }
 
@@ -656,6 +658,9 @@ pub async fn make_context(
 
 	info!("Loading sender-keys...");
 	let sender_keys = load_sender_keys(data_dir, &local_identity, &peers, &config)?; 
+
+	let keys_for_print: Vec<&SenderKeyName> = sender_keys.sender_keys.keys().collect();
+	info!("Sender keys loaded with names: {:?}", keys_for_print);
 
 	Ok(Context {
 		identity: local_identity,
@@ -1105,7 +1110,7 @@ and cannot automatically be repaired.",
 	
 			{
 				let mut buf = BufWriter::new(&mut bk_file);
-				serde_json::to_writer_pretty(&mut buf, &bytes)?;
+				buf.write_all(&bytes)?;
 				buf.flush()?;
 			}
 			bk_file.sync_all()?;
@@ -1201,7 +1206,7 @@ and cannot automatically be repaired.",
 
 		{
 			let mut buf = BufWriter::new(&mut bk_file);
-			serde_json::to_writer_pretty(&mut buf, &bytes)?;
+			buf.write_all(&bytes)?;
 			buf.flush()?;
 		}
 		bk_file.sync_all()?;

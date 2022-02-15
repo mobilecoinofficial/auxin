@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use auxin_protos::{SenderKeyStateStructure, SenderChainKey, SenderSigningKey};
 use libsignal_protocol::{SenderKeyDistributionMessage, SignalProtocolError, SenderKeyRecord, SenderKeyStore};
+use log::debug;
 use protobuf::{Message, ProtobufError};
 use rand::{Rng, CryptoRng};
 use ring::hmac;
 use uuid::Uuid;
 
-use crate::{address::AuxinDeviceAddress, SignalCtx};
+use crate::{address::{AuxinDeviceAddress, AuxinAddress}, SignalCtx};
 
 use super::GroupIdV2;
 
@@ -303,12 +304,26 @@ impl AuxinSenderKeyStore {
             sender_keys: HashMap::default(),
         }
     }
+
+    pub fn adjust_address_for_keystore(address: &AuxinDeviceAddress) -> AuxinDeviceAddress {
+        if let Ok(uuid) = address.get_uuid() {
+            AuxinDeviceAddress{ address: AuxinAddress::Uuid(uuid.clone()), device_id: address.device_id }
+        }
+        else {
+            address.clone()
+        }
+    }
+
+    pub fn import_sender_key(&mut self, sender_key_name: SenderKeyName, record: SenderKeyRecord) {
+        let new_name = SenderKeyName{ sender: Self::adjust_address_for_keystore(&sender_key_name.sender), distribution_id: sender_key_name.distribution_id};
+        self.sender_keys.insert(new_name, record);
+    }
 }
 /// The type signatures here are so odd entirely so that we can implement this without relying on the async_trait crate. 
 impl libsignal_protocol::SenderKeyStore for AuxinSenderKeyStore {
     fn store_sender_key< 'life0, 'life1, 'life2, 'async_trait>(& 'life0 mut self,sender: & 'life1 libsignal_protocol::ProtocolAddress,distribution_id:Uuid,record: & 'life2 libsignal_protocol::SenderKeyRecord, ctx:libsignal_protocol::Context,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = libsignal_protocol::error::Result<()> > + 'async_trait> >where 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait,Self: 'async_trait {
-        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin| {
-            SenderKeyName { sender: sender_auxin, distribution_id }
+        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin: AuxinDeviceAddress| {
+            SenderKeyName{ sender: Self::adjust_address_for_keystore(&sender_auxin), distribution_id}
         });
         let result = match sender_key_name_maybe { 
             Ok(sender_key_name) => { 
@@ -321,8 +336,9 @@ impl libsignal_protocol::SenderKeyStore for AuxinSenderKeyStore {
         Box::pin( futures::future::ready(result) )
     }
     fn load_sender_key< 'life0, 'life1, 'async_trait>(& 'life0 mut self,sender: & 'life1 libsignal_protocol::ProtocolAddress,distribution_id:Uuid, ctx:libsignal_protocol::Context,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = libsignal_protocol::error::Result<Option<libsignal_protocol::SenderKeyRecord> > > + 'async_trait> >where 'life0: 'async_trait, 'life1: 'async_trait,Self: 'async_trait {
-        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin| {
-                SenderKeyName { sender: sender_auxin, distribution_id }
+        debug!("Looking up sender key from {:?} with distribution ID {}", sender, distribution_id.to_string());
+        let sender_key_name_maybe = sender.clone().try_into().map(|sender_auxin: AuxinDeviceAddress| {
+                SenderKeyName{ sender: Self::adjust_address_for_keystore(&sender_auxin), distribution_id}
             })
             .map_err(|_| {
                 SignalProtocolError::InvalidArgument( format!("Invalid sender name, could not turn {} into a phone number or UUID.",sender.name() ) )

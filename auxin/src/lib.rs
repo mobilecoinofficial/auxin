@@ -28,7 +28,7 @@ use groups::GroupApiError;
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
-	SignalProtocolError, SenderKeyDistributionMessage, SenderKeyStore,
+	SignalProtocolError, SenderKeyDistributionMessage,
 };
 use log::{debug, error, info, trace, warn};
 
