@@ -108,7 +108,7 @@ pub struct GroupInfoStorage {
     members: HashSet<GroupMemberStorage>,
     /// What is the most recent distribution ID we made for this group? 
     pub local_distribution_id: Option<Uuid>,
-    pub last_distribution_timestamp: Timestamp,
+    pub last_distribution_timestamp: Option<Timestamp>,
 }
 
 impl TryFrom<GroupInfoStorage> for GroupInfo {
@@ -132,7 +132,7 @@ impl TryFrom<GroupInfoStorage> for GroupInfo {
             master_key,
             members,
             local_distribution_id: value.local_distribution_id,
-            last_distribution_timestamp: value.last_distribution_timestamp,
+            last_distribution_timestamp: value.last_distribution_timestamp.or(Some(0)).unwrap(),
         })
     }
 }
@@ -149,7 +149,7 @@ impl From<&GroupInfo> for GroupInfoStorage {
             master_key: value.master_key.to_vec(),
             members,
             local_distribution_id: value.local_distribution_id,
-            last_distribution_timestamp: value.last_distribution_timestamp,
+            last_distribution_timestamp: Some(value.last_distribution_timestamp),
         }
     }
 }

@@ -9,7 +9,7 @@ use auxin::{
 	message::{MessageContent, MessageIn, MessageOut},
 	profile::ProfileConfig,
 	state::PeerProfile,
-	ProfileRetrievalError, ReceiveError, Result,
+	ProfileRetrievalError, ReceiveError, Result, groups::GroupId,
 };
 
 use auxin_cli::net::AuxinTungsteniteConnection;
@@ -105,7 +105,7 @@ pub enum AuxinCommand {
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct SendCommand {
-	/// Sets the destination for our message (as E164-format phone number or a UUID).
+	/// Sets the destination for our message (as E164-format phone number, user UUID, or group ID encoded as base-64).
 	pub destination: String,
 
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
@@ -758,6 +758,12 @@ pub async fn process_jsonrpc_input(
 	output
 }
 
+#[derive(Debug, Clone)]
+enum MessageDest { 
+	Group(GroupId), 
+	User(AuxinAddress),
+}
+
 pub async fn handle_send_command(
 	mut cmd: SendCommand,
 	app: &mut crate::app::App,
@@ -770,7 +776,12 @@ pub async fn handle_send_command(
 	}
 
 	//Set up our address
-	let recipient_addr = AuxinAddress::try_from(cmd.destination.as_str()).unwrap();
+	let group_id_maybe = GroupId::from_base64(&cmd.destination);
+
+	let destination = match group_id_maybe {
+		Ok(id) => MessageDest::Group(id),
+		Err(_) => MessageDest::User(AuxinAddress::try_from(cmd.destination.as_str()).unwrap()),
+	};
 
 	//MessageContent
 	let mut message_content = MessageContent {
@@ -859,10 +870,21 @@ pub async fn handle_send_command(
 		}
 	} else {
 		//Not just testing, no -s argument, actually send our message.
-		let timestamp = app.send_message(&recipient_addr, message).await?;
-		SendOutput {
-			timestamp,
-			simulate_output: None,
+		match destination {
+			MessageDest::Group(group_id) => {
+				app.send_group_message(&group_id, message).await?;
+				SendOutput {
+					timestamp: generate_timestamp(),
+					simulate_output: None,
+				}
+			},
+			MessageDest::User(recipient_addr) => {
+				let timestamp = app.send_message(&recipient_addr, message).await?;
+				SendOutput {
+					timestamp,
+					simulate_output: None,
+				}
+			},
 		}
 	})
 }

@@ -89,7 +89,7 @@ use crate::{
 	profile_cipher::ProfileCipher,
 	state::{
 		try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode,
-	}, groups::{sender_key::{SenderKeyName, process_sender_key}, GroupsManager, get_server_public_params, get_group_members_without, GroupMemberInfo, GroupIdV2, group_storage::GroupInfo, GroupId},
+	}, groups::{sender_key::{SenderKeyName, process_sender_key}, GroupsManager, get_server_public_params, get_group_members_without, GroupMemberInfo, GroupIdV2, group_storage::GroupInfo, GroupId, group_message::{GroupSendContextV2, GroupSendContext}},
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -166,7 +166,7 @@ pub struct StaleDevices {
 	pub stale_devices: Vec<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 // Errors received when attempting to send a Signal message to another user.
 pub enum SendMessageError {
 	CannotMakeMessageRequest(String),
@@ -179,6 +179,7 @@ pub enum SendMessageError {
 	MessageBuildErr(String),
 	EndSessionErr(String),
 	AttemptTwoFail(String),
+	ErrorSendingToGroup(GroupsError),
 }
 
 impl std::fmt::Display for SendMessageError {
@@ -194,6 +195,7 @@ impl std::fmt::Display for SendMessageError {
 			SendMessageError::PeerSaveIssue(e) => write!(f, "Couldn't save files for a peer's sessions and profile, as part of sending a message: {}.", e),
 			SendMessageError::EndSessionErr(e) => write!(f, "Encountered an error while attempting to close out a session after sending an END_SESSION message: {}.", e),
 			SendMessageError::AttemptTwoFail(e) => write!(f, "Second attempt to send a message (after mismatched device list) failed: {}.", e),
+			SendMessageError::ErrorSendingToGroup(e) => write!(f, "Error sending a message to a group: {:?}", e),
 		}
 	}
 }
@@ -221,6 +223,12 @@ impl std::fmt::Display for PaymentAddressRetrievalError {
 	}
 }
 impl std::error::Error for PaymentAddressRetrievalError {}
+
+impl From<GroupsError> for SendMessageError {
+    fn from(value: GroupsError) -> Self {
+        SendMessageError::ErrorSendingToGroup(value)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum ProfileRetrievalError {
@@ -758,6 +766,91 @@ where
 
 		info!("End of send_message() at {}", generate_timestamp());
 		Ok(sent_timestamp)
+	}
+	
+	pub async fn send_group_message(&mut self, group_id: &GroupId, message: MessageOut) -> std::result::Result<(), SendMessageError> { 
+		let group_info = self.context.groups.get(group_id).ok_or(GroupsError::NoGroupInfo(group_id.clone()))?.clone();
+
+		let current_time = generate_timestamp();
+		let distribution_id = if group_info.local_distribution_id.is_none() 
+			|| ((current_time - group_info.last_distribution_timestamp) >= self.context.config.sender_key_distribution_lifespan) {
+			let distribution_message = self.broadcast_sender_key_distribution(group_id).await?;
+			distribution_message.distribution_id().unwrap()
+		}
+		else {
+			group_info.local_distribution_id.unwrap()
+		};
+		// Construct a group message sending context. 
+		let send_context: GroupSendContext = match group_id {
+			GroupId::V1(_) => todo!("Only groups V2 is supported at present, legacy support for GroupsV1 is not yet implemented."),
+			GroupId::V2(_) => {
+				GroupSendContext::V2(GroupSendContextV2 {
+					master_key: group_info.master_key.clone(),
+					distribution_id,
+					revision: group_info.revision,
+				})
+			},
+		};
+
+		for member in group_info.members.iter() {
+
+			let uuid_address = AuxinAddress::Uuid(member.id.clone());
+			let recipient_addr = self
+				.context
+				.peer_cache
+				.complete_address(&uuid_address)
+				.or_else(|| Some(uuid_address))
+				.unwrap();
+
+			let message_list = AuxinMessageList {
+				messages: vec![message.clone()],
+				remote_address: recipient_addr.clone(),
+			};
+
+			// Can we do sealed sender messages here?
+			let sealed_sender: bool = self
+				.context
+				.peer_cache
+				.get(&recipient_addr)
+				.unwrap()
+				.supports_sealed_sender();
+
+			let mode = match sealed_sender {
+				true => {
+					// Make sure we have a sender certificate to do this stuff with.
+					self.retrieve_sender_cert()
+						.await
+						.map_err(|e| SendMessageError::SenderCertRetrieval(format!("{:?}", e)))?;
+					MessageSendMode::SealedSender
+				}
+				false => MessageSendMode::Standard,
+			};
+
+			let timestamp = generate_timestamp();
+			debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
+			let outgoing_push_list = message_list
+				.generate_messages_to_all_devices(&mut self.context, mode, Some(&send_context), &mut self.rng, timestamp)
+				.await
+				.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
+
+			let request: http::Request<Vec<u8>> = outgoing_push_list
+				.build_http_request(&recipient_addr, mode, &mut self.context, &mut self.rng)
+				.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
+			let message_response = self
+				.http_client
+				.request(request)
+				.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
+				.await?;
+
+			//Parse the response
+			let message_response_str = String::from_utf8(message_response.body().to_vec()).unwrap();
+			debug!(
+				"Got response to attempt to send (to group ID {}) a message: {:?} {}",
+				group_id.to_base64(),
+				message_response, message_response_str
+			);
+		}
+		Ok(())
 	}
 
 	/// Get a sender certificate for ourselves from Signal's web API, so that we can send sealed_sender messages properly.

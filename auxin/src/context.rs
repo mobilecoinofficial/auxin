@@ -27,12 +27,15 @@ pub type ProfileKey = [u8; PROFILE_KEY_LEN];
 #[derive(Clone, Debug)]
 pub struct AuxinConfig {
 	pub enable_read_receipts: bool,
+	/// How many milliseconds should a sender key distribution live before we create a new one automatically?
+	pub sender_key_distribution_lifespan: u64,
 }
 
 impl Default for AuxinConfig {
 	fn default() -> Self {
 		Self {
 			enable_read_receipts: true,
+			sender_key_distribution_lifespan: 172800000, // 48 hours in milliseconds
 		}
 	}
 }

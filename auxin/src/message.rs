@@ -726,7 +726,7 @@ impl MessageOut {
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len());
 
-		//Is this a gorup message? 
+		//Is this a group message? 
 		if let Some(group_info) = group { 
 			info!("Encrypting as a group message.");
 			let (envelope_type, ciphertext_bytes) = group_info.group_encrypt(&address_to, &our_message_bytes, context, mode, rng).await?;
