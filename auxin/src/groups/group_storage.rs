@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use zkgroup::{GROUP_MASTER_KEY_LEN, PROFILE_KEY_LEN, profiles::ProfileKey};
 
-use crate::utils::{serde_base64, serde_optional_base64};
+use crate::{utils::{serde_base64, serde_optional_base64}, Timestamp};
 
 use super::GroupMemberInfo;
 
@@ -84,6 +84,7 @@ pub struct GroupInfo {
     pub members: HashSet<GroupMemberInfo>,
     /// What is the most recent distribution ID we made for this group? 
     pub local_distribution_id: Option<Uuid>,
+    pub last_distribution_timestamp: Timestamp,
 }
 
 impl PartialOrd for GroupInfo {
@@ -107,6 +108,7 @@ pub struct GroupInfoStorage {
     members: HashSet<GroupMemberStorage>,
     /// What is the most recent distribution ID we made for this group? 
     pub local_distribution_id: Option<Uuid>,
+    pub last_distribution_timestamp: Timestamp,
 }
 
 impl TryFrom<GroupInfoStorage> for GroupInfo {
@@ -130,6 +132,7 @@ impl TryFrom<GroupInfoStorage> for GroupInfo {
             master_key,
             members,
             local_distribution_id: value.local_distribution_id,
+            last_distribution_timestamp: value.last_distribution_timestamp,
         })
     }
 }
@@ -146,6 +149,7 @@ impl From<&GroupInfo> for GroupInfoStorage {
             master_key: value.master_key.to_vec(),
             members,
             local_distribution_id: value.local_distribution_id,
+            last_distribution_timestamp: value.last_distribution_timestamp,
         }
     }
 }

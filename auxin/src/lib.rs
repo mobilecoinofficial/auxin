@@ -1779,7 +1779,28 @@ where
 		let distribution_message = self.produce_sender_key_distribution(group_id).await?;
 		let mut content = auxin_protos::Content::default();
 		content.set_senderKeyDistributionMessage(distribution_message.serialized().to_vec());
-		todo!()
+
+		let group_info = self.context.groups.get(group_id).ok_or(GroupsError::NoGroupInfo(group_id.clone()))?;
+		
+		let mut messages: Vec<(AuxinAddress, MessageOut)> = Vec::new();
+		for group_member in group_info.members.iter() { 
+			let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+			let message_out = MessageOut {
+				content: crate::message::MessageContent{
+					text_message: None,
+					receipt_message: None,
+					quote: None,
+					source: Some(content.clone()),
+					attachments: Vec::default(),
+					end_session: false,
+				},
+			};
+			messages.push((peer_address, message_out));
+		}
+		for (peer_address, message_out) in messages { 
+			let _ = self.send_message(&peer_address, message_out).await;	
+		}
+		Ok(distribution_message)
 	}
 
 	/// Examine a Signal Service "Content" message, checking to see if it has a sender key distribution message and processing that incoming message if there is one. 
@@ -1878,6 +1899,7 @@ where
 							members: group_members.iter().map(|val| val.clone()).collect(),
 							// We haven't sent a sender key distribution message here yet. 
 							local_distribution_id: None,
+        					last_distribution_timestamp: 0,
 						}
 					},
 				};
