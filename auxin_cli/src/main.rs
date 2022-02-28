@@ -32,7 +32,7 @@ use tokio::{
 		mpsc::{Receiver, Sender},
 	},
 	task::JoinHandle,
-	time::{Duration, Instant},
+	time::{interval, Duration, Instant},
 };
 use tracing::{info, Level};
 use tracing_futures::Instrument;
@@ -352,10 +352,17 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					Err(msg) => {
 						println!("Failed to connect! {}", msg)
 					}
-					Ok(mut receiver) => {
+					Ok(receiver) => {
+						let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
+						let receiver_ping = std::sync::Arc::clone(&receiver);
+						tokio::task::spawn_blocking(move || {
+							let mut interval = interval(Duration::from_secs(30));
+							block_on(interval.tick());
+							block_on(receiver_ping.lock().unwrap().ping()).unwrap();
+						});
 						// once we've built: this will either receive forever, reconnect as needed, or die
 						loop {
-							while let Some(msg) = block_on(receiver.next()) {
+							while let Some(msg) = block_on(receiver.lock().unwrap().next()) {
 								block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
                                     panic!(
                                         "Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
@@ -367,9 +374,9 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 							let sleep_time = Duration::from_millis(100);
 							block_on(tokio::time::sleep(sleep_time));
 
-							if let Err(e) = block_on(receiver.refresh()) {
+							if let Err(e) = block_on(receiver.lock().unwrap().refresh()) {
 								log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-								block_on(receiver.reconnect())
+								block_on(receiver.lock().unwrap().reconnect())
 									.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 									.unwrap();
 							}

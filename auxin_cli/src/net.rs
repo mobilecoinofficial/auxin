@@ -497,6 +497,14 @@ impl AuxinTungsteniteConnection {
 
 		Ok(())
 	}
+
+	/// Send a websocket ping
+	pub async fn ping(&mut self) -> crate::Result<()> {
+		let msg = tungstenite::Message::Ping(Vec::default());
+		self.client.send(msg).await?;
+		self.client.flush().await?;
+		Ok(())
+	}
 }
 
 pub struct NetManager {
