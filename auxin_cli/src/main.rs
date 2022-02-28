@@ -357,11 +357,11 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						loop {
 							while let Some(msg) = block_on(receiver.next()) {
 								block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
-							panic!(
-								"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
-								MESSAGE_BUF_COUNT
-							)
-						});
+                                    panic!(
+                                        "Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
+                                        MESSAGE_BUF_COUNT
+                                    )
+                                });
 							}
 							trace!("Entering sleep...");
 							let sleep_time = Duration::from_millis(100);
