@@ -276,73 +276,6 @@ pub struct AuxinTungsteniteConnection {
 	client: Pin<Box<WsStream>>,
 }
 
-pub struct NetManager {
-	/// Pass in Signal's self-signed certificate.
-	cert: Certificate,
-}
-
-impl NetManager {
-	pub fn new(cert: Certificate) -> Self {
-		Self { cert }
-	}
-}
-
-#[derive(Debug, Clone)]
-pub enum EstablishConnectionError {
-	CannotTls(String),
-	TlsCertFailure(String),
-	FailedHttpsConnect(String),
-	CantStartWebsocketConnect(String),
-	BadUpgradeResponse(String),
-}
-impl fmt::Display for EstablishConnectionError {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		match &self {
-			Self::CannotTls(e) => write!(f, "Failed to construct a TLS connector: {}", e),
-			Self::TlsCertFailure(e) => write!(
-				f,
-				"Could not initialize the root Signal web API self-signed certificate: {}",
-				e
-			),
-			Self::FailedHttpsConnect(e) => write!(f, "Could not construct an HTTPS stream: {}", e),
-			Self::CantStartWebsocketConnect(e) => {
-				write!(f, "Could not initiate a websocket connection: {}", e)
-			}
-			Self::BadUpgradeResponse(e) => write!(
-				f,
-				"Failed to connect as Websocket client, got response: {}",
-				e
-			),
-		}
-	}
-}
-impl std::error::Error for EstablishConnectionError {}
-
-impl AuxinNetManager for NetManager {
-	type C = AuxinHyperConnection;
-	type Error = EstablishConnectionError;
-
-	/// Initialize an https connection to Signal which recognizes Signal's self-signed TLS certificate.
-	fn connect_to_signal_https(&mut self) -> ConnectFuture<Self::C, Self::Error> {
-		//Regular TLS connection (not websocket) for getting a sender cert.
-		let fut = Box::pin(build_tls_connector(self.cert.clone()))
-			.map_err(|e| EstablishConnectionError::CannotTls(e.to_string()))
-			.map_ok(|tls_connector| {
-				let mut http_connector = HttpConnector::new();
-				//Critically important. If we do not set this value to false, it will default to true,
-				//and the connector will error out when we attempt to connect using https://
-				//(Because technically it isn't http)
-				http_connector.enforce_http(false);
-				let https_connector =
-					hyper_tls::HttpsConnector::from((http_connector, tls_connector));
-
-				let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-				AuxinHyperConnection { client }
-			});
-		Box::pin(fut)
-	}
-}
-
 impl AuxinTungsteniteConnection {
 	pub async fn connect(
 		credentials: &LocalIdentity,
@@ -563,5 +496,72 @@ impl AuxinTungsteniteConnection {
 		self.client = Box::pin(client);
 
 		Ok(())
+	}
+}
+
+pub struct NetManager {
+	/// Pass in Signal's self-signed certificate.
+	cert: Certificate,
+}
+
+impl NetManager {
+	pub fn new(cert: Certificate) -> Self {
+		Self { cert }
+	}
+}
+
+#[derive(Debug, Clone)]
+pub enum EstablishConnectionError {
+	CannotTls(String),
+	TlsCertFailure(String),
+	FailedHttpsConnect(String),
+	CantStartWebsocketConnect(String),
+	BadUpgradeResponse(String),
+}
+impl fmt::Display for EstablishConnectionError {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match &self {
+			Self::CannotTls(e) => write!(f, "Failed to construct a TLS connector: {}", e),
+			Self::TlsCertFailure(e) => write!(
+				f,
+				"Could not initialize the root Signal web API self-signed certificate: {}",
+				e
+			),
+			Self::FailedHttpsConnect(e) => write!(f, "Could not construct an HTTPS stream: {}", e),
+			Self::CantStartWebsocketConnect(e) => {
+				write!(f, "Could not initiate a websocket connection: {}", e)
+			}
+			Self::BadUpgradeResponse(e) => write!(
+				f,
+				"Failed to connect as Websocket client, got response: {}",
+				e
+			),
+		}
+	}
+}
+impl std::error::Error for EstablishConnectionError {}
+
+impl AuxinNetManager for NetManager {
+	type C = AuxinHyperConnection;
+	type Error = EstablishConnectionError;
+
+	/// Initialize an https connection to Signal which recognizes Signal's self-signed TLS certificate.
+	fn connect_to_signal_https(&mut self) -> ConnectFuture<Self::C, Self::Error> {
+		//Regular TLS connection (not websocket) for getting a sender cert.
+		let fut = Box::pin(build_tls_connector(self.cert.clone()))
+			.map_err(|e| EstablishConnectionError::CannotTls(e.to_string()))
+			.map_ok(|tls_connector| {
+				let mut http_connector = HttpConnector::new();
+				//Critically important. If we do not set this value to false, it will default to true,
+				//and the connector will error out when we attempt to connect using https://
+				//(Because technically it isn't http)
+				http_connector.enforce_http(false);
+				let https_connector =
+					hyper_tls::HttpsConnector::from((http_connector, tls_connector));
+
+				let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
+				AuxinHyperConnection { client }
+			});
+		Box::pin(fut)
 	}
 }
