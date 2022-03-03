@@ -26,8 +26,8 @@ use crate::{
 
 /// Keeps track of a local identity, used by signal-cli in accounts.json
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LocalAccountRecord { 
-	/// Path for this account's datastore. 
+pub struct LocalAccountRecord {
+	/// Path for this account's datastore.
 	pub path: String,
 	/// Phone number
 	pub number: E164,
@@ -37,7 +37,7 @@ pub struct LocalAccountRecord {
 
 /// Keeps track of local identities, used by signal-cli in accounts.json
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LocalAccounts { 
+pub struct LocalAccounts {
 	pub accounts: Vec<LocalAccountRecord>,
 }
 

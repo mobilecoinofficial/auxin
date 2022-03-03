@@ -52,7 +52,7 @@ struct LocalIdentityJson {
 	uuid: Option<Uuid>,
 
 	/// A PNI is a "Phone Number Identity". The actual datatype of a PNI is a UUID. New with v3
-	pni: Option<Uuid>, 
+	pni: Option<Uuid>,
 
 	/// Signal account password?
 	password: Option<String>,
@@ -67,7 +67,7 @@ struct LocalIdentityJson {
 	// TODO(Diana): Pretty sure this should always exist. signal-cli unconditionally writes this out.
 	// See https://github.com/AsamK/signal-cli/blob/166bec0f8d2f3291dde4f30964692b550ff8ac40/lib/src/main/java/org/asamk/signal/manager/storage/SignalAccount.java#L737
 	device_id: Option<u32>,
-	
+
 	#[serde(rename = "identityPrivateKey")]
 	private_key: Option<String>,
 
