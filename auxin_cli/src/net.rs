@@ -375,8 +375,8 @@ impl AuxinTungsteniteConnection {
 	}
 
 	/// Polls for the next available message.  Returns none when the end of the stream has been reached.
-	pub async fn next(&mut self) -> Option<std::result::Result<WebSocketMessage, ReceiveError>> {
-		trace!("Entering AuxinTungsteniteConnection::next()");
+	pub async fn next_message(&mut self) -> Option<std::result::Result<WebSocketMessage, ReceiveError>> {
+		trace!("Entering AuxinTungsteniteConnection::next_message()");
 
 		trace!("Incoming message read attempt...");
 		//Decode to auxin_protos::WebSocketMessage.
@@ -449,8 +449,22 @@ impl AuxinTungsteniteConnection {
 						trace!("request-shaped Some(Ok(wsmessage))");
 						Some(Ok(wsmessage))
 					}
+				} else if wsmessage.get_field_type() == WebSocketMessage_Type::RESPONSE { 
+					/* In practice this will always be: 
+						RESPONSE response {
+							id: $id 
+							status: 200 
+							message: "OK" 
+							headers: "Content-Type:application/json" 
+							headers: "Content-Length:28" 
+							body: "{\"messages\":[],\"more\":false}"}"
+					so we can return a None here.*/
+					// This is essentially the new codepath serving the purpose of "/api/v1/queue/empty"
+
+					None
+					
 				} else {
-					trace!("non-request Some(Ok(wsmessage))");
+					trace!("non-request non-response Some(Ok(wsmessage))");
 					Some(Ok(wsmessage))
 				}
 			}
@@ -573,3 +587,11 @@ impl AuxinNetManager for NetManager {
 		Box::pin(fut)
 	}
 }
+
+/*impl futures::Stream for AuxinTungsteniteConnection {
+    type Item = std::result::Result<WebSocketMessage, ReceiveError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        todo!()
+    }
+}*/
