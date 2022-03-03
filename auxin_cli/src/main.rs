@@ -32,7 +32,7 @@ use tokio::{
 		mpsc::{Receiver, Sender},
 	},
 	task::JoinHandle,
-	time::{interval, Duration, Instant},
+	time::{Duration, Instant},
 };
 use tracing::{info, Level};
 use tracing_futures::Instrument;
@@ -208,7 +208,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			let mut receiver =
 				AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
 			while !exit {
-				while let Some(Ok(wsmessage)) = receiver.next().await {
+				while let Some(Ok(wsmessage)) = receiver.next_message().await {
 					let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
 
 					if let Some(msg) = msg_maybe {
@@ -244,7 +244,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			let mut receiver =
 				AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
 			while !exit {
-				while let Some(msg) = receiver.next().await {
+				while let Some(msg) = receiver.next_message().await {
 					match msg {
 						Ok(wsmessage) => {
 							let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
@@ -340,7 +340,9 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			let receiver_credentials = app.context.identity.clone();
 
 			const MESSAGE_BUF_COUNT: usize = 4096;
-
+			const PING_INTERVAL: Duration = Duration::from_secs(30);
+			const RECEIVE_INTERVAL: Duration = Duration::from_millis(128);
+			
 			#[allow(clippy::type_complexity)]
 			let (msg_channel, mut msg_receiver): (
 				Sender<std::result::Result<WebSocketMessage, ReceiveError>>,
@@ -352,31 +354,60 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					Err(msg) => {
 						println!("Failed to connect! {}", msg)
 					}
-					Ok(receiver) => {
-						let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
-						let receiver_ping = std::sync::Arc::clone(&receiver);
-						tokio::task::spawn_blocking(move || {
-							let mut interval = interval(Duration::from_secs(30));
-							block_on(interval.tick());
-							block_on(receiver_ping.lock().unwrap().ping()).unwrap();
-						});
-						// once we've built: this will either receive forever, reconnect as needed, or die
-						loop {
-							while let Some(msg) = block_on(receiver.lock().unwrap().next()) {
-								block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
-                                    panic!(
-                                        "Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
-                                        MESSAGE_BUF_COUNT
-                                    )
-                                });
-							}
-							trace!("Entering sleep...");
-							let sleep_time = Duration::from_millis(100);
-							block_on(tokio::time::sleep(sleep_time));
+					Ok(mut receiver) => {
 
-							if let Err(e) = block_on(receiver.lock().unwrap().refresh()) {
+						let mut last_receive_time = Instant::now();
+						let mut last_ping_time = Instant::now();
+
+						// Once we've built: this will either receive forever, reconnect as needed, or die
+						loop {
+							let mut end_of_stream = false; 
+							while !end_of_stream {
+								let elapsed_since_receive = Instant::now() - last_receive_time;
+								let elapsed_since_ping = Instant::now() - last_ping_time;
+								// Receive if it's time to.
+								if elapsed_since_receive >= RECEIVE_INTERVAL { 
+									let msg_maybe = block_on(receiver.next_message());
+									match msg_maybe { 
+										Some(msg) => {
+											block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
+												panic!(
+													"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
+													MESSAGE_BUF_COUNT
+												)
+											});
+										}
+										None => end_of_stream = true,
+									}
+									last_receive_time = Instant::now();
+								}
+								// Ping if it's time to. 
+								if elapsed_since_ping >= PING_INTERVAL { 
+									let resl = block_on(receiver.ping());
+									if let Err(e) = resl { 
+										//Report the error. 
+										let err_msg: std::result::Result<WebSocketMessage, ReceiveError> = Err(
+											ReceiveError::PingErr(format!("{:?}", &e))
+										);
+										block_on(msg_channel.send(err_msg)).unwrap_or_else(|_| {
+											panic!(
+												"Unable to send ping error message to main auxin thread! Error was {}. It is possible you have exceeded the message buffer size, which is {}",
+												&e,
+												MESSAGE_BUF_COUNT
+											)
+										});
+										// Trigger a refresh to ensure the websocket connection is good. 
+										end_of_stream = true;
+									}
+									else { 
+										trace!("Pinged the WebSocket connection to ensure it stays alive.");
+									}
+									last_ping_time = Instant::now();
+								}
+							}
+							if let Err(e) = block_on(receiver.refresh()) {
 								log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-								block_on(receiver.lock().unwrap().reconnect())
+								block_on(receiver.reconnect())
 									.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 									.unwrap();
 							}
