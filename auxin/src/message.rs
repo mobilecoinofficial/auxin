@@ -423,8 +423,7 @@ impl OutgoingPushMessageList {
 	{
 		let json_message = serde_json::to_string(&self)?;
 
-		let mut msg_path =
-			String::from("https://textsecure-service.whispersystems.org/v1/messages/");
+		let mut msg_path = String::from("https://chat.signal.org/v1/messages/");
 		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
 
 		let mut req = match mode == MessageSendMode::SealedSender {
