@@ -353,16 +353,20 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						println!("Failed to connect! {}", msg)
 					}
 					Ok(receiver) => {
-						let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
+						let receiver = std::sync::Arc::new(tokio::sync::Mutex::new(receiver));
 						let receiver_ping = std::sync::Arc::clone(&receiver);
 						tokio::task::spawn_blocking(move || {
 							let mut interval = interval(Duration::from_secs(30));
-							block_on(interval.tick());
-							block_on(receiver_ping.lock().unwrap().ping()).unwrap();
+							block_on(async {
+								interval.tick().await;
+								receiver_ping.lock().await.ping().await.unwrap()
+							});
 						});
 						// once we've built: this will either receive forever, reconnect as needed, or die
 						loop {
-							while let Some(msg) = block_on(receiver.lock().unwrap().next()) {
+							while let Some(msg) =
+								block_on(async { receiver.lock().await.next().await })
+							{
 								block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
                                     panic!(
                                         "Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
@@ -372,11 +376,13 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 							}
 							trace!("Entering sleep...");
 							let sleep_time = Duration::from_millis(100);
-							block_on(tokio::time::sleep(sleep_time));
 
-							if let Err(e) = block_on(receiver.lock().unwrap().refresh()) {
+							if let Err(e) = block_on(async {
+								tokio::time::sleep(sleep_time).await;
+								receiver.lock().await.refresh().await
+							}) {
 								log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-								block_on(receiver.lock().unwrap().reconnect())
+								block_on(async { receiver.lock().await.reconnect().await })
 									.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 									.unwrap();
 							}
