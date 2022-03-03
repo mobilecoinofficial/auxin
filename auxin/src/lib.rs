@@ -295,7 +295,6 @@ pub enum ReceiveError {
 	ReconnectErr(String),
 	AttachmentErr(String),
 	DeserializeErr(String),
-	PingErr(String),
 	UnknownWebsocketTy,
 }
 
@@ -327,7 +326,6 @@ impl std::fmt::Display for ReceiveError {
 				"Failed to handle incoming envelope inside receive loop: {:?}",
 				e
 			),
-			Self::PingErr(e) => write!(f, "Error while attempting to ping as part of a receive loop: {}", e),
 		}
 	}
 }

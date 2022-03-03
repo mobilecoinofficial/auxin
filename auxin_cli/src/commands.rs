@@ -348,11 +348,6 @@ impl From<ReceiveError> for JsonRpcErrorResponse {
 				message: String::from("Invalid Websocket Message Type"),
 				data: None,
 			},
-			ReceiveError::PingErr(e) => JsonRpcError {
-				code: -32010,
-				message: String::from("Unable to ping in receive loop."),
-				data: Some(serde_json::Value::String(e)),
-			},
 		};
 		JsonRpcErrorResponse {
 			jsonrpc: JSONRPC_VER.to_string(),
@@ -910,7 +905,7 @@ pub async fn handle_receive_command(
 
 	let mut messages: Vec<MessageIn> = Vec::default();
 	let mut receiver = AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
-	while let Some(wsmessage_maybe) = receiver.next_message().await {
+	while let Some(wsmessage_maybe) = receiver.next().await {
 		let wsmessage = wsmessage_maybe?;
 		// Decode/decrypt.
 		let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
