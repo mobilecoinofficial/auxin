@@ -400,13 +400,6 @@ impl AuxinTungsteniteConnection {
 			}
 			Some(Ok(tungstenite::Message::Pong(_))) => {
 				println!("GOT PONG");
-				tokio::task::spawn(async {
-					let mut interval = interval(Duration::from_secs(15));
-					interval.tick().await;
-					let msg = tungstenite::Message::Ping(Vec::default());
-					self.client.send(msg).await?;
-					self.client.flush().await
-				});
 				None
 			}
 			Some(Ok(tungstenite::Message::Close(frame))) => {
@@ -474,26 +467,6 @@ impl AuxinTungsteniteConnection {
 	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
 	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
 		trace!("Entering refresh()");
-		let mut req = WebSocketRequestMessage::default();
-
-		let mut rng = OsRng::default();
-		// Only invocation of "self.app" in this method. Replace?
-		req.set_id(rng.next_u64());
-		req.set_verb("GET".to_string());
-		req.set_path("/v1/messages/".to_string());
-		let mut req_m = WebSocketMessage::default();
-		req_m.set_request(req);
-		req_m.set_field_type(WebSocketMessage_Type::REQUEST);
-
-		self.send_message(req_m)
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
-		self.client
-			.flush()
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
 		Ok(())
 	}
 
