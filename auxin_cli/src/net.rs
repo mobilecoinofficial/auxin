@@ -18,6 +18,7 @@ use protobuf::{CodedOutputStream, Message};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::TcpStream,
+	time::{interval, Duration, Instant},
 };
 use tokio_native_tls::native_tls::{Certificate, TlsConnector};
 use tokio_tungstenite::WebSocketStream;
@@ -102,7 +103,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
 		},
 		httparse::Header {
 			name: "X-Signal-Agent",
-			value: "auxin".as_bytes(),
+			value: crate::net::X_SIGNAL_AGENT.as_bytes(),
 		},
 	];
 	let req = httparse::Request {
@@ -393,8 +394,21 @@ impl AuxinTungsteniteConnection {
 					Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))),
 				}))
 			}
-			Some(Ok(tungstenite::Message::Ping(_))) => None,
-			Some(Ok(tungstenite::Message::Pong(_))) => None,
+			Some(Ok(tungstenite::Message::Ping(_))) => {
+				println!("GOT PING");
+				None
+			}
+			Some(Ok(tungstenite::Message::Pong(_))) => {
+				println!("GOT PONG");
+				tokio::task::spawn(async {
+					let mut interval = interval(Duration::from_secs(15));
+					interval.tick().await;
+					let msg = tungstenite::Message::Ping(Vec::default());
+					self.client.send(msg).await?;
+					self.client.flush().await
+				});
+				None
+			}
 			Some(Ok(tungstenite::Message::Close(frame))) => {
 				trace!("Some(Ok(tungstenite::Message::Close(frame)))");
 				Some(Err(WebsocketError::StreamClosed(frame)))
@@ -485,7 +499,7 @@ impl AuxinTungsteniteConnection {
 
 	/// Re-initialize a Signal websocket connection so you can continue polling for messages.
 	pub async fn reconnect(&mut self) -> crate::Result<()> {
-		trace!("Entering reconnect()");
+		println!("Entering reconnect()");
 		self.client
 			.close()
 			.await
