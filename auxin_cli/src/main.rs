@@ -356,10 +356,13 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						let receiver = std::sync::Arc::new(tokio::sync::Mutex::new(receiver));
 						let receiver_ping = std::sync::Arc::clone(&receiver);
 						tokio::task::spawn_blocking(move || {
-							let mut interval = interval(Duration::from_secs(30));
+							let mut interval = interval(Duration::from_secs(15));
 							block_on(async {
-								interval.tick().await;
-								receiver_ping.lock().await.ping().await.unwrap()
+								loop {
+									interval.tick().await;
+									println!("RECEIVER_PING: {:p}", receiver_ping);
+									receiver_ping.lock().await.ping().await.unwrap()
+								}
 							});
 						});
 						// once we've built: this will either receive forever, reconnect as needed, or die
@@ -376,6 +379,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 							}
 							trace!("Entering sleep...");
 							let sleep_time = Duration::from_millis(100);
+							println!("RECEIVER     : {:p}", receiver);
 
 							if let Err(e) = block_on(async {
 								tokio::time::sleep(sleep_time).await;
