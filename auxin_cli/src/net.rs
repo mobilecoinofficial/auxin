@@ -533,7 +533,15 @@ impl AuxinTungsteniteConnection {
 
 	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
 	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
-		trace!("Entering refresh()");
+		let msg = tungstenite::Message::Ping(Vec::default());
+		self.client
+			.send(msg)
+			.await
+			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+		self.client
+			.flush()
+			.await
+			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
 		Ok(())
 	}
 
