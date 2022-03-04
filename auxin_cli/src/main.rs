@@ -32,7 +32,7 @@ use tokio::{
 		mpsc::{Receiver, Sender},
 	},
 	task::JoinHandle,
-	time::{interval, Duration, Instant},
+	time::{Duration, Instant},
 };
 use tracing::{info, Level};
 use tracing_futures::Instrument;
@@ -352,41 +352,23 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					Err(msg) => {
 						println!("Failed to connect! {}", msg)
 					}
-					Ok(receiver) => {
-						let receiver = std::sync::Arc::new(tokio::sync::Mutex::new(receiver));
-						let receiver_ping = std::sync::Arc::clone(&receiver);
-						tokio::task::spawn_blocking(move || {
-							let mut interval = interval(Duration::from_secs(15));
-							block_on(async {
-								loop {
-									interval.tick().await;
-									println!("RECEIVER_PING: {:p}", receiver_ping);
-									receiver_ping.lock().await.ping().await.unwrap()
-								}
-							});
-						});
+					Ok(mut receiver) => {
 						// once we've built: this will either receive forever, reconnect as needed, or die
 						loop {
-							while let Some(msg) =
-								block_on(async { receiver.lock().await.next().await })
-							{
+							while let Some(msg) = block_on(receiver.next()) {
 								block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
-                                    panic!(
-                                        "Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
-                                        MESSAGE_BUF_COUNT
-                                    )
-                                });
+							panic!(
+								"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
+								MESSAGE_BUF_COUNT
+							)
+						});
 							}
 							trace!("Entering sleep...");
-							let sleep_time = Duration::from_millis(100);
-							println!("RECEIVER     : {:p}", receiver);
-
-							if let Err(e) = block_on(async {
-								tokio::time::sleep(sleep_time).await;
-								receiver.lock().await.refresh().await
-							}) {
+							let sleep_time = Duration::from_millis(1000);
+							block_on(tokio::time::sleep(sleep_time));
+							if let Err(e) = block_on(receiver.refresh()) {
 								log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-								block_on(async { receiver.lock().await.reconnect().await })
+								block_on(receiver.reconnect())
 									.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
 									.unwrap();
 							}
