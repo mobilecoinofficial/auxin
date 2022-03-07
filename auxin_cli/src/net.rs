@@ -18,7 +18,7 @@ use protobuf::{CodedOutputStream, Message};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::TcpStream,
-	time::{interval, Duration, Instant},
+	time::{Duration, Instant},
 };
 use tokio_native_tls::native_tls::{Certificate, TlsConnector};
 use tokio_tungstenite::WebSocketStream;
@@ -26,7 +26,6 @@ use tokio_tungstenite::WebSocketStream;
 use auxin_protos::{
 	WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage,
 };
-use rand::{rngs::OsRng, RngCore};
 
 use auxin::{net::AuxinNetManager, ReceiveError};
 
@@ -275,6 +274,7 @@ pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;
 pub struct AuxinTungsteniteConnection {
 	credentials: LocalIdentity,
 	client: Pin<Box<WsStream>>,
+	watchdog_tx: tokio::sync::mpsc::Sender<bool>,
 }
 
 pub struct NetManager {
@@ -381,9 +381,26 @@ impl AuxinTungsteniteConnection {
 		credentials: LocalIdentity,
 	) -> std::result::Result<Self, EstablishConnectionError> {
 		let client = Self::connect(&credentials).await?;
+		let (watchdog_tx, mut watchdog_rx) = tokio::sync::mpsc::channel(1);
+		watchdog_tx.send(true).await.unwrap();
+		tokio::task::spawn(async move {
+			let mut interval = tokio::time::interval_at(Instant::now(), Duration::from_secs(10));
+			let mut tick = tokio::time::interval_at(Instant::now(), Duration::from_millis(100));
+			let mut counts_since_reset = 0;
+			loop {
+				tokio::select! (
+				_ =  interval.tick() => {if counts_since_reset > 1000 { std::process::exit(1); }}
+				_ =  tick.tick() => {counts_since_reset += 1;}
+				maybe_input =  watchdog_rx.recv() => {match maybe_input { Some(_) => { counts_since_reset = 0;} ,
+				None => {},
+				}
+				})
+			}
+		});
 		Ok(AuxinTungsteniteConnection {
 			credentials,
 			client: Box::pin(client),
+			watchdog_tx,
 		})
 	}
 
@@ -467,7 +484,8 @@ impl AuxinTungsteniteConnection {
 				None
 			}
 			Some(Ok(tungstenite::Message::Pong(_))) => {
-				println!("GOT PONG");
+				self.watchdog_tx.send(true).await.unwrap();
+				println!(r#"{{"jsonrpc": "2.0", "id": "PONG", "method": "PONG"}}"#);
 				None
 			}
 			Some(Ok(tungstenite::Message::Close(frame))) => {
