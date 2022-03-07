@@ -13,7 +13,7 @@ use std::{
 use auxin::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
-	state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore},
+	state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore, LocalAccounts},
 	AuxinConfig, AuxinContext, LocalIdentity, Result, SignalCtx, PROFILE_KEY_LEN,
 };
 
@@ -156,6 +156,31 @@ custom_error! { pub ErrBuildIdent
 	MissingPublicKey{phone_number:E164} = "No public key found when trying to build a LocalIdentity from json structure for user: {phone_number}.",
 }
 
+/// Loads accounts.json
+/// If there is no accounts.json, this is not a signal-cli v3 storage and this will return None.
+pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> { 
+	let accounts_path = data_dir.join("accounts.json");
+	if accounts_path.exists() {
+		if accounts_path.is_file() {
+			let accounts_file = OpenOptions::new()
+				.read(true)
+				.write(false)
+				.create(false)
+				.open(accounts_path)?;
+			let accounts_bufread = BufReader::new(accounts_file);
+			let accounts: LocalAccounts = serde_json::from_reader(accounts_bufread)?;
+			Ok(Some(accounts))
+		}
+		else {
+			error!("accounts.json should never be a directory!");
+			Ok(None)
+		}
+	}
+	else { 
+		Ok(None)
+	}
+}
+
 /// Load any identity keys for known peers (recipients) present in our protocol store.
 ///
 /// These end up in identity_store.known_keys
@@ -168,7 +193,14 @@ pub async fn load_known_peers(
 	identity_store: &mut InMemIdentityKeyStore,
 	ctx: libsignal_protocol::Context,
 ) -> Result<()> {
-	let our_path = data_dir.join(&our_id).with_extension("d");
+	// Signal_cli storage v3 support
+	let mut new_path = our_id.clone();
+	if let Some(accounts) = load_v3_accounts(data_dir)? { 
+		if let Some(our_account) = accounts.get_by_number(our_id) { 
+			new_path = our_account.path.clone(); 
+		}
+	}
+	let our_path = data_dir.join(&new_path).with_extension("d");
 	let known_peers_path = our_path.join("identities");
 
 	for recip in recipients.peers.iter_mut() {
@@ -215,7 +247,14 @@ pub async fn load_sessions(
 	data_dir: &Path,
 	ctx: libsignal_protocol::Context,
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
-	let our_path = data_dir.join(our_phone).with_extension("d");
+	// Signal_cli storage v3 support
+	let mut new_path = our_phone.clone();
+	if let Some(accounts) = load_v3_accounts(data_dir)? { 
+		if let Some(our_account) = accounts.get_by_number(our_phone) { 
+			new_path = our_account.path.clone(); 
+		}
+	}
+	let our_path = data_dir.join(&new_path).with_extension("d");
 	let recipients_path = our_path.join("recipients-store");
 
 	debug!(
@@ -351,7 +390,14 @@ pub async fn load_prekeys(
 	let mut signed_pre_key_store = InMemSignedPreKeyStore::default();
 
 	//Figure out some directories.
-	let our_path = data_dir.join(our_phone).with_extension("d");
+	// Signal_cli storage v3 support
+	let mut new_path = our_phone.clone();
+	if let Some(accounts) = load_v3_accounts(data_dir)? { 
+		if let Some(our_account) = accounts.get_by_number(our_phone) { 
+			new_path = our_account.path.clone(); 
+		}
+	}
+	let our_path = data_dir.join(&new_path).with_extension("d");
 	let pre_keys_path = our_path.join("pre-keys");
 	let signed_pre_keys_path = our_path.join("signed-pre-keys");
 
@@ -506,10 +552,14 @@ impl StateManager {
 
 	/// Get path to signal-cli protocol state, `<phone_number>.d`
 	fn get_protocol_store_path(&self, context: &AuxinContext) -> PathBuf {
-		// TODO(Diana): Phone numbers, UUIDs, usernames, unwrap.
-		let our_id = context.identity.address.get_phone_number().unwrap();
-		//Figure out some directories.
-		self.data_dir.join(our_id).with_extension("d")
+		// Signal_cli storage v3 support
+		let mut new_path = context.identity.address.get_phone_number().unwrap().clone();
+		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
+			if let Some(our_account) = accounts.get_by_number(&new_path) { 
+				new_path = our_account.path.clone(); 
+			}
+		}
+		self.data_dir.join(&new_path).with_extension("d")
 	}
 }
 
@@ -520,7 +570,15 @@ impl AuxinStateManager for StateManager {
 	/// In signal_cli's protocol store structure,
 	/// this comes from the file with a name which is your phone number inside the "data" directory.
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
-		let file = File::open(self.data_dir.join(phone_number))?;
+		// Signal_cli storage v3 support
+		let mut new_path = phone_number.clone();
+		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
+			if let Some(our_account) = accounts.get_by_number(&new_path) { 
+				new_path = our_account.path.clone(); 
+			}
+		}
+
+		let file = File::open(self.data_dir.join(&new_path))?;
 		from_reader::<_, LocalIdentityJson>(BufReader::new(file))?.try_into()
 	}
 
