@@ -392,18 +392,19 @@ impl AuxinTungsteniteConnection {
 		msg: auxin_protos::WebSocketMessage,
 	) -> std::result::Result<(), tungstenite::Error> {
 		let mut buf: Vec<u8> = Vec::default();
-		let mut out_gen = CodedOutputStream::new(&mut buf);
-		let _ = msg.compute_size();
-		msg.write_to_with_cached_sizes(&mut out_gen)
-			.expect("Could not write websocket message.");
-		out_gen.flush().expect("Could not write websocket message.");
-		drop(out_gen);
+		{
+			let mut out_gen = CodedOutputStream::new(&mut buf);
+			let _ = msg.compute_size();
+			msg.write_to_with_cached_sizes(&mut out_gen)
+				.expect("Could not write websocket message.");
+			out_gen.flush().expect("Could not write websocket message.");
+			drop(out_gen);
+		}
 		let msg = tungstenite::Message::Binary(buf);
 
 		self.client.send(msg).await?;
 
 		self.client.flush().await?;
-
 		Ok(())
 	}
 
@@ -531,7 +532,7 @@ impl AuxinTungsteniteConnection {
 		}
 	}
 
-	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
+	/// Do a websocket PING
 	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
 		let msg = tungstenite::Message::Ping(Vec::default());
 		self.client
