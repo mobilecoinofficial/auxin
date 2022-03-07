@@ -18,6 +18,7 @@ use protobuf::{CodedOutputStream, Message};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::TcpStream,
+	time::{Duration, Instant},
 };
 use tokio_native_tls::native_tls::{Certificate, TlsConnector};
 use tokio_tungstenite::WebSocketStream;
@@ -25,7 +26,6 @@ use tokio_tungstenite::WebSocketStream;
 use auxin_protos::{
 	WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage,
 };
-use rand::{rngs::OsRng, RngCore};
 
 use auxin::{net::AuxinNetManager, ReceiveError};
 
@@ -102,7 +102,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
 		},
 		httparse::Header {
 			name: "X-Signal-Agent",
-			value: "auxin".as_bytes(),
+			value: crate::net::X_SIGNAL_AGENT.as_bytes(),
 		},
 	];
 	let req = httparse::Request {
@@ -274,237 +274,7 @@ pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;
 pub struct AuxinTungsteniteConnection {
 	credentials: LocalIdentity,
 	client: Pin<Box<WsStream>>,
-}
-
-impl AuxinTungsteniteConnection {
-	pub async fn connect(
-		credentials: &LocalIdentity,
-	) -> std::result::Result<WsStream, EstablishConnectionError> {
-		let cert = load_root_tls_cert()?;
-		let tls_stream = connect_tls_for_websocket(cert).await?;
-		let (websocket_client, connect_response) =
-			connect_websocket(credentials, tls_stream).await?;
-		//It's successful... or is it?
-		// Check to make sure our status code is success.
-		if !((connect_response.status().as_u16() == 200)
-			|| (connect_response.status().as_u16() == 101))
-		{
-			let r = connect_response.status().as_u16();
-			let s = connect_response.status().to_string();
-			let err = format!("Status {}: {}", r, s);
-			Err(EstablishConnectionError::BadUpgradeResponse(err))
-		} else {
-			//If it's successful, pass along our value.
-			debug!(
-				"Constructed websocket client streams, got response: {:?}",
-				connect_response
-			);
-
-			Ok(websocket_client)
-		}
-	}
-
-	/// Construct an AuxinReceiver, connecting to Signal's Websocket server.
-	///
-	/// # Arguments
-	///
-	/// * `credentials` - The user identity from which we will be connecting to websocket.
-	pub async fn new(
-		credentials: LocalIdentity,
-	) -> std::result::Result<Self, EstablishConnectionError> {
-		let client = Self::connect(&credentials).await?;
-		Ok(AuxinTungsteniteConnection {
-			credentials,
-			client: Box::pin(client),
-		})
-	}
-
-	pub async fn send_message(
-		&mut self,
-		msg: auxin_protos::WebSocketMessage,
-	) -> std::result::Result<(), tungstenite::Error> {
-		let mut buf: Vec<u8> = Vec::default();
-		let mut out_gen = CodedOutputStream::new(&mut buf);
-		let _ = msg.compute_size();
-		msg.write_to_with_cached_sizes(&mut out_gen)
-			.expect("Could not write websocket message.");
-		out_gen.flush().expect("Could not write websocket message.");
-		drop(out_gen);
-		let msg = tungstenite::Message::Binary(buf);
-
-		self.client.send(msg).await?;
-
-		self.client.flush().await?;
-
-		Ok(())
-	}
-
-	/// Notify the server that we have received a message.
-	///
-	/// Note that this only sends the WebSocket acknowledgement.
-	/// AuxinApp::receive_and_acknowledge() sends the Signal protocol "receipt" message.
-	///
-	/// # Arguments
-	///
-	/// * `req` - The original WebSocketRequestMessage - passed so
-	/// that we can acknowledge that we've received this message even if no valid message can be parsed from it.
-	async fn acknowledge_message(
-		&mut self,
-		req: &WebSocketRequestMessage,
-	) -> std::result::Result<(), ReceiveError> {
-		// Sending responses goes here.
-		let reply_id = req.get_id();
-		let mut res = WebSocketResponseMessage::default();
-		res.set_id(reply_id);
-		res.set_status(200); // Success
-		res.set_message(String::from("OK"));
-		res.set_headers(req.get_headers().into());
-		let mut res_m = WebSocketMessage::default();
-		res_m.set_response(res);
-		res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
-
-		self.send_message(res_m)
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
-		self.client
-			.flush()
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-		Ok(())
-	}
-
-	/// Polls for the next available message.  Returns none when the end of the stream has been reached.
-	pub async fn next(&mut self) -> Option<std::result::Result<WebSocketMessage, ReceiveError>> {
-		trace!("Entering AuxinTungsteniteConnection::next()");
-
-		trace!("Incoming message read attempt...");
-		//Decode to auxin_protos::WebSocketMessage.
-		let msg = match self.client.next().await {
-			None => {
-				trace!("self.client.next() is a None");
-				None
-			}
-			Some(Ok(tungstenite::Message::Text(_msg))) => todo!(), // From json maybe?
-			Some(Ok(tungstenite::Message::Binary(buf))) => {
-				trace!("Some(Ok(tungstenite::Message::Binary(buf)))");
-				Some(Ok(match read_wsmessage(&buf) {
-					Ok(msg) => msg,
-					Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))),
-				}))
-			}
-			Some(Ok(tungstenite::Message::Ping(_))) => None,
-			Some(Ok(tungstenite::Message::Pong(_))) => None,
-			Some(Ok(tungstenite::Message::Close(frame))) => {
-				trace!("Some(Ok(tungstenite::Message::Close(frame)))");
-				Some(Err(WebsocketError::StreamClosed(frame)))
-			}
-			_ => None,
-		};
-
-		trace!("msg is: {:?}", msg);
-		//Match message.
-		match msg {
-			None => {
-				trace!("msg was a None");
-				None
-			}
-			Some(Err(e)) => {
-				trace!("NetErr");
-				Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))))
-			}
-			Some(Ok(m)) => {
-				trace!("Some(Ok(m)) - trying to turn m into wsmessage.");
-				let wsmessage: WebSocketMessage = m;
-				//Check to see if we're done.
-				if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST {
-					trace!("Acknowledging.");
-					let req = wsmessage.get_request();
-					if req.has_path() {
-						// The server has sent us all the messages it has waiting for us.
-						if req.get_path().contains("/api/v1/queue/empty") {
-							debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
-							//Acknowledge we received the end-of-queue and do many clunky error-handling things:
-							let res = self
-								.acknowledge_message(req)
-								.await
-								.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
-							let res = match res {
-								Ok(()) => None,
-								Err(e) => Some(Err(e)),
-							};
-
-							trace!("closing queue, returning {:?}.", res);
-							// Receive operation is done. Indicate there are no further messages left to poll for.
-							return res; //Usually this returns None.
-						}
-					}
-					// Ack it. We will not double-ack because the acknowledgement above
-					// directly returns from that  if req.get_path().contains("/api/v1/queue/empty") block
-					let res = self.acknowledge_message(req).await;
-
-					if let Err(e) = res {
-						Some(Err(e))
-					} else {
-						trace!("request-shaped Some(Ok(wsmessage))");
-						Some(Ok(wsmessage))
-					}
-				} else {
-					trace!("non-request Some(Ok(wsmessage))");
-					Some(Ok(wsmessage))
-				}
-			}
-		}
-	}
-
-	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
-	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
-		trace!("Entering refresh()");
-		let mut req = WebSocketRequestMessage::default();
-
-		let mut rng = OsRng::default();
-		// Only invocation of "self.app" in this method. Replace?
-		req.set_id(rng.next_u64());
-		req.set_verb("GET".to_string());
-		req.set_path("/v1/messages/".to_string());
-		let mut req_m = WebSocketMessage::default();
-		req_m.set_request(req);
-		req_m.set_field_type(WebSocketMessage_Type::REQUEST);
-
-		self.send_message(req_m)
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
-		self.client
-			.flush()
-			.await
-			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
-		Ok(())
-	}
-
-	/// Re-initialize a Signal websocket connection so you can continue polling for messages.
-	pub async fn reconnect(&mut self) -> crate::Result<()> {
-		trace!("Entering reconnect()");
-		self.client
-			.close()
-			.await
-			.map_err(|e| ReceiveError::ReconnectErr(format!("Could not close: {:?}", e)))?;
-		// Better way to do this...
-		let client = Self::connect(&self.credentials).await?;
-
-		self.client = Box::pin(client);
-
-		Ok(())
-	}
-
-	/// Send a websocket ping
-	pub async fn ping(&mut self) -> crate::Result<()> {
-		let msg = tungstenite::Message::Ping(Vec::default());
-		self.client.send(msg).await?;
-		self.client.flush().await?;
-		Ok(())
-	}
+	watchdog_tx: tokio::sync::mpsc::Sender<bool>,
 }
 
 pub struct NetManager {
@@ -571,5 +341,241 @@ impl AuxinNetManager for NetManager {
 				AuxinHyperConnection { client }
 			});
 		Box::pin(fut)
+	}
+}
+
+impl AuxinTungsteniteConnection {
+	pub async fn connect(
+		credentials: &LocalIdentity,
+	) -> std::result::Result<WsStream, EstablishConnectionError> {
+		let cert = load_root_tls_cert()?;
+		let tls_stream = connect_tls_for_websocket(cert).await?;
+		let (websocket_client, connect_response) =
+			connect_websocket(credentials, tls_stream).await?;
+		//It's successful... or is it?
+		// Check to make sure our status code is success.
+		if !((connect_response.status().as_u16() == 200)
+			|| (connect_response.status().as_u16() == 101))
+		{
+			let r = connect_response.status().as_u16();
+			let s = connect_response.status().to_string();
+			let err = format!("Status {}: {}", r, s);
+			Err(EstablishConnectionError::BadUpgradeResponse(err))
+		} else {
+			//If it's successful, pass along our value.
+			debug!(
+				"Constructed websocket client streams, got response: {:?}",
+				connect_response
+			);
+
+			Ok(websocket_client)
+		}
+	}
+
+	/// Construct an AuxinReceiver, connecting to Signal's Websocket server.
+	///
+	/// # Arguments
+	///
+	/// * `credentials` - The user identity from which we will be connecting to websocket.
+	pub async fn new(
+		credentials: LocalIdentity,
+	) -> std::result::Result<Self, EstablishConnectionError> {
+		let client = Self::connect(&credentials).await?;
+		let (watchdog_tx, mut watchdog_rx) = tokio::sync::mpsc::channel(1);
+		watchdog_tx.send(true).await.unwrap();
+		tokio::task::spawn(async move {
+			let mut interval = tokio::time::interval_at(Instant::now(), Duration::from_secs(10));
+			let mut tick = tokio::time::interval_at(Instant::now(), Duration::from_millis(100));
+			let mut counts_since_reset = 0;
+			loop {
+				tokio::select! (
+				_ =  interval.tick() => {if counts_since_reset > 1000 { std::process::exit(1); }}
+				_ =  tick.tick() => {counts_since_reset += 1;}
+				maybe_input =  watchdog_rx.recv() => {match maybe_input { Some(_) => { counts_since_reset = 0;} ,
+				None => {},
+				}
+				})
+			}
+		});
+		Ok(AuxinTungsteniteConnection {
+			credentials,
+			client: Box::pin(client),
+			watchdog_tx,
+		})
+	}
+
+	pub async fn send_message(
+		&mut self,
+		msg: auxin_protos::WebSocketMessage,
+	) -> std::result::Result<(), tungstenite::Error> {
+		let mut buf: Vec<u8> = Vec::default();
+		{
+			let mut out_gen = CodedOutputStream::new(&mut buf);
+			let _ = msg.compute_size();
+			msg.write_to_with_cached_sizes(&mut out_gen)
+				.expect("Could not write websocket message.");
+			out_gen.flush().expect("Could not write websocket message.");
+			drop(out_gen);
+		}
+		let msg = tungstenite::Message::Binary(buf);
+
+		self.client.send(msg).await?;
+
+		self.client.flush().await?;
+		Ok(())
+	}
+
+	/// Notify the server that we have received a message.
+	///
+	/// Note that this only sends the WebSocket acknowledgement.
+	/// AuxinApp::receive_and_acknowledge() sends the Signal protocol "receipt" message.
+	///
+	/// # Arguments
+	///
+	/// * `req` - The original WebSocketRequestMessage - passed so
+	/// that we can acknowledge that we've received this message even if no valid message can be parsed from it.
+	async fn acknowledge_message(
+		&mut self,
+		req: &WebSocketRequestMessage,
+	) -> std::result::Result<(), ReceiveError> {
+		// Sending responses goes here.
+		let reply_id = req.get_id();
+		let mut res = WebSocketResponseMessage::default();
+		res.set_id(reply_id);
+		res.set_status(200); // Success
+		res.set_message(String::from("OK"));
+		res.set_headers(req.get_headers().into());
+		let mut res_m = WebSocketMessage::default();
+		res_m.set_response(res);
+		res_m.set_field_type(WebSocketMessage_Type::RESPONSE);
+
+		self.send_message(res_m)
+			.await
+			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+
+		self.client
+			.flush()
+			.await
+			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+		Ok(())
+	}
+
+	/// Polls for the next available message.  Returns none when the end of the stream has been reached.
+	pub async fn next(&mut self) -> Option<std::result::Result<WebSocketMessage, ReceiveError>> {
+		trace!("Entering AuxinTungsteniteConnection::next()");
+
+		trace!("Incoming message read attempt...");
+		//Decode to auxin_protos::WebSocketMessage.
+		let msg = match self.client.next().await {
+			None => {
+				trace!("self.client.next() is a None");
+				None
+			}
+			Some(Ok(tungstenite::Message::Text(_msg))) => todo!(), // From json maybe?
+			Some(Ok(tungstenite::Message::Binary(buf))) => {
+				trace!("Some(Ok(tungstenite::Message::Binary(buf)))");
+				Some(Ok(match read_wsmessage(&buf) {
+					Ok(msg) => msg,
+					Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))),
+				}))
+			}
+			Some(Ok(tungstenite::Message::Ping(_))) => {
+				println!("GOT PING");
+				None
+			}
+			Some(Ok(tungstenite::Message::Pong(_))) => {
+				self.watchdog_tx.send(true).await.unwrap();
+				println!(r#"{{"jsonrpc": "2.0", "id": "PONG", "method": "PONG"}}"#);
+				None
+			}
+			Some(Ok(tungstenite::Message::Close(frame))) => {
+				trace!("Some(Ok(tungstenite::Message::Close(frame)))");
+				Some(Err(WebsocketError::StreamClosed(frame)))
+			}
+			_ => None,
+		};
+
+		trace!("msg is: {:?}", msg);
+		//Match message.
+		match msg {
+			None => {
+				trace!("msg was a None");
+				None
+			}
+			Some(Err(e)) => {
+				trace!("NetErr");
+				Some(Err(ReceiveError::NetSpecific(format!("{:?}", e))))
+			}
+			Some(Ok(m)) => {
+				trace!("Some(Ok(m)) - trying to turn m into wsmessage.");
+				let wsmessage: WebSocketMessage = m;
+				//Check to see if we're done.
+				if wsmessage.get_field_type() == WebSocketMessage_Type::REQUEST {
+					trace!("Acknowledging.");
+					let req = wsmessage.get_request();
+					if req.has_path() {
+						// The server has sent us all the messages it has waiting for us.
+						if req.get_path().contains("/api/v1/queue/empty") {
+							debug!("Received an /api/v1/queue/empty message. Message receiving complete.");
+							//Acknowledge we received the end-of-queue and do many clunky error-handling things:
+							let res = self
+								.acknowledge_message(req)
+								.await
+								.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)));
+							let res = match res {
+								Ok(()) => None,
+								Err(e) => Some(Err(e)),
+							};
+
+							trace!("closing queue, returning {:?}.", res);
+							// Receive operation is done. Indicate there are no further messages left to poll for.
+							return res; //Usually this returns None.
+						}
+					}
+					// Ack it. We will not double-ack because the acknowledgement above
+					// directly returns from that  if req.get_path().contains("/api/v1/queue/empty") block
+					let res = self.acknowledge_message(req).await;
+
+					if let Err(e) = res {
+						Some(Err(e))
+					} else {
+						trace!("request-shaped Some(Ok(wsmessage))");
+						Some(Ok(wsmessage))
+					}
+				} else {
+					trace!("non-request Some(Ok(wsmessage))");
+					Some(Ok(wsmessage))
+				}
+			}
+		}
+	}
+
+	/// Do a websocket PING
+	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
+		let msg = tungstenite::Message::Ping(Vec::default());
+		self.client
+			.send(msg)
+			.await
+			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+		self.client
+			.flush()
+			.await
+			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
+		Ok(())
+	}
+
+	/// Re-initialize a Signal websocket connection so you can continue polling for messages.
+	pub async fn reconnect(&mut self) -> crate::Result<()> {
+		println!("Entering reconnect()");
+		self.client
+			.close()
+			.await
+			.map_err(|e| ReceiveError::ReconnectErr(format!("Could not close: {:?}", e)))?;
+		// Better way to do this...
+		let client = Self::connect(&self.credentials).await?;
+
+		self.client = Box::pin(client);
+
+		Ok(())
 	}
 }

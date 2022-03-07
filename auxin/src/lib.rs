@@ -651,29 +651,41 @@ where
 				let peer = self.context.peer_cache.get(&recipient_addr).unwrap();
 				peer.device_ids_used.clone()
 			};
-			//And then delete the thing we just copied. Clear it out so we only get new state.
-			self.context
-				.peer_cache
-				.get_mut(&recipient_addr)
-				.unwrap()
-				.device_ids_used
-				.clear();
-			self.context
-				.peer_cache
-				.get_mut(&recipient_addr)
-				.unwrap()
-				.registration_ids
-				.clear();
+			for extra in mismatch_list.extra_devices.iter() {
+				self.context
+					.peer_cache
+					.get_mut(&recipient_addr)
+					.unwrap()
+					.device_ids_used
+					.remove(extra);
+			}
+			for missing in mismatch_list.missing_devices.iter() {
+				self.context
+					.peer_cache
+					.get_mut(&recipient_addr)
+					.unwrap()
+					.device_ids_used
+					.insert(*missing);
+			}
+			if mismatch_list.missing_devices.len() > 0 {
+				//And then delete the thing we just copied. Clear it out so we only get new state.
+				self.context
+					.peer_cache
+					.get_mut(&recipient_addr)
+					.unwrap()
+					.registration_ids
+					.clear();
 
-			//Get new device list
-			info!("Mismatched device list for {}. We have {:?}, and the server sent: {:?}. Attempting to fetch devices...", &recipient_addr, &existing_list, &mismatch_list );
-			self.fill_peer_info(&recipient_addr)
-				.await
-				.map_err(|e| SendMessageError::PeerStoreIssue(format!("{:?}", e)))?;
-			info!(
-				"Attempting to re-send message with original timestamp {}",
-				&sent_timestamp
-			);
+				//Get new device list
+				info!("Mismatched device list for {}. We have {:?}, and the server sent: {:?}. Attempting to fetch devices...", &recipient_addr, &existing_list, &mismatch_list );
+				self.fill_peer_info(&recipient_addr)
+					.await
+					.map_err(|e| SendMessageError::PeerStoreIssue(format!("{:?}", e)))?;
+				info!(
+					"Attempting to re-send message with original timestamp {}",
+					&sent_timestamp
+				);
+			}
 			let (new_timestamp, message_response) = self
 				.send_message_inner(&recipient_addr, &message_list)
 				.await?;
@@ -791,7 +803,6 @@ where
 			let recipient = self.context.peer_cache.get_mut(recipient_addr).unwrap();
 
 			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
-
 			recipient.profile = Some(prof.to_local());
 		}
 
@@ -1020,7 +1031,6 @@ where
 				}
 			})
 			.collect();
-		//println!("{:?}", cookies);
 
 		let mut filtered_cookies: Vec<String> = Vec::default();
 		for cookie in cookies {
@@ -1043,7 +1053,6 @@ where
 				}
 			}
 		}
-		//println!("{:?}", resulting_cookie_string);
 
 		let discovery_path = format!(
 			"https://api.directory.signal.org/v1/discovery/{}",

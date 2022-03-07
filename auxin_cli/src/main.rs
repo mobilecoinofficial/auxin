@@ -32,7 +32,7 @@ use tokio::{
 		mpsc::{Receiver, Sender},
 	},
 	task::JoinHandle,
-	time::{interval, Duration, Instant},
+	time::{interval_at, Duration, Instant},
 };
 use tracing::{info, Level};
 use tracing_futures::Instrument;
@@ -307,6 +307,10 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				Receiver<std::result::Result<String, std::io::Error>>,
 			) = mpsc::channel(LINE_BUF_COUNT);
 
+			let (do_send_ping_in, mut do_send_ping_out): (Sender<bool>, Receiver<bool>) =
+				mpsc::channel(1);
+
+			// blocking task which polls stdin and sends lines to be processed
 			tokio::task::spawn_blocking(move || loop {
 				// TODO: add a oneshot here and select across lines.next_line and the oneshot rx,
 				// send a message to trigger this task's termination
@@ -339,46 +343,56 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 			let receiver_credentials = app.context.identity.clone();
 
-			const MESSAGE_BUF_COUNT: usize = 4096;
+			const MESSAGE_BUF_COUNT: usize = 8192;
 
+			// channel that forwards websocket messages and errors to be handled
 			#[allow(clippy::type_complexity)]
 			let (msg_channel, mut msg_receiver): (
 				Sender<std::result::Result<WebSocketMessage, ReceiveError>>,
 				Receiver<std::result::Result<WebSocketMessage, ReceiveError>>,
 			) = mpsc::channel(MESSAGE_BUF_COUNT);
 
-			tokio::task::spawn_blocking(move || {
-				match block_on(AuxinTungsteniteConnection::new(receiver_credentials)) {
+			// task that triggers pings, running in its own happy little sleep environment
+			tokio::task::spawn(async move {
+				// trigger a PING every 10s
+				let mut interval = interval_at(Instant::now(), Duration::from_secs(10));
+				loop {
+					interval.tick().await;
+					do_send_ping_in.send(true).await.unwrap();
+				}
+			});
+
+			// selects forever over either a new websocket message or a pending ping
+			tokio::task::spawn(async move {
+				let mut interval = interval_at(Instant::now(), Duration::from_millis(50));
+				match AuxinTungsteniteConnection::new(receiver_credentials).await {
 					Err(msg) => {
 						println!("Failed to connect! {}", msg)
 					}
-					Ok(receiver) => {
-						let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
-						let receiver_ping = std::sync::Arc::clone(&receiver);
-						tokio::task::spawn_blocking(move || {
-							let mut interval = interval(Duration::from_secs(30));
-							block_on(interval.tick());
-							block_on(receiver_ping.lock().unwrap().ping()).unwrap();
-						});
-						// once we've built: this will either receive forever, reconnect as needed, or die
+					// once we've built receiver: this will either receive forever, reconnect as needed, or die
+					Ok(mut receiver) => {
 						loop {
-							while let Some(msg) = block_on(receiver.lock().unwrap().next()) {
-								block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
-                                    panic!(
-                                        "Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
-                                        MESSAGE_BUF_COUNT
-                                    )
-                                });
-							}
-							trace!("Entering sleep...");
-							let sleep_time = Duration::from_millis(100);
-							block_on(tokio::time::sleep(sleep_time));
-
-							if let Err(e) = block_on(receiver.lock().unwrap().refresh()) {
-								log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-								block_on(receiver.lock().unwrap().reconnect())
-									.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
-									.unwrap();
+							tokio::select! {
+									biased;
+								   _ =  interval.tick() => {} // seemingly needed to jigger the selector at 20Hz
+									Some(msg) = receiver.next() =>  { // forward it along or panic!
+										msg_channel.send(msg).await.unwrap_or_else(|_| {
+									panic!(
+										"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
+										MESSAGE_BUF_COUNT
+									)
+								});
+									}
+								_ = do_send_ping_out.recv() => { // do ping and reconnect if necessary
+									if let Err(e) = receiver.refresh().await {
+										log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+										receiver
+											.reconnect()
+											.await
+											.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+											.unwrap();
+									}
+								}
 							}
 						}
 					}

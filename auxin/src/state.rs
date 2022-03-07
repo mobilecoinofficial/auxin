@@ -24,6 +24,23 @@ use crate::{
 	AuxinConfig, AuxinContext, LocalIdentity,
 };
 
+/// Keeps track of a local identity, used by signal-cli in accounts.json
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LocalAccountRecord {
+	/// Path for this account's datastore.
+	pub path: String,
+	/// Phone number
+	pub number: E164,
+	/// Signal user account UUID
+	pub uuid: Uuid,
+}
+
+/// Keeps track of local identities, used by signal-cli in accounts.json
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LocalAccounts {
+	pub accounts: Vec<LocalAccountRecord>,
+}
+
 /// Represents one of the three configurations a user can set for how to handle sealed-sender messages.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum UnidentifiedAccessMode {
