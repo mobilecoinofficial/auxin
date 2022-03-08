@@ -42,7 +42,6 @@ pub mod app;
 pub mod attachment;
 pub mod commands;
 pub mod net;
-pub mod repl_wrapper;
 pub mod state;
 
 // Dependencies from this crate.
@@ -56,38 +55,6 @@ use net::{load_root_tls_cert, AuxinTungsteniteConnection};
 pub type Context = auxin::AuxinContext;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
-
-#[cfg(feature = "repl")]
-pub fn launch_repl(app: &mut crate::app::App) -> Result<()> {
-	use papyrus::repl;
-	use std::path::Path;
-
-	let mut app = AppWrapper { app_inner: app };
-
-	let mut repl = repl!(AppWrapper);
-
-	#[cfg(debug_assertions)]
-	let library_dir = Path::new("target").join("debug");
-	#[cfg(not(debug_assertions))]
-	let library_dir = Path::new("target").join("release");
-
-	let auxin_cli_lib = papyrus::linking::Extern::new(library_dir.join("libauxin_cli.rlib"))?;
-	let auxin_lib = papyrus::linking::Extern::new(library_dir.join("libauxin.rlib"))?;
-	let auxin_proto_lib = papyrus::linking::Extern::new(library_dir.join("libauxin_protos.rlib"))?;
-
-	repl.data.with_external_lib(auxin_cli_lib);
-	repl.data.with_external_lib(auxin_lib);
-	repl.data.with_external_lib(auxin_proto_lib);
-
-	repl.run(papyrus::run::RunCallbacks::new(&mut app))?;
-
-	Ok(())
-}
-
-#[cfg(not(feature = "repl"))]
-pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
-	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
-}
 
 pub fn main() {
 	// used to send the exit code from async_main to the main task
@@ -165,7 +132,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	// This is the only place commands which initiate an infinite loop or otherwise
 	// take over program flow are handled. Anything which should not be available
 	// within json-rpc (including the command to start a json-rpc daemon) goes here.
-	// As of 0.1.2, that is Echoserver, JsonRPC, and REPL.
+	// As of 0.1.13, that is Echoserver and JsonRPC.
 
 	#[allow(clippy::while_immutable_condition)]
 	// TODO(Diana): Several match arms have a while loop with an exit condition that can never be false.
@@ -202,34 +169,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				"Uploaded attachments in {} milliseconds.",
 				start_time.elapsed().as_millis()
 			);
-		}
-		AuxinCommand::ReceiveLoop => {
-			let exit = false;
-			let mut receiver =
-				AuxinTungsteniteConnection::new(app.context.identity.clone()).await?;
-			while !exit {
-				while let Some(Ok(wsmessage)) = receiver.next().await {
-					let msg_maybe = app.receive_and_acknowledge(&wsmessage).await?;
-
-					if let Some(msg) = msg_maybe {
-						let msg_json = serde_json::to_string(&msg).unwrap();
-						println!("{}", msg_json);
-					}
-				}
-
-				trace!("Entering sleep...");
-				let sleep_time = Duration::from_millis(100);
-				tokio::time::sleep(sleep_time).await;
-
-				if let Err(e) = receiver.refresh().await {
-					log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-					receiver
-						.reconnect()
-						.await
-						.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
-						.unwrap();
-				}
-			}
 		}
 		// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 		AuxinCommand::Receive(receive_command) => {
@@ -514,12 +453,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				//Ensure all downloads are completed.
 				handle.await??;
 			}
-		}
-		// Launches a read-evaluate-print loop, for experimentation in a development environment.
-		// If the "repl" feature was not enabled when compiling this binary, this command will crash.
-		AuxinCommand::Repl => {
-			app.retrieve_sender_cert().await?;
-			launch_repl(&mut app)?;
 		}
 		AuxinCommand::GetPayAddress(cmd) => {
 			//Try converting our peer name into an AuxinAddress.

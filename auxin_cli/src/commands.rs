@@ -14,7 +14,7 @@ use auxin::{
 
 //External dependencies
 
-use auxin_cli::net::AuxinTungsteniteConnection;
+use crate::net::AuxinTungsteniteConnection;
 use auxin_protos::AttachmentPointer;
 use log::debug;
 
@@ -77,9 +77,6 @@ pub enum AuxinCommand {
 	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	Receive(ReceiveCommand),
 
-	/// Continuously polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
-	ReceiveLoop,
-
 	/// Attempts to get a payment address for the user with the specified phone number or UUID.
 	GetPayAddress(GetPayAddrCommand),
 
@@ -88,10 +85,6 @@ pub enum AuxinCommand {
 
 	/// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
 	JsonRPC,
-
-	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
-	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
-	Repl,
 
 	/// Update one or more fields on your user profile via Signal's web API.
 	SetProfile(SetProfileCommand),
