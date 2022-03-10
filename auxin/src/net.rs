@@ -8,7 +8,7 @@ use futures::Future;
 
 #[allow(unused_must_use)]
 pub mod api_paths {
-	pub const API_ROOT: &str = "https://textsecure-service.whispersystems.org";
+	pub const API_ROOT: &str = "https://chat.signal.org";
 	pub const SENDER_CERT: &str = "/v1/certificate/delivery";
 	pub const MESSAGES: &str = "/v1/messages/";
 	pub const SIGNAL_CDN: &str = "https://cdn.signal.org";
@@ -16,9 +16,9 @@ pub mod api_paths {
 }
 
 //For "User-Agent" http header
-pub const USER_AGENT: &str = "auxin";
+pub const USER_AGENT: &str = "Signal-Android/5.22.3";
 //For "X-Signal-Agent" http header
-pub const X_SIGNAL_AGENT: &str = "auxin";
+pub const X_SIGNAL_AGENT: &str = "Signal-Android/5.22.3";
 
 pub type Body = Vec<u8>;
 pub type Request = http::request::Request<Body>;
@@ -59,6 +59,15 @@ pub fn common_http_headers(
 	req = req.uri(uri);
 	req = req.method(verb);
 	req = req.header("Authorization", auth);
+	req = req.header("X-Signal-Agent", X_SIGNAL_AGENT);
+	req = req.header("User-Agent", USER_AGENT);
+
+	Ok(req)
+}
+pub fn uncommon_http_headers(verb: http::Method, uri: &str) -> Result<http::request::Builder> {
+	let mut req = http::Request::builder();
+	req = req.uri(uri);
+	req = req.method(verb);
 	req = req.header("X-Signal-Agent", X_SIGNAL_AGENT);
 	req = req.header("User-Agent", USER_AGENT);
 

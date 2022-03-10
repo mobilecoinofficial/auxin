@@ -1,6 +1,6 @@
 [package]
 name = "auxin-cli"
-version = "0.1.10"
+version = "0.1.13"
 edition = "2021"
 
 [lib]
@@ -47,7 +47,7 @@ tracing-subscriber = "0.2.25"
 tracing-futures = { version = "0.2.5", features = ["futures-03", "tokio"] }
 
 tokio-native-tls = "0.3.0"
-tokio = { version = "1.6.1", features = ["full"] }
+tokio = { version = "1.16.1", features = ["full"] }
 tokio-tungstenite = { version = "0.14.0", features = ["native-tls"] }
 tungstenite = { version = "0.13.0", features = ["native-tls"] }
 

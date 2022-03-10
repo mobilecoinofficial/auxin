@@ -18,6 +18,7 @@ use protobuf::{CodedOutputStream, Message};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	net::TcpStream,
+	time::{Duration, Instant},
 };
 use tokio_native_tls::native_tls::{Certificate, TlsConnector};
 use tokio_tungstenite::WebSocketStream;
@@ -25,7 +26,6 @@ use tokio_tungstenite::WebSocketStream;
 use auxin_protos::{
 	WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage,
 };
-use rand::{rngs::OsRng, RngCore};
 
 use auxin::{net::AuxinNetManager, ReceiveError};
 
@@ -102,7 +102,7 @@ async fn connect_websocket<S: AsyncRead + AsyncWrite + Unpin>(
 		},
 		httparse::Header {
 			name: "X-Signal-Agent",
-			value: "auxin".as_bytes(),
+			value: crate::net::X_SIGNAL_AGENT.as_bytes(),
 		},
 	];
 	let req = httparse::Request {
@@ -274,6 +274,7 @@ pub type WsStream = WebSocketStream<TlsStream<TcpStream>>;
 pub struct AuxinTungsteniteConnection {
 	credentials: LocalIdentity,
 	client: Pin<Box<WsStream>>,
+	watchdog_tx: tokio::sync::mpsc::Sender<bool>,
 }
 
 pub struct NetManager {
@@ -380,9 +381,26 @@ impl AuxinTungsteniteConnection {
 		credentials: LocalIdentity,
 	) -> std::result::Result<Self, EstablishConnectionError> {
 		let client = Self::connect(&credentials).await?;
+		let (watchdog_tx, mut watchdog_rx) = tokio::sync::mpsc::channel(1);
+		watchdog_tx.send(true).await.unwrap();
+		tokio::task::spawn(async move {
+			let mut interval = tokio::time::interval_at(Instant::now(), Duration::from_secs(10));
+			let mut tick = tokio::time::interval_at(Instant::now(), Duration::from_millis(100));
+			let mut counts_since_reset = 0;
+			loop {
+				tokio::select! (
+				_ =  interval.tick() => {if counts_since_reset > 1000 { std::process::exit(1); }}
+				_ =  tick.tick() => {counts_since_reset += 1;}
+				maybe_input =  watchdog_rx.recv() => {match maybe_input { Some(_) => { counts_since_reset = 0;} ,
+				None => {},
+				}
+				})
+			}
+		});
 		Ok(AuxinTungsteniteConnection {
 			credentials,
 			client: Box::pin(client),
+			watchdog_tx,
 		})
 	}
 
@@ -391,18 +409,19 @@ impl AuxinTungsteniteConnection {
 		msg: auxin_protos::WebSocketMessage,
 	) -> std::result::Result<(), tungstenite::Error> {
 		let mut buf: Vec<u8> = Vec::default();
-		let mut out_gen = CodedOutputStream::new(&mut buf);
-		let _ = msg.compute_size();
-		msg.write_to_with_cached_sizes(&mut out_gen)
-			.expect("Could not write websocket message.");
-		out_gen.flush().expect("Could not write websocket message.");
-		drop(out_gen);
+		{
+			let mut out_gen = CodedOutputStream::new(&mut buf);
+			let _ = msg.compute_size();
+			msg.write_to_with_cached_sizes(&mut out_gen)
+				.expect("Could not write websocket message.");
+			out_gen.flush().expect("Could not write websocket message.");
+			drop(out_gen);
+		}
 		let msg = tungstenite::Message::Binary(buf);
 
 		self.client.send(msg).await?;
 
 		self.client.flush().await?;
-
 		Ok(())
 	}
 
@@ -460,8 +479,15 @@ impl AuxinTungsteniteConnection {
 					Err(e) => return Some(Err(ReceiveError::DeserializeErr(format!("{:?}", e)))),
 				}))
 			}
-			Some(Ok(tungstenite::Message::Ping(_))) => None,
-			Some(Ok(tungstenite::Message::Pong(_))) => None,
+			Some(Ok(tungstenite::Message::Ping(_))) => {
+				println!("GOT PING");
+				None
+			}
+			Some(Ok(tungstenite::Message::Pong(_))) => {
+				self.watchdog_tx.send(true).await.unwrap();
+				println!(r#"{{"jsonrpc": "2.0", "id": "PONG", "method": "PONG"}}"#);
+				None
+			}
 			Some(Ok(tungstenite::Message::Close(frame))) => {
 				trace!("Some(Ok(tungstenite::Message::Close(frame)))");
 				Some(Err(WebsocketError::StreamClosed(frame)))
@@ -524,35 +550,23 @@ impl AuxinTungsteniteConnection {
 		}
 	}
 
-	/// Request additional messages (to continue polling for messages after "/api/v1/queue/empty" has been sent). This is a GET request with path GET /v1/messages/
+	/// Do a websocket PING
 	pub async fn refresh(&mut self) -> std::result::Result<(), ReceiveError> {
-		trace!("Entering refresh()");
-		let mut req = WebSocketRequestMessage::default();
-
-		let mut rng = OsRng::default();
-		// Only invocation of "self.app" in this method. Replace?
-		req.set_id(rng.next_u64());
-		req.set_verb("GET".to_string());
-		req.set_path("/v1/messages/".to_string());
-		let mut req_m = WebSocketMessage::default();
-		req_m.set_request(req);
-		req_m.set_field_type(WebSocketMessage_Type::REQUEST);
-
-		self.send_message(req_m)
+		let msg = tungstenite::Message::Ping(Vec::default());
+		self.client
+			.send(msg)
 			.await
 			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
 		self.client
 			.flush()
 			.await
 			.map_err(|e| ReceiveError::SendErr(format!("{:?}", e)))?;
-
 		Ok(())
 	}
 
 	/// Re-initialize a Signal websocket connection so you can continue polling for messages.
 	pub async fn reconnect(&mut self) -> crate::Result<()> {
-		trace!("Entering reconnect()");
+		println!("Entering reconnect()");
 		self.client
 			.close()
 			.await

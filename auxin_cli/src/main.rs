@@ -33,7 +33,7 @@ use tokio::{
 		mpsc::{Receiver, Sender},
 	},
 	task::JoinHandle,
-	time::{Duration, Instant},
+	time::{interval_at, Duration, Instant},
 };
 use tracing::{info, Level};
 use tracing_futures::Instrument;
@@ -90,8 +90,33 @@ pub fn launch_repl(_app: &mut crate::app::App) -> Result<()> {
 	panic!("Attempted to launch a REPL, but the 'repl' feature was not enabled at compile-time!")
 }
 
-#[tokio::main(flavor = "current_thread")]
-pub async fn main() -> Result<()> {
+pub fn main() {
+	// used to send the exit code from async_main to the main task
+	let (tx, rx) = tokio::sync::oneshot::channel::<i32>();
+	// async_main never returns because stdin blocking task never exits
+	std::thread::spawn(move || {
+		tokio::runtime::Runtime::new()
+			.unwrap()
+			.block_on(async_main(tx))
+			.unwrap();
+	});
+	// so we just run async_main in its own thread and do a blocking_recv call on the exit pipe
+	let exit_code = rx.blocking_recv();
+	// we sleep a bit so all the Drop()s get a chance to run (re-flushing keystate)
+	let sleep_time = Duration::from_millis(1000);
+	std::thread::sleep(sleep_time);
+	match exit_code {
+		Ok(code) => {
+			std::process::exit(code);
+		}
+		Err(x) => {
+			println!("Error: {}", x);
+			std::process::exit(1)
+		}
+	}
+}
+
+pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Result<()> {
 	/*-----------------------------------------------\\
 	||------------ LOGGER INITIALIZATION ------------||
 	\\-----------------------------------------------*/
@@ -114,6 +139,7 @@ pub async fn main() -> Result<()> {
 	||------------ INIT CONTEXT/IDENTITY ------------||
 	\\-----------------------------------------------*/
 
+	let mut exit_code = 0;
 	let arguments = AppArgs::from_args();
 
 	debug!(
@@ -128,17 +154,10 @@ pub async fn main() -> Result<()> {
 
 	config.enable_read_receipts = !arguments.no_read_receipt;
 	// Get it to all come together.
-	let mut app = AuxinApp::new(
-		//
-		arguments.user.clone(),
-		config,
-		net,
-		state,
-		OsRng::default(),
-	)
-	.instrument(tracing::info_span!("AuxinApp"))
-	.await
-	.unwrap();
+	let mut app = AuxinApp::new(arguments.user.clone(), config, net, state, OsRng::default())
+		.instrument(tracing::info_span!("AuxinApp"))
+		.await
+		.unwrap();
 
 	/*-----------------------------------------------\\
 	||--------------- COMMAND DISPATCH --------------||
@@ -273,11 +292,11 @@ pub async fn main() -> Result<()> {
 		AuxinCommand::JsonRPC => {
 			// TODO: Permit people to configure receive behavior in the JsonRPC command,
 			// including interval and whether or not to do receive ticks at all.
-
 			let stdin = tokio::io::stdin();
 			let reader = tokio::io::BufReader::new(stdin);
 			let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
-
+			// JsonRPC never exits cleanly
+			exit_code = 1;
 			// --- SET UP OUR STDIN READER TASK
 
 			//How many lines can we receive in one pass?
@@ -289,7 +308,13 @@ pub async fn main() -> Result<()> {
 				Receiver<std::result::Result<String, std::io::Error>>,
 			) = mpsc::channel(LINE_BUF_COUNT);
 
+			let (do_send_ping_in, mut do_send_ping_out): (Sender<bool>, Receiver<bool>) =
+				mpsc::channel(1);
+
+			// blocking task which polls stdin and sends lines to be processed
 			tokio::task::spawn_blocking(move || loop {
+				// TODO: add a oneshot here and select across lines.next_line and the oneshot rx,
+				// send a message to trigger this task's termination
 				// Poll stdin
 				let maybe_input = block_on(lines.next_line());
 				// What did we get back from stdin?
@@ -319,38 +344,60 @@ pub async fn main() -> Result<()> {
 
 			let receiver_credentials = app.context.identity.clone();
 
-			const MESSAGE_BUF_COUNT: usize = 4096;
+			const MESSAGE_BUF_COUNT: usize = 8192;
 
+			// channel that forwards websocket messages and errors to be handled
 			#[allow(clippy::type_complexity)]
 			let (msg_channel, mut msg_receiver): (
 				Sender<std::result::Result<WebSocketMessage, ReceiveError>>,
 				Receiver<std::result::Result<WebSocketMessage, ReceiveError>>,
 			) = mpsc::channel(MESSAGE_BUF_COUNT);
 
-			tokio::task::spawn_blocking(move || {
-				let mut receiver =
-					block_on(AuxinTungsteniteConnection::new(receiver_credentials)).unwrap();
-
+			// task that triggers pings, running in its own happy little sleep environment
+			tokio::task::spawn(async move {
+				// trigger a PING every 10s
+				let mut interval = interval_at(Instant::now(), Duration::from_secs(10));
 				loop {
-					while let Some(msg) = block_on(receiver.next()) {
-						block_on(msg_channel.send(msg)).unwrap_or_else(|_| {
-							panic!(
-								"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
-								MESSAGE_BUF_COUNT
-							)
-						});
-					}
-					trace!("Entering sleep...");
-					let sleep_time = Duration::from_millis(100);
-					block_on(tokio::time::sleep(sleep_time));
-
-					if let Err(e) = block_on(receiver.refresh()) {
-						log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
-						block_on(receiver.reconnect())
-							.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
-							.unwrap();
-					}
+					interval.tick().await;
+					do_send_ping_in.send(true).await.unwrap();
 				}
+			});
+
+			// selects forever over either a new websocket message or a pending ping
+			tokio::task::spawn(async move {
+				let mut interval = interval_at(Instant::now(), Duration::from_millis(50));
+				match AuxinTungsteniteConnection::new(receiver_credentials).await {
+					Err(msg) => {
+						println!("Failed to connect! {}", msg)
+					}
+					// once we've built receiver: this will either receive forever, reconnect as needed, or die
+					Ok(mut receiver) => {
+						loop {
+							tokio::select! {
+									biased;
+								   _ =  interval.tick() => {} // seemingly needed to jigger the selector at 20Hz
+									Some(msg) = receiver.next() =>  { // forward it along or panic!
+										msg_channel.send(msg).await.unwrap_or_else(|_| {
+									panic!(
+										"Unable to send incoming message to main auxin thread! It is possible you have exceeded the message buffer size, which is {}",
+										MESSAGE_BUF_COUNT
+									)
+								});
+									}
+								_ = do_send_ping_out.recv() => { // do ping and reconnect if necessary
+									if let Err(e) = receiver.refresh().await {
+										log::warn!("Suppressing error on attempting to retrieve more messages - attempting to reconnect instead. Error was: {:?}", e);
+										receiver
+											.reconnect()
+											.await
+											.map_err(|e| ReceiveError::ReconnectErr(format!("{:?}", e)))
+											.unwrap();
+									}
+								}
+							}
+						}
+					}
+				};
 			});
 
 			// Prepare to (potentially) download attachments
@@ -507,5 +554,7 @@ pub async fn main() -> Result<()> {
 		}
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
+	println!("finished syncing context");
+	exit_oneshot.send(exit_code).unwrap();
 	Ok(())
 }
