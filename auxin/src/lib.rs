@@ -634,7 +634,7 @@ where
 			.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
 
 		let request: http::Request<Vec<u8>> = outgoing_push_list
-			.build_http_request(recipient_addr, mode, &mut self.context, &mut self.rng)
+			.build_http_request(recipient_addr, mode, &mut self.context, None, &mut self.rng)
 			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
 		let message_response = self
 			.http_client
@@ -786,6 +786,7 @@ where
 		let current_time = generate_timestamp();
 		let distribution_id = if group_info.local_distribution_id.is_none() 
 			|| ((current_time - group_info.last_distribution_timestamp) >= self.context.config.sender_key_distribution_lifespan) {
+			debug!("Generating and sending sender key distribution message.");
 			let distribution_message = self.broadcast_sender_key_distribution(group_id).await?;
 			distribution_message.distribution_id().unwrap()
 		}
@@ -805,7 +806,6 @@ where
 		};
 
 		for member in group_info.members.iter() {
-
 			let uuid_address = AuxinAddress::Uuid(member.id.clone());
 			let recipient_addr = self
 				.context
@@ -814,6 +814,7 @@ where
 				.or_else(|| Some(uuid_address))
 				.unwrap();
 
+			debug!("Generating message to {:?}", recipient_addr);
 			let message_list = AuxinMessageList {
 				messages: vec![message.clone()],
 				remote_address: recipient_addr.clone(),
@@ -846,8 +847,9 @@ where
 				.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
 
 			let request: http::Request<Vec<u8>> = outgoing_push_list
-				.build_http_request(&recipient_addr, mode, &mut self.context, &mut self.rng)
+				.build_http_request(&recipient_addr, mode, &mut self.context, Some(&send_context), &mut self.rng)
 				.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
+			debug!("HTTP request is: {:?}", request);
 			let message_response = self
 				.http_client
 				.request(request)

@@ -422,6 +422,7 @@ impl OutgoingPushMessageList {
 		peer_address: &AuxinAddress,
 		mode: MessageSendMode,
 		context: &mut AuxinContext,
+		group_context: Option<&GroupSendContext>,
 		rng: &mut Rng,
 	) -> Result<http::Request<Body>>
 	where
@@ -430,9 +431,11 @@ impl OutgoingPushMessageList {
 	{
 		let json_message = serde_json::to_string(&self)?;
 
-		let mut msg_path = String::from("https://chat.signal.org/v1/messages/");
-		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
-
+		let msg_path = match group_context.is_some() { 
+			false => format!("https://chat.signal.org/v1/messages/{}", peer_address.get_uuid().unwrap().to_string().as_str()),
+			true => format!("https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}", self.timestamp, context.report_as_online),
+		};
+			
 		let mut req = match mode == MessageSendMode::SealedSender {
 			false => crate::net::common_http_headers(
 				http::Method::PUT,
@@ -441,6 +444,7 @@ impl OutgoingPushMessageList {
 			)?,
 			true => crate::net::uncommon_http_headers(http::Method::PUT, msg_path.as_str())?,
 		};
+
 		if mode == MessageSendMode::SealedSender {
 			let mut unidentified_access_key =
 				context.get_unidentified_access_for(peer_address, rng)?;
@@ -452,7 +456,10 @@ impl OutgoingPushMessageList {
 			);
 			req = req.header("Unidentified-Access-Key", unidentified_access_key);
 		}
-		req = req.header("Content-Type", "application/json; charset=utf-8");
+		req = match group_context.is_some() { 
+			false => req.header("Content-Type", "application/json; charset=utf-8"), 
+			true => req.header("Content-Type", "application/vnd.signal-messenger.mrm"),
+		};
 		req = req.header("Content-Length", json_message.len());
 
 		Ok(req.body(Body::from(json_message))?)
