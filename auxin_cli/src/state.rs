@@ -198,6 +198,7 @@ pub async fn load_known_peers(
 	if let Some(accounts) = load_v3_accounts(data_dir)? { 
 		if let Some(our_account) = accounts.get_by_number(our_id) { 
 			new_path = our_account.path.clone(); 
+			info!("Signal datastore v3, using path {}", &new_path)
 		}
 	}
 	let our_path = data_dir.join(&new_path).with_extension("d");
@@ -556,7 +557,7 @@ impl StateManager {
 		let mut new_path = context.identity.address.get_phone_number().unwrap().clone();
 		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
 			if let Some(our_account) = accounts.get_by_number(&new_path) { 
-				new_path = our_account.path.clone(); 
+				new_path = our_account.path.clone();
 			}
 		}
 		self.data_dir.join(&new_path).with_extension("d")
@@ -575,9 +576,11 @@ impl AuxinStateManager for StateManager {
 		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
 			if let Some(our_account) = accounts.get_by_number(&new_path) { 
 				new_path = our_account.path.clone(); 
+				info!("Signal datastore v3, using path {}", &new_path);
 			}
 		}
 
+		info!("Loading local identity from: {}", &new_path);
 		let file = File::open(self.data_dir.join(&new_path))?;
 		from_reader::<_, LocalIdentityJson>(BufReader::new(file))?.try_into()
 	}

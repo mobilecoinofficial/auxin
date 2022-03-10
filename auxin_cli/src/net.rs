@@ -5,7 +5,7 @@ use core::fmt;
 use std::{convert::TryFrom, pin::Pin};
 
 use async_global_executor::block_on;
-use auxin::{message::fix_protobuf_buf, net::*, LocalIdentity, SIGNAL_TLS_CERT};
+use auxin::{message::fix_protobuf_buf, net::*, LocalIdentity, SIGNAL_TLS_CERT, generate_timestamp};
 
 use futures::{SinkExt, StreamExt, TryFutureExt};
 use hyper::client::HttpConnector;
@@ -485,7 +485,7 @@ impl AuxinTungsteniteConnection {
 			}
 			Some(Ok(tungstenite::Message::Pong(_))) => {
 				self.watchdog_tx.send(true).await.unwrap();
-				println!(r#"{{"jsonrpc": "2.0", "id": "PONG", "method": "PONG"}}"#);
+				println!("{{\"jsonrpc\": \"2.0\", \"id\": \"PONG\", \"method\": \"PONG\", \"params\": {{\"timestamp\": {} }}}}", generate_timestamp());
 				None
 			}
 			Some(Ok(tungstenite::Message::Close(frame))) => {
