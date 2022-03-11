@@ -4,15 +4,18 @@
 //Internal dependencies
 
 use auxin::{
-	address::AuxinAddress,
+	address::{AuxinAddress, E164},
 	generate_timestamp,
 	message::{MessageContent, MessageIn, MessageOut},
 	profile::ProfileConfig,
-	state::PeerProfile,
+	state::{PeerProfile, PeerStore},
 	ProfileRetrievalError, ReceiveError, Result, groups::GroupId,
 };
+use uuid::Uuid;
 
-use auxin_cli::net::AuxinTungsteniteConnection;
+//External dependencies
+
+use crate::net::AuxinTungsteniteConnection;
 use auxin_protos::AttachmentPointer;
 
 use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_TIMEOUT_DURATION};
@@ -77,9 +80,6 @@ pub enum AuxinCommand {
 	/// Polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
 	Receive(ReceiveCommand),
 
-	/// Continuously polls Signal's Web API for new messages sent to your user account. Prints them to stdout.
-	ReceiveLoop,
-
 	/// Attempts to get a payment address for the user with the specified phone number or UUID.
 	GetPayAddress(GetPayAddrCommand),
 
@@ -89,10 +89,6 @@ pub enum AuxinCommand {
 	/// Launch auxin as a json-rpc 2.0 daemon. Loops until killed or until method "exit" is called.
 	JsonRPC,
 
-	/// Launches a read-evaluate-print loop, for experimentation in a development environment.
-	/// If the "repl" feature was not enabled when compiling this binary, this command will crash.
-	Repl,
-
 	/// Update one or more fields on your user profile via Signal's web API.
 	SetProfile(SetProfileCommand),
 
@@ -101,6 +97,9 @@ pub enum AuxinCommand {
 
 	/// Download the specified Signal-protocol attachment pointer
 	Download(DownloadAttachmentCommand),
+
+	/// Retrieve a UUID corresponding to the provided phone number.
+	GetUuid(GetUuidCommand),
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -144,6 +143,12 @@ pub struct SendCommand {
 	#[structopt(short, long = "end-session")]
 	#[serde(default)]
 	pub end_session: bool,
+}
+
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct GetUuidCommand {
+	/// Which phone number / username are we getting the UUID for? 
+	pub peer: E164,
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -741,6 +746,35 @@ pub async fn process_jsonrpc_input(
 					}),
 				}
 			},
+			"get-uuid" | "getuuid" => {
+				match serde_json::from_value::<GetUuidCommand>(req.params) {
+					// Is this a valid parameter?
+					Ok(cmd) => {
+						match handle_get_uuid_command(cmd, app).await {
+							Ok(uuid) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
+								jsonrpc: JSONRPC_VER.to_string(),
+								result: serde_json::to_value(uuid).unwrap(),
+								id: req.id.clone(),
+							}),
+							Err(e) => {
+								let mut err = JsonRpcErrorResponse::from(e);
+								err.id = req.id.clone();
+								JsonRpcResponse::Err(err)
+							},
+						}
+					},
+					// Could not decode params
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
+						jsonrpc: JSONRPC_VER.to_string(),
+						error: JsonRpcError {
+							code: -32602,
+							message: String::from("Invalid method parameter(s) for \"get-uuid\"."),
+							data: Some(serde_json::Value::String(format!("{:?}", e))),
+						},
+						id: req.id.clone(),
+					}),
+				}
+			},
 			// Not a valid command!
 			_ => JsonRpcResponse::Err(JsonRpcErrorResponse {
 				jsonrpc: JSONRPC_VER.to_string(),
@@ -799,7 +833,7 @@ pub async fn handle_send_command(
 		.content
 		.map(|s| serde_json::from_str(s.as_ref()).unwrap());
 
-	// TODO: PARALLELIZE ATTACHMENT DOWNLOADS
+	// TODO: PARALLELIZE ATTACHMENT UPLOADS
 
 	//Do we have one or more attachments?
 	//Note the use of values_of rather than value_of because there may be more than one of these.
@@ -1023,6 +1057,64 @@ pub async fn handle_download_command(
 	futures::future::try_join_all(pending_downloads.into_iter())
 		.await
 		.map(|_none_vec| () /* <- a simpler nothing */)
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetUuidError {
+	#[error("Couldn't retrieve information for peer: {0}")]
+	DiscoveryError(String),
+	#[error("Not a valid phone number or other user identifier: {0}")]
+	NotAPhoneNumber(String),
+	#[error("None of the steps for trying to get a Uuid errored, but it is still not present in our system.")]
+	NoUuid,
+}
+
+pub async fn handle_get_uuid_command(
+	cmd: GetUuidCommand,
+	app: &mut crate::app::App,
+) -> std::result::Result<Uuid, GetUuidError> {
+	let address: AuxinAddress = (cmd.peer.as_str()).try_into()
+		.map_err(|e| GetUuidError::NotAPhoneNumber(format!("{:?}", e)))?;
+	app.ensure_peer_loaded(&address).await.map_err(|e| GetUuidError::DiscoveryError(format!("{:?}", e)))?;
+
+	let peer =  app.context.peer_cache.get(&address).ok_or(GetUuidError::NoUuid)?;
+	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?.clone();
+	Ok(resulting_uuid)
+}
+
+impl From<GetUuidError> for JsonRpcErrorResponse {
+	fn from(err_in: GetUuidError) -> Self {
+		let resulting_err = match err_in {
+			GetUuidError::DiscoveryError(e) => JsonRpcError {
+				code: -32040,
+				message: String::from("Couldn't retrieve information for peer"),
+				data: Some(json!({
+					"description": "Attempt to get a UUID failed, could not get a UUID from Signal peer discovery API.",
+					"details": serde_json::to_value(&e).unwrap(),
+				})),
+			},
+			GetUuidError::NotAPhoneNumber(e) => JsonRpcError {
+				code: -32033,
+				message: String::from("Not a phone number"),
+				data: Some(json!({
+					"description": format!("The provided user identifier is not valid - not a phone number or other user identifier"),
+					"details": serde_json::to_value(&e).unwrap(),
+				})),
+			},
+			GetUuidError::NoUuid => JsonRpcError {
+				code: -32034,
+				message: String::from("No UUID retrieved"),
+				data: Some(json!({
+					"description": format!("None of the steps for trying to get a Uuid errored, but it is still not present in our system."),
+				})),
+			},
+		};
+		JsonRpcErrorResponse {
+			jsonrpc: JSONRPC_VER.to_string(),
+			error: resulting_err,
+			id: None,
+		}
+	}
 }
 
 #[allow(unused_assignments)]
