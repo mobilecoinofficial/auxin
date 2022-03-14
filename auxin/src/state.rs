@@ -41,9 +41,9 @@ pub struct LocalAccounts {
 	pub accounts: Vec<LocalAccountRecord>,
 }
 
-impl LocalAccounts { 
+impl LocalAccounts {
 	pub fn get_by_number(&self, phone_number: &E164) -> Option<&LocalAccountRecord> {
-		for elem in self.accounts.iter() { 
+		for elem in self.accounts.iter() {
 			if &elem.number == phone_number {
 				return Some(elem);
 			}
@@ -51,18 +51,20 @@ impl LocalAccounts {
 		None
 	}
 	pub fn get_by_uuid(&self, uuid: &Uuid) -> Option<&LocalAccountRecord> {
-		for elem in self.accounts.iter() { 
+		for elem in self.accounts.iter() {
 			if &elem.uuid == uuid {
 				return Some(elem);
 			}
 		}
 		None
 	}
-	pub fn get(&self, address: &AuxinAddress) -> Option<&LocalAccountRecord> { 
+	pub fn get(&self, address: &AuxinAddress) -> Option<&LocalAccountRecord> {
 		match address {
 			AuxinAddress::Phone(number) => self.get_by_number(number),
 			AuxinAddress::Uuid(uuid) => self.get_by_uuid(uuid),
-			AuxinAddress::Both(number, uuid) => self.get_by_uuid(uuid).or(self.get_by_number(number)),
+			AuxinAddress::Both(number, uuid) => {
+				self.get_by_uuid(uuid).or(self.get_by_number(number))
+			}
 		}
 	}
 }

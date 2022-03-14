@@ -5,7 +5,9 @@ use core::fmt;
 use std::{convert::TryFrom, pin::Pin};
 
 use async_global_executor::block_on;
-use auxin::{message::fix_protobuf_buf, net::*, LocalIdentity, SIGNAL_TLS_CERT, generate_timestamp};
+use auxin::{
+	generate_timestamp, message::fix_protobuf_buf, net::*, LocalIdentity, SIGNAL_TLS_CERT,
+};
 
 use futures::{SinkExt, StreamExt, TryFutureExt};
 use hyper::client::HttpConnector;

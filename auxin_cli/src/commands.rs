@@ -145,7 +145,7 @@ pub struct SendCommand {
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct GetUuidCommand {
-	/// Which phone number / username are we getting the UUID for? 
+	/// Which phone number / username are we getting the UUID for?
 	pub peer: E164,
 }
 
@@ -1048,11 +1048,18 @@ pub async fn handle_get_uuid_command(
 	cmd: GetUuidCommand,
 	app: &mut crate::app::App,
 ) -> std::result::Result<Uuid, GetUuidError> {
-	let address: AuxinAddress = (cmd.peer.as_str()).try_into()
+	let address: AuxinAddress = (cmd.peer.as_str())
+		.try_into()
 		.map_err(|e| GetUuidError::NotAPhoneNumber(format!("{:?}", e)))?;
-	app.ensure_peer_loaded(&address).await.map_err(|e| GetUuidError::DiscoveryError(format!("{:?}", e)))?;
+	app.ensure_peer_loaded(&address)
+		.await
+		.map_err(|e| GetUuidError::DiscoveryError(format!("{:?}", e)))?;
 
-	let peer =  app.context.peer_cache.get(&address).ok_or(GetUuidError::NoUuid)?;
+	let peer = app
+		.context
+		.peer_cache
+		.get(&address)
+		.ok_or(GetUuidError::NoUuid)?;
 	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?.clone();
 	Ok(resulting_uuid)
 }

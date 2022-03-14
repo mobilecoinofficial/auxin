@@ -484,14 +484,14 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				&arguments.download_path
 			);
 		}
-		AuxinCommand::GetUuid(cmd) => { 
+		AuxinCommand::GetUuid(cmd) => {
 			let phone_number = cmd.peer.clone();
-			let output = handle_get_uuid_command(cmd, &mut app).await; 
-			match output  {
-				Ok(uuid) => { 
+			let output = handle_get_uuid_command(cmd, &mut app).await;
+			match output {
+				Ok(uuid) => {
 					println!("Uuid for user {} is {}", phone_number, uuid);
-				},
-				Err(e) => { 
+				}
+				Err(e) => {
 					println!("Could not get a UUID for the provided peer due to the following error: {:?}", e);
 				}
 			}
