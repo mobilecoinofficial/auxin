@@ -155,8 +155,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	// Get it to all come together.
 	let mut app = AuxinApp::new(arguments.user.clone(), config, net, state, OsRng::default())
 		.instrument(tracing::info_span!("AuxinApp"))
-		.await
-		.unwrap();
+		.await?;
 
 	/*-----------------------------------------------\\
 	||--------------- COMMAND DISPATCH --------------||
