@@ -106,11 +106,17 @@ pub enum AuxinCommand {
 	/// Retrieve a UUID corresponding to the provided phone number.
 	GetUuid(GetUuidCommand),
 
-	/// Register a signal account
+	/// Register a signal account. See https://github.com/AsamK/signal-cli/wiki/Registration-with-captcha for details.
 	Register {
-		/// Registration captcha. See https://github.com/AsamK/signal-cli/wiki/Registration-with-captcha for details.
+		/// Captcha code.
 		#[structopt(long)]
 		captcha: String,
+	},
+
+	/// SMS verify a signal account
+	Verify {
+		#[structopt(long)]
+		code: String,
 	},
 }
 

@@ -15,6 +15,7 @@
 use auxin::{
 	address::AuxinAddress,
 	message::{MessageContent, MessageOut},
+	net::{common_http_headers, uncommon_http_headers, AuxinHttpsConnection, Request},
 	state::AuxinStateManager,
 	AuxinApp, AuxinConfig, ReceiveError, Result,
 };
@@ -23,6 +24,7 @@ use auxin::{
 
 use auxin_protos::WebSocketMessage;
 use futures::executor::block_on;
+use http::Method;
 use log::{debug, error, trace, warn};
 use rand::rngs::OsRng;
 use std::convert::TryFrom;
@@ -124,6 +126,32 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	let state = crate::state::StateManager::new(&arguments.config);
 
 	config.enable_read_receipts = !arguments.no_read_receipt;
+
+	match &arguments.command {
+		AuxinCommand::Register { captcha } => {
+			// let url = format!(
+			// 	"https://chat.signal.org/v1/accounts/sms/code/{}?client=android&captcha={captcha}",
+			// 	arguments.user,
+			// );
+			// let http = &net;
+			// // let auth = app.context.identity.make_auth_header();
+			// let req = common_http_headers(Method::GET, &url, &auth)?
+			// 	//
+			// 	.body(Vec::new())?;
+			// let _res = http.request(req).await?;
+		}
+		AuxinCommand::Verify { code } => {
+			// let url = format!("https://chat.signal.org/v1/accounts/code/{}", code);
+			// let http = app.get_http_client();
+			// let auth = app.context.identity.make_auth_header();
+			// let req = common_http_headers(Method::GET, &url, &auth)?
+			// 	//
+			// 	.body(Vec::new())?;
+			// let _res = http.request(req).await?;
+		}
+		_ => (),
+	}
+
 	// Get it to all come together.
 	let mut app = AuxinApp::new(arguments.user.clone(), config, net, state, OsRng::default())
 		.instrument(tracing::info_span!("AuxinApp"))
@@ -501,7 +529,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				}
 			}
 		}
-		AuxinCommand::Register { captcha: _ } => todo!(),
+		_ => unreachable!(),
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	println!("finished syncing context");
