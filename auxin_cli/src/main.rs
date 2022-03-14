@@ -501,6 +501,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				}
 			}
 		}
+		AuxinCommand::Register { captcha } => todo!(),
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	println!("finished syncing context");
