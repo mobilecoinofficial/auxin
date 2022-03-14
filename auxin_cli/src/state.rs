@@ -13,7 +13,7 @@ use std::{
 use auxin::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
-	state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore, LocalAccounts},
+	state::{AuxinStateManager, LocalAccounts, PeerIdentity, PeerRecordStructure, PeerStore},
 	AuxinConfig, AuxinContext, LocalIdentity, Result, SignalCtx, PROFILE_KEY_LEN,
 };
 
@@ -158,7 +158,7 @@ custom_error! { pub ErrBuildIdent
 
 /// Loads accounts.json
 /// If there is no accounts.json, this is not a signal-cli v3 storage and this will return None.
-pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> { 
+pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> {
 	let accounts_path = data_dir.join("accounts.json");
 	if accounts_path.exists() {
 		if accounts_path.is_file() {
@@ -168,15 +168,18 @@ pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> {
 				.create(false)
 				.open(accounts_path)?;
 			let accounts_bufread = BufReader::new(accounts_file);
-			let accounts: LocalAccounts = serde_json::from_reader(accounts_bufread)?;
-			Ok(Some(accounts))
-		}
-		else {
+			match serde_json::from_reader(accounts_bufread) {
+				Ok(accounts) => Ok(accounts),
+				Err(error_msg) => {
+					warn!("Failed to deser accounts.json file! {:?}", error_msg);
+					Ok(None)
+				}
+			}
+		} else {
 			error!("accounts.json should never be a directory!");
 			Ok(None)
 		}
-	}
-	else { 
+	} else {
 		Ok(None)
 	}
 }
@@ -195,9 +198,9 @@ pub async fn load_known_peers(
 ) -> Result<()> {
 	// Signal_cli storage v3 support
 	let mut new_path = our_id.clone();
-	if let Some(accounts) = load_v3_accounts(data_dir)? { 
-		if let Some(our_account) = accounts.get_by_number(our_id) { 
-			new_path = our_account.path.clone(); 
+	if let Some(accounts) = load_v3_accounts(data_dir)? {
+		if let Some(our_account) = accounts.get_by_number(our_id) {
+			new_path = our_account.path.clone();
 			info!("Signal datastore v3, using path {}", &new_path)
 		}
 	}
@@ -250,9 +253,9 @@ pub async fn load_sessions(
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
 	// Signal_cli storage v3 support
 	let mut new_path = our_phone.clone();
-	if let Some(accounts) = load_v3_accounts(data_dir)? { 
-		if let Some(our_account) = accounts.get_by_number(our_phone) { 
-			new_path = our_account.path.clone(); 
+	if let Some(accounts) = load_v3_accounts(data_dir)? {
+		if let Some(our_account) = accounts.get_by_number(our_phone) {
+			new_path = our_account.path.clone();
 		}
 	}
 	let our_path = data_dir.join(&new_path).with_extension("d");
@@ -393,9 +396,9 @@ pub async fn load_prekeys(
 	//Figure out some directories.
 	// Signal_cli storage v3 support
 	let mut new_path = our_phone.clone();
-	if let Some(accounts) = load_v3_accounts(data_dir)? { 
-		if let Some(our_account) = accounts.get_by_number(our_phone) { 
-			new_path = our_account.path.clone(); 
+	if let Some(accounts) = load_v3_accounts(data_dir)? {
+		if let Some(our_account) = accounts.get_by_number(our_phone) {
+			new_path = our_account.path.clone();
 		}
 	}
 	let our_path = data_dir.join(&new_path).with_extension("d");
@@ -555,8 +558,8 @@ impl StateManager {
 	fn get_protocol_store_path(&self, context: &AuxinContext) -> PathBuf {
 		// Signal_cli storage v3 support
 		let mut new_path = context.identity.address.get_phone_number().unwrap().clone();
-		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
-			if let Some(our_account) = accounts.get_by_number(&new_path) { 
+		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() {
+			if let Some(our_account) = accounts.get_by_number(&new_path) {
 				new_path = our_account.path.clone();
 			}
 		}
@@ -573,9 +576,9 @@ impl AuxinStateManager for StateManager {
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
 		// Signal_cli storage v3 support
 		let mut new_path = phone_number.clone();
-		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
-			if let Some(our_account) = accounts.get_by_number(&new_path) { 
-				new_path = our_account.path.clone(); 
+		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() {
+			if let Some(our_account) = accounts.get_by_number(&new_path) {
+				new_path = our_account.path.clone();
 				info!("Signal datastore v3, using path {}", &new_path);
 			}
 		}
