@@ -63,9 +63,9 @@ impl LocalAccounts {
 		match address {
 			AuxinAddress::Phone(number) => self.get_by_number(number),
 			AuxinAddress::Uuid(uuid) => self.get_by_uuid(uuid),
-			AuxinAddress::Both(number, uuid) => {
-				self.get_by_uuid(uuid).or(self.get_by_number(number))
-			}
+			AuxinAddress::Both(number, uuid) => self
+				.get_by_uuid(uuid)
+				.or_else(|| self.get_by_number(number)),
 		}
 	}
 }

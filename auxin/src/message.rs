@@ -1368,9 +1368,9 @@ async fn decrypt_ciphertext<R: RngCore + CryptoRng>(
 		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 
 	let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
-	Ok(reader
+	reader
 		.read_message()
-		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?)
+		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))
 }
 
 /// A list of messages to send. This is processed into an OutgoingPushMessageList

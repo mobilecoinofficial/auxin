@@ -761,7 +761,7 @@ where
 					.device_ids_used
 					.insert(*missing);
 			}
-			if mismatch_list.missing_devices.len() > 0 {
+			if !mismatch_list.missing_devices.is_empty() {
 				//And then delete the thing we just copied. Clear it out so we only get new state.
 				self.context
 					.peer_cache
