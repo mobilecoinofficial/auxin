@@ -629,12 +629,12 @@ where
 		let timestamp = generate_timestamp();
 		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
 		let outgoing_push_list = message_list
-			.generate_messages_to_all_devices(&mut self.context, mode, None, &mut self.rng, timestamp)
+			.generate_messages_to_all_devices(&mut self.context, mode, &mut self.rng, timestamp)
 			.await
 			.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
 
 		let request: http::Request<Vec<u8>> = outgoing_push_list
-			.build_http_request(recipient_addr, mode, &mut self.context, None, &mut self.rng)
+			.build_http_request(recipient_addr, mode, &mut self.context, &mut self.rng)
 			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
 		let message_response = self
 			.http_client
@@ -841,28 +841,46 @@ where
 
 			let timestamp = generate_timestamp();
 			debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
-			let outgoing_push_list = message_list
-				.generate_messages_to_all_devices(&mut self.context, mode, Some(&send_context), &mut self.rng, timestamp)
+			let mut outgoing_push_list = message_list
+				.generate_group_messages(&mut self.context, &send_context, mode, &mut self.rng, timestamp)
 				.await
 				.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
 
-			let request: http::Request<Vec<u8>> = outgoing_push_list
-				.build_http_request(&recipient_addr, mode, &mut self.context, Some(&send_context), &mut self.rng)
-				.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))?;
-			debug!("HTTP request is: {:?}", request);
-			let message_response = self
-				.http_client
-				.request(request)
-				.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
-				.await?;
+			// Build the path to send to. 
+			let path = format!("https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}", timestamp, self.context.report_as_online); 
+			for mut buf_original in outgoing_push_list.drain(0..) {
+				let mut buf = vec![0x22];
+				buf.append(&mut buf_original);
+				let req = common_http_headers(http::Method::PUT, &path, self.context.identity.make_auth_header().as_str()).unwrap(); //FIXME: No unwrap here
+				let req = req.header("Content-Type", "application/vnd.signal-messenger.mrm");
+				let mut req = req.header("Content-Length", buf.len());
+				/*if mode == MessageSendMode::SealedSender {
+					let mut unidentified_access_key =
+						self.context.get_unidentified_access_for(&recipient_addr, &mut self.rng).unwrap();
+					unidentified_access_key.truncate(16);
+					let unidentified_access_key = base64::encode(unidentified_access_key);
+					debug!(
+						"Attempting to send with unidentified access key {:?}",
+						unidentified_access_key
+					);
+					req = req.header("Unidentified-Access-Key", unidentified_access_key);
+				}*/
+				debug!("HTTP request is: {:?}", req);
+				let req = req.body(buf).unwrap();
+				let message_response = self
+					.http_client
+					.request(req)
+					.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
+					.await?;
 
-			//Parse the response
-			let message_response_str = String::from_utf8(message_response.body().to_vec()).unwrap();
-			debug!(
-				"Got response to attempt to send (to group ID {}) a message: {:?} {}",
-				group_id.to_base64(),
-				message_response, message_response_str
-			);
+				//Parse the response
+				let message_response_str = String::from_utf8(message_response.body().to_vec()).unwrap();
+				debug!(
+					"Got response to attempt to send (to group ID {}) a message: {:?} with body {}",
+					group_id.to_base64(),
+					message_response.into_parts().0, message_response_str
+				);
+			}
 		}
 		Ok(())
 	}

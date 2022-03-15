@@ -422,7 +422,6 @@ impl OutgoingPushMessageList {
 		peer_address: &AuxinAddress,
 		mode: MessageSendMode,
 		context: &mut AuxinContext,
-		group_context: Option<&GroupSendContext>,
 		rng: &mut Rng,
 	) -> Result<http::Request<Body>>
 	where
@@ -431,10 +430,7 @@ impl OutgoingPushMessageList {
 	{
 		let json_message = serde_json::to_string(&self)?;
 
-		let msg_path = match group_context.is_some() { 
-			false => format!("https://chat.signal.org/v1/messages/{}", peer_address.get_uuid().unwrap().to_string().as_str()),
-			true => format!("https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}", self.timestamp, context.report_as_online),
-		};
+		let msg_path = format!("https://chat.signal.org/v1/messages/{}", peer_address.get_uuid().unwrap().to_string().as_str());
 			
 		let mut req = match mode == MessageSendMode::SealedSender {
 			false => crate::net::common_http_headers(
@@ -456,10 +452,7 @@ impl OutgoingPushMessageList {
 			);
 			req = req.header("Unidentified-Access-Key", unidentified_access_key);
 		}
-		req = match group_context.is_some() { 
-			false => req.header("Content-Type", "application/json; charset=utf-8"), 
-			true => req.header("Content-Type", "application/vnd.signal-messenger.mrm"),
-		};
+		req = req.header("Content-Type", "application/json; charset=utf-8");
 		req = req.header("Content-Length", json_message.len());
 
 		Ok(req.body(Body::from(json_message))?)
@@ -650,7 +643,6 @@ impl MessageOut {
 		&self,
 		address_to: &AuxinDeviceAddress,
 		mode: MessageSendMode,
-		group: Option<&GroupSendContext>,
 		context: &mut AuxinContext,
 		rng: &mut Rng,
 		timestamp: u64,
@@ -720,7 +712,7 @@ impl MessageOut {
 		let b64_profile_key = base64::encode(context.identity.profile_key);
 		let content_message = self
 			.content
-			.build_signal_content(&b64_profile_key, group, timestamp)?;
+			.build_signal_content(&b64_profile_key, None, timestamp)?;
 
 		let sz = protobuf::Message::compute_size(&content_message);
 		debug!("Estimated content message size: {}", sz);
@@ -735,22 +727,6 @@ impl MessageOut {
 
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len());
-
-		//Is this a group message? 
-		if let Some(group_info) = group { 
-			info!("Encrypting as a group message.");
-			let (envelope_type, ciphertext_bytes) = group_info.group_encrypt(&address_to, &our_message_bytes, context, mode, rng).await?;
-			let envelope_type_int: u8 = envelope_type.try_into()?;
-			let content = base64::encode(&ciphertext_bytes);
-			debug!("Encoded to {} bytes of base64", content.len());
-
-			return Ok(OutgoingPushMessage {
-				envelope_type: envelope_type_int,
-				destination_device_id: their_address.device_id(),
-				destination_registration_id: reg_id,
-				content,
-			});
-		}
 
 		// Not a group message, proceed with regular one user to one user cryptography. 
 		Ok(match mode {
@@ -814,6 +790,53 @@ impl MessageOut {
 				}
 			}
 		})
+	}
+	/// Encrypts our MessageOut for purposes of sending to a group, and builds all of the data the Signal Web API will need to process it.
+	///
+	/// # Arguments
+	///
+	/// * `address_to` - The address and device ID of the peer to whom we're sending this message.
+	/// * `mode` - A MessageSendMode, controlling if we're sending this as a Sealed Sender message or a regular Signal ciphertext message.
+	/// * `context` - All keys and session state data required to encrypt this message.
+	/// * `group` - Information required to encrypt messages sent to a group.
+	/// * `rng` - Cryptographically-strong source of entropy for this message.
+	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
+	pub async fn encrypt_group_message<Rng: RngCore + CryptoRng>(
+		&self,
+		address_to: &AuxinDeviceAddress,
+		mode: MessageSendMode,
+		context: &mut AuxinContext,
+		group: &GroupSendContext,
+		rng: &mut Rng,
+		timestamp: u64,
+	) -> Result<Vec<u8>> {
+
+		//Build our message.
+		let mut serialized_message: Vec<u8> = Vec::default();
+		let mut outstream = CodedOutputStream::vec(&mut serialized_message);
+
+		let b64_profile_key = base64::encode(context.identity.profile_key);
+		let content_message = self
+			.content
+			.build_signal_content(&b64_profile_key, Some(group), timestamp)?;
+
+		let sz = protobuf::Message::compute_size(&content_message);
+		debug!("Estimated content message size: {}", sz);
+
+		protobuf::Message::write_to_with_cached_sizes(&content_message, &mut outstream)?;
+		outstream.flush()?;
+		drop(outstream);
+		debug!(
+			"Length of message before padding: {}",
+			serialized_message.len()
+		);
+
+		let our_message_bytes = pad_message_body(serialized_message.as_slice());
+		debug!("Padded message length: {}", our_message_bytes.len());
+
+		info!("Encrypting as a group message.");
+		let (_envelope_type, ciphertext_bytes) = group.group_encrypt(&address_to, &our_message_bytes, context, MessageSendMode::Standard, rng).await?;
+		Ok(ciphertext_bytes)
 	}
 }
 
@@ -1323,7 +1346,6 @@ impl AuxinMessageList {
 		&self,
 		context: &mut AuxinContext,
 		mode: MessageSendMode,
-		group: Option<&GroupSendContext>,
 		rng: &mut Rng,
 		timestamp: u64,
 	) -> Result<OutgoingPushMessageList> {
@@ -1356,7 +1378,6 @@ impl AuxinMessageList {
 							device_id: *i,
 						},
 						mode,
-						group,
 						context,
 						rng,
 						timestamp,
@@ -1373,6 +1394,67 @@ impl AuxinMessageList {
 			messages: messages_to_send,
 			online: context.report_as_online,
 		})
+	}
+	/// Group equivalent of generate_messages_to_all_devices().
+	/// - One for each of remote_address's devices on file.
+	///
+	/// # Arguments
+	///
+	/// * `context` - The Auxin Context providing all cryptographic state needed to send this message.
+	/// * `mode` - Are we sending this as regular ciphertext, or as a sealed-sender message?
+	/// * `rng` - The cryptographically-strong source of entropy for this process.
+	/// * `timestamp` - The timestamp for when we began generating this message
+	/// - this is also used as its ID. This value corresponds to the number of
+	/// milliseconds since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
+	pub async fn generate_group_messages<Rng: RngCore + CryptoRng>(
+		&self,
+		context: &mut AuxinContext,
+		group: &GroupSendContext,
+		mode: MessageSendMode,
+		rng: &mut Rng,
+		timestamp: u64,
+	) -> Result<Vec<Vec<u8>>> {
+		let mut messages_to_send: Vec<Vec<u8>> = Vec::default();
+		//TODO: Better error handling here.
+		let recipient = context
+			.peer_cache
+			.get(&self.remote_address)
+			.unwrap()
+			.clone();
+		let address: AuxinAddress = (&recipient).into();
+
+		for i in recipient.device_ids_used.iter() {
+			let device_address = AuxinDeviceAddress {
+				address: address.clone(),
+				device_id: *i,
+			};
+			let protocol_address = device_address.uuid_protocol_address()?;
+			debug!(
+				"Send to ProtocolAddress {:?} owned by UUID {:?}",
+				protocol_address,
+				protocol_address.name()
+			);
+
+			for message_plaintext in self.messages.iter() {
+				let message = message_plaintext
+					.encrypt_group_message(
+						&AuxinDeviceAddress {
+							address: self.remote_address.clone(),
+							device_id: *i,
+						},
+						mode,
+						context,
+						group,
+						rng,
+						timestamp,
+					)
+					.await?;
+
+				messages_to_send.push(message);
+			}
+		}
+
+		Ok(messages_to_send)
 	}
 }
 

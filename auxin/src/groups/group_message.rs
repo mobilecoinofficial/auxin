@@ -50,6 +50,7 @@ impl GroupSendContextV2 {
             context: &mut AuxinContext, is_sealed_sender: MessageSendMode, rng: &mut R) -> Result<(EnvelopeType, Vec<u8>), GroupEncryptionError> {
         let our_address = context.identity.address.uuid_protocol_address()
             .map_err(|_| GroupEncryptionError::OurProtocolAddress(context.identity.address.clone()) )?;
+        let is_sealed_sender = MessageSendMode::Standard;
         match is_sealed_sender {
             MessageSendMode::Standard => {
                 let signal_ctx = context.get_signal_ctx().get();
