@@ -24,7 +24,7 @@ use auxin::{
 use auxin_protos::WebSocketMessage;
 use futures::executor::block_on;
 use log::{debug, error, trace, warn};
-use rand::rngs::OsRng;
+use rand::{rngs::OsRng, Rng};
 use reqwest::{header, StatusCode};
 use std::convert::TryFrom;
 use structopt::StructOpt;
@@ -171,11 +171,77 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				return Ok(());
 			}
 			AuxinCommand::Verify { code } => {
+				let mut rng = rand::thread_rng();
+                // See https://github.com/signalapp/libsignal-client/blob/6787408e5d8fc8e60c92e43cb0cee3dd6d2c8640/java/shared/java/org/whispersystems/libsignal/util/KeyHelper.java#L41
+				let id: u16 = rng.gen_range(1, 16380);
 				let url = format!("https://chat.signal.org/v1/accounts/code/{}", code);
+
+				// As a new account we won't have an existing profile key, so make one
+				let profile_key: [u8; 32] = rng.gen();
+				// See [`auxin::context::get_unidentified_access_for_key`]
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/crypto/UnidentifiedAccess.java#L40-L55
+				let unidentified_access = {
+					use aes_gcm::{
+						aead::{Aead, NewAead},
+						Aes256Gcm, Key, Nonce,
+					};
+					let profile_key = Key::from_slice(&profile_key);
+					// panic!("UGH");
+					let cipher = Aes256Gcm::new(profile_key);
+					let nonce = Nonce::from_slice(&[0u8; 12]);
+
+					// Signal trims this to 16 bytes?
+					&cipher.encrypt(nonce, &[0u8; 16][..])?[..16]
+				};
+
 				let json = serde_json::json! {{
-					//
+					// Next few are hard-coded to null
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/SignalServiceAccountManager.java#L285
+					"signalingKey": null,
+					"pin": null,
+					"name": null,
+					// Only for new registrations
+					// TODO(Diana): Support registration lock
+					"registrationLock": null,
+
+					// Hard-coded to true
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/account/AccountAttributes.java#L63
+					"voice": true,
+					"video": true,
+
+					// This is true if FCM is *not* being used.
+					// For us that probably means this should always be true.
+					"fetchesMessages": true,
+
+					// Access key? base64-encoded
+					"unidentifiedAccessKey": base64::encode(&unidentified_access),
+
+					// Hard-coded/defaults to false?
+					"unrestrictedUnidentifiedAccess": false,
+
+					// Currently soft-coded to false by feature flags
+					// Presumably will change at some point
+                    // https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/PhoneNumberPrivacyValues.java#L47-L50
+					"discoverableByPhoneNumber": false,
+
+					// Hard coded
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/AppCapabilities.java
+					"capabilities": {
+						"uuid": true,
+						"storage": false,
+						"senderKey": true,
+						"announcementGroup": true,
+						"changeNumber": true,
+						"gv2-3": true,
+						"gv1-migration": true
+					},
+
+					// Random 14-bit?? number unique to this signal install
+					// "Should" remain consistent across registrations
+					"registrationId": id
 				}};
-				let _res = client.put(url).json(&json).send().await?;
+				dbg!(&json);
+				// let _res = client.put(url).json(&json).send().await?;
 				return Ok(());
 			}
 			_ => (),
