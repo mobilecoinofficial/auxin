@@ -110,7 +110,7 @@ pub enum AuxinCommand {
 	Register {
 		/// Captcha code.
 		#[structopt(long)]
-		captcha: String,
+		captcha: Option<String>,
 	},
 
 	/// SMS verify a signal account

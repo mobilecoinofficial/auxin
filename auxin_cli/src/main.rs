@@ -15,7 +15,6 @@
 use auxin::{
 	address::AuxinAddress,
 	message::{MessageContent, MessageOut},
-	net::{common_http_headers, uncommon_http_headers, AuxinHttpsConnection, Request},
 	state::AuxinStateManager,
 	AuxinApp, AuxinConfig, ReceiveError, Result,
 };
@@ -24,9 +23,9 @@ use auxin::{
 
 use auxin_protos::WebSocketMessage;
 use futures::executor::block_on;
-use http::Method;
 use log::{debug, error, trace, warn};
 use rand::rngs::OsRng;
+use reqwest::{header, StatusCode};
 use std::convert::TryFrom;
 use structopt::StructOpt;
 use tokio::{
@@ -127,29 +126,60 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 	config.enable_read_receipts = !arguments.no_read_receipt;
 
-	match &arguments.command {
-		AuxinCommand::Register { captcha } => {
-			// let url = format!(
-			// 	"https://chat.signal.org/v1/accounts/sms/code/{}?client=android&captcha={captcha}",
-			// 	arguments.user,
-			// );
-			// let http = &net;
-			// // let auth = app.context.identity.make_auth_header();
-			// let req = common_http_headers(Method::GET, &url, &auth)?
-			// 	//
-			// 	.body(Vec::new())?;
-			// let _res = http.request(req).await?;
+	{
+		let mut headers = header::HeaderMap::new();
+		headers.insert("X-Signal-Agent", header::HeaderValue::from_static("value"));
+		let cert = reqwest::Certificate::from_pem(auxin::SIGNAL_TLS_CERT.as_bytes())?;
+		let client = reqwest::ClientBuilder::new()
+			//
+			.add_root_certificate(cert)
+			.tls_built_in_root_certs(false)
+			.user_agent(auxin::net::USER_AGENT)
+			.default_headers(headers)
+			.build()?;
+		match &arguments.command {
+			AuxinCommand::Register { captcha } => {
+				let url = match captcha {
+					Some(c) => format!(
+						"https://chat.signal.org/v1/accounts/sms/code/{}?client=android&captcha={c}",
+						arguments.user,
+					),
+					None => format!(
+						"https://chat.signal.org/v1/accounts/sms/code/{}?client=android",
+						arguments.user,
+					),
+				};
+				let res = client.get(url).send().await?;
+				let status = res.status();
+				let body = res.bytes().await?;
+				match status {
+					StatusCode::BAD_REQUEST => {
+						if body.is_empty() {
+							error!("Impossible phone number?");
+							return Err("Impossible phone number".into());
+						}
+					}
+					// Captcha Required
+					StatusCode::PAYMENT_REQUIRED => {
+						error!("Captcha required. Re-run auxin-cli with a captcha from https://signalcaptchas.org/challenge/generate.html");
+						return Err("Captcha Required".into());
+					}
+					StatusCode::OK => (),
+					c => warn!("Received unknown response from signal servers: {c}"),
+				}
+				dbg!(body);
+				return Ok(());
+			}
+			AuxinCommand::Verify { code } => {
+				let url = format!("https://chat.signal.org/v1/accounts/code/{}", code);
+				let json = serde_json::json! {{
+					//
+				}};
+				let _res = client.put(url).json(&json).send().await?;
+				return Ok(());
+			}
+			_ => (),
 		}
-		AuxinCommand::Verify { code } => {
-			// let url = format!("https://chat.signal.org/v1/accounts/code/{}", code);
-			// let http = app.get_http_client();
-			// let auth = app.context.identity.make_auth_header();
-			// let req = common_http_headers(Method::GET, &url, &auth)?
-			// 	//
-			// 	.body(Vec::new())?;
-			// let _res = http.request(req).await?;
-		}
-		_ => (),
 	}
 
 	// Get it to all come together.
