@@ -6,10 +6,11 @@
 use auxin::{
 	address::{AuxinAddress, E164},
 	generate_timestamp,
+	groups::GroupId,
 	message::{MessageContent, MessageIn, MessageOut},
 	profile::ProfileConfig,
 	state::{PeerProfile, PeerStore},
-	ProfileRetrievalError, ReceiveError, Result, groups::GroupId,
+	ProfileRetrievalError, ReceiveError, Result,
 };
 use uuid::Uuid;
 
@@ -152,7 +153,7 @@ pub struct SendCommand {
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct GetUuidCommand {
-	/// Which phone number / username are we getting the UUID for? 
+	/// Which phone number / username are we getting the UUID for?
 	pub peer: E164,
 }
 
@@ -807,8 +808,8 @@ pub async fn process_jsonrpc_input(
 }
 
 #[derive(Debug, Clone)]
-enum MessageDest { 
-	Group(GroupId), 
+enum MessageDest {
+	Group(GroupId),
 	User(AuxinAddress),
 }
 
@@ -824,10 +825,16 @@ pub async fn handle_send_command(
 	}
 
 	//Set up our address
-	let destination = if cmd.group == true { 
-		MessageDest::Group(GroupId::from_base64(&cmd.destination).map_err(|e| SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}",e) ))?)
+	let destination = if cmd.group == true {
+		MessageDest::Group(GroupId::from_base64(&cmd.destination).map_err(|e| {
+			SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
+		})?)
 	} else {
-		MessageDest::User(AuxinAddress::try_from(cmd.destination.as_str()).map_err(|e| SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}",e) ))?)
+		MessageDest::User(
+			AuxinAddress::try_from(cmd.destination.as_str()).map_err(|e| {
+				SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
+			})?,
+		)
 	};
 
 	//MessageContent
@@ -924,14 +931,14 @@ pub async fn handle_send_command(
 					timestamp: generate_timestamp(),
 					simulate_output: None,
 				}
-			},
+			}
 			MessageDest::User(recipient_addr) => {
 				let timestamp = app.send_message(&recipient_addr, message).await?;
 				SendOutput {
 					timestamp,
 					simulate_output: None,
 				}
-			},
+			}
 		}
 	})
 }
@@ -1086,11 +1093,18 @@ pub async fn handle_get_uuid_command(
 	cmd: GetUuidCommand,
 	app: &mut crate::app::App,
 ) -> std::result::Result<Uuid, GetUuidError> {
-	let address: AuxinAddress = (cmd.peer.as_str()).try_into()
+	let address: AuxinAddress = (cmd.peer.as_str())
+		.try_into()
 		.map_err(|e| GetUuidError::NotAPhoneNumber(format!("{:?}", e)))?;
-	app.ensure_peer_loaded(&address).await.map_err(|e| GetUuidError::DiscoveryError(format!("{:?}", e)))?;
+	app.ensure_peer_loaded(&address)
+		.await
+		.map_err(|e| GetUuidError::DiscoveryError(format!("{:?}", e)))?;
 
-	let peer =  app.context.peer_cache.get(&address).ok_or(GetUuidError::NoUuid)?;
+	let peer = app
+		.context
+		.peer_cache
+		.get(&address)
+		.ok_or(GetUuidError::NoUuid)?;
 	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?.clone();
 	Ok(resulting_uuid)
 }

@@ -20,8 +20,9 @@ use uuid::Uuid;
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
+	groups::{group_storage::GroupInfoStorage, sender_key::SenderKeyName, GroupId},
 	message::fix_protobuf_buf,
-	AuxinConfig, AuxinContext, LocalIdentity, groups::{GroupId, group_storage::GroupInfoStorage, sender_key::SenderKeyName},
+	AuxinConfig, AuxinContext, LocalIdentity,
 };
 
 /// Keeps track of a local identity, used by signal-cli in accounts.json
@@ -41,9 +42,9 @@ pub struct LocalAccounts {
 	pub accounts: Vec<LocalAccountRecord>,
 }
 
-impl LocalAccounts { 
+impl LocalAccounts {
 	pub fn get_by_number(&self, phone_number: &E164) -> Option<&LocalAccountRecord> {
-		for elem in self.accounts.iter() { 
+		for elem in self.accounts.iter() {
 			if &elem.number == phone_number {
 				return Some(elem);
 			}
@@ -51,18 +52,20 @@ impl LocalAccounts {
 		None
 	}
 	pub fn get_by_uuid(&self, uuid: &Uuid) -> Option<&LocalAccountRecord> {
-		for elem in self.accounts.iter() { 
+		for elem in self.accounts.iter() {
 			if &elem.uuid == uuid {
 				return Some(elem);
 			}
 		}
 		None
 	}
-	pub fn get(&self, address: &AuxinAddress) -> Option<&LocalAccountRecord> { 
+	pub fn get(&self, address: &AuxinAddress) -> Option<&LocalAccountRecord> {
 		match address {
 			AuxinAddress::Phone(number) => self.get_by_number(number),
 			AuxinAddress::Uuid(uuid) => self.get_by_uuid(uuid),
-			AuxinAddress::Both(number, uuid) => self.get_by_uuid(uuid).or(self.get_by_number(number)),
+			AuxinAddress::Both(number, uuid) => {
+				self.get_by_uuid(uuid).or(self.get_by_number(number))
+			}
 		}
 	}
 }
@@ -235,20 +238,17 @@ impl PeerRecord {
 			None => false,
 		}
 	}
-	pub fn get_address(&self) -> AuxinAddress { 
+	pub fn get_address(&self) -> AuxinAddress {
 		if let Some(uuid) = &self.uuid {
 			if let Some(phone) = &self.number {
 				AuxinAddress::Both(phone.clone(), uuid.clone())
-			}
-			else {
+			} else {
 				AuxinAddress::Uuid(uuid.clone())
 			}
-		}
-		else {
+		} else {
 			if let Some(phone) = &self.number {
 				AuxinAddress::Phone(phone.clone())
-			}
-			else { 
+			} else {
 				panic!("Peer record with no ID - neither a phone number nor a UUID. This should not be possible.")
 			}
 		}
@@ -375,9 +375,9 @@ pub trait PeerStore {
 			})
 			.filter(|v: &Vec<AuxinDeviceAddress>| !v.is_empty())
 	}
-	/// Query whether we have a peer or not. Useful helper method in cases where get()'s reference into this data structure 
-	/// leads to borrow checker trouble 
-	fn has_peer(&self, address: &AuxinAddress) -> bool { 
+	/// Query whether we have a peer or not. Useful helper method in cases where get()'s reference into this data structure
+	/// leads to borrow checker trouble
+	fn has_peer(&self, address: &AuxinAddress) -> bool {
 		self.get(address).is_some()
 	}
 }
@@ -464,8 +464,12 @@ impl PeerStore for PeerRecordStructure {
 	}
 
 	fn get_by_peer_id(&self, id: u64) -> Option<&PeerRecord> {
-        self.peers.binary_search_by(|peer| peer.id.cmp(&id)).map(|idx| self.peers.get(idx as usize)).ok().flatten()
-    }
+		self.peers
+			.binary_search_by(|peer| peer.id.cmp(&id))
+			.map(|idx| self.peers.get(idx as usize))
+			.ok()
+			.flatten()
+	}
 }
 /// Stores the public key of a peer (encoded as a base-64 string)
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -629,18 +633,39 @@ pub trait AuxinStateManager {
 		self.flush(context)?;
 		Ok(())
 	}
-	// An implementation of the signal_cli-compatible group data store for the DecryptedGroup protobuf. 
-	fn load_group_protobuf(&mut self, context: &AuxinContext, group_id: &GroupId) -> crate::Result<auxin_protos::DecryptedGroup>;
-	fn load_group_info(&mut self, context: &AuxinContext, group_id: &GroupId) -> crate::Result<GroupInfoStorage>;
-	fn save_group_info(&mut self, context: &AuxinContext, group_id: &GroupId, group_info: GroupInfoStorage) -> crate::Result<()>;
+	// An implementation of the signal_cli-compatible group data store for the DecryptedGroup protobuf.
+	fn load_group_protobuf(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &GroupId,
+	) -> crate::Result<auxin_protos::DecryptedGroup>;
+	fn load_group_info(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &GroupId,
+	) -> crate::Result<GroupInfoStorage>;
+	fn save_group_info(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &GroupId,
+		group_info: GroupInfoStorage,
+	) -> crate::Result<()>;
 	fn save_all_group_info(&mut self, context: &AuxinContext) -> crate::Result<()>;
 
-	// Save a sender key we received. Use the local address and device ID in sender_key_name to save a sent / local sender key. 
-	fn load_sender_key(&mut self, context: &AuxinContext, sender_key_name: &SenderKeyName) -> crate::Result<SenderKeyRecord>;
-	fn save_sender_key(&mut self, context: &AuxinContext, sender_key_name: &SenderKeyName, record: &SenderKeyRecord) -> crate::Result<()>;
+	// Save a sender key we received. Use the local address and device ID in sender_key_name to save a sent / local sender key.
+	fn load_sender_key(
+		&mut self,
+		context: &AuxinContext,
+		sender_key_name: &SenderKeyName,
+	) -> crate::Result<SenderKeyRecord>;
+	fn save_sender_key(
+		&mut self,
+		context: &AuxinContext,
+		sender_key_name: &SenderKeyName,
+		record: &SenderKeyRecord,
+	) -> crate::Result<()>;
 	// Save all sender keys we sent or received.
 	fn save_all_sender_keys(&mut self, context: &AuxinContext) -> crate::Result<()>;
-
 }
 
 /// Attempt to get a registration ID from the previous-session records.

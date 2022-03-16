@@ -9,15 +9,19 @@ use aes_gcm::{
 };
 use custom_error::custom_error;
 use libsignal_protocol::{
-	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore,
-	InMemSessionStore, InMemSignedPreKeyStore, SenderCertificate,
+	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore,
+	InMemSignedPreKeyStore, SenderCertificate,
 };
 use log::debug;
 use uuid::Uuid;
 
 use crate::{
 	address::*,
-	state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode}, groups::{group_storage::GroupInfo, GroupId, sender_key::AuxinSenderKeyStore, InMemoryCredentialsCache},
+	groups::{
+		group_storage::GroupInfo, sender_key::AuxinSenderKeyStore, GroupId,
+		InMemoryCredentialsCache,
+	},
+	state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode},
 };
 
 pub const PROFILE_KEY_LEN: usize = 32;
@@ -182,7 +186,7 @@ custom_error! { pub UnidentifiedAccessError
 impl AuxinContext {
 	/// Generate an unidentified-access key for a user who accepts unrestricted unidentified access.
 	fn get_unidentified_access_unrestricted(&mut self) -> crate::Result<Vec<u8>> {
-		let bytes = [0u8;16];
+		let bytes = [0u8; 16];
 
 		Ok(Vec::from(bytes))
 	}

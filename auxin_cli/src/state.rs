@@ -3,27 +3,33 @@
 //! Manages signal-cli state for auxin
 
 use std::{
+	collections::HashMap,
 	convert::TryFrom,
 	fs,
 	fs::{File, OpenOptions},
 	io::{BufReader, BufWriter, Read, Write},
-	path::{Path, PathBuf}, collections::HashMap, str::FromStr,
+	path::{Path, PathBuf},
+	str::FromStr,
 };
 
 use auxin::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
-	state::{AuxinStateManager, PeerIdentity, PeerRecordStructure, PeerStore, LocalAccounts},
-	AuxinConfig, AuxinContext, LocalIdentity, Result, SignalCtx, PROFILE_KEY_LEN, groups::{GroupId, group_storage::{GroupInfo, GroupInfoStorage}, sender_key::{SenderKeyName, AuxinSenderKeyStore}, InMemoryCredentialsCache}
+	groups::{
+		group_storage::{GroupInfo, GroupInfoStorage},
+		sender_key::{AuxinSenderKeyStore, SenderKeyName},
+		GroupId, InMemoryCredentialsCache,
+	},
+	state::{AuxinStateManager, LocalAccounts, PeerIdentity, PeerRecordStructure, PeerStore},
+	AuxinConfig, AuxinContext, LocalIdentity, Result, SignalCtx, PROFILE_KEY_LEN,
 };
 
 use custom_error::custom_error;
 use futures::executor::block_on;
 use libsignal_protocol::{
 	IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore,
-	InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore,
-	PrivateKey, ProtocolAddress, PublicKey, SessionRecord, SessionStore, SignedPreKeyRecord,
-	SignedPreKeyStore,
+	InMemSessionStore, InMemSignedPreKeyStore, PreKeyRecord, PreKeyStore, PrivateKey,
+	ProtocolAddress, PublicKey, SessionRecord, SessionStore, SignedPreKeyRecord, SignedPreKeyStore,
 };
 use log::{debug, error, info, warn};
 use protobuf::CodedInputStream;
@@ -161,7 +167,7 @@ custom_error! { pub ErrBuildIdent
 
 /// Loads accounts.json
 /// If there is no accounts.json, this is not a signal-cli v3 storage and this will return None.
-pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> { 
+pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> {
 	let accounts_path = data_dir.join("accounts.json");
 	if accounts_path.exists() {
 		if accounts_path.is_file() {
@@ -173,13 +179,11 @@ pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> {
 			let accounts_bufread = BufReader::new(accounts_file);
 			let accounts: LocalAccounts = serde_json::from_reader(accounts_bufread)?;
 			Ok(Some(accounts))
-		}
-		else {
+		} else {
 			error!("accounts.json should never be a directory!");
 			Ok(None)
 		}
-	}
-	else { 
+	} else {
 		Ok(None)
 	}
 }
@@ -198,9 +202,9 @@ pub async fn load_known_peers(
 ) -> Result<()> {
 	// Signal_cli storage v3 support
 	let mut new_path = our_id.clone();
-	if let Some(accounts) = load_v3_accounts(data_dir)? { 
-		if let Some(our_account) = accounts.get_by_number(our_id) { 
-			new_path = our_account.path.clone(); 
+	if let Some(accounts) = load_v3_accounts(data_dir)? {
+		if let Some(our_account) = accounts.get_by_number(our_id) {
+			new_path = our_account.path.clone();
 			info!("Signal datastore v3, using path {}", &new_path)
 		}
 	}
@@ -253,9 +257,9 @@ pub async fn load_sessions(
 ) -> Result<(InMemSessionStore, PeerRecordStructure)> {
 	// Signal_cli storage v3 support
 	let mut new_path = our_phone.clone();
-	if let Some(accounts) = load_v3_accounts(data_dir)? { 
-		if let Some(our_account) = accounts.get_by_number(our_phone) { 
-			new_path = our_account.path.clone(); 
+	if let Some(accounts) = load_v3_accounts(data_dir)? {
+		if let Some(our_account) = accounts.get_by_number(our_phone) {
+			new_path = our_account.path.clone();
 		}
 	}
 	let our_path = data_dir.join(&new_path).with_extension("d");
@@ -396,9 +400,9 @@ pub async fn load_prekeys(
 	//Figure out some directories.
 	// Signal_cli storage v3 support
 	let mut new_path = our_phone.clone();
-	if let Some(accounts) = load_v3_accounts(data_dir)? { 
-		if let Some(our_account) = accounts.get_by_number(our_phone) { 
-			new_path = our_account.path.clone(); 
+	if let Some(accounts) = load_v3_accounts(data_dir)? {
+		if let Some(our_account) = accounts.get_by_number(our_phone) {
+			new_path = our_account.path.clone();
 		}
 	}
 	let our_path = data_dir.join(&new_path).with_extension("d");
@@ -495,10 +499,11 @@ pub async fn load_prekeys(
 	Ok((pre_key_store, signed_pre_key_store))
 }
 
-pub fn load_groups(data_dir: &Path,
+pub fn load_groups(
+	data_dir: &Path,
 	local_identity: &LocalIdentity,
-	_config: &AuxinConfig,) -> Result<HashMap<GroupId, GroupInfo>>  { 
-
+	_config: &AuxinConfig,
+) -> Result<HashMap<GroupId, GroupInfo>> {
 	let our_phone_number = local_identity.address.address.get_phone_number().unwrap();
 
 	// Set up a HashMap we will return from this function.
@@ -508,32 +513,37 @@ pub fn load_groups(data_dir: &Path,
 	let our_path = data_dir.join(our_phone_number).with_extension("d");
 	let groups_path = our_path.join(GROUPS_DIR);
 
-	if groups_path.exists() { 
+	if groups_path.exists() {
 		let directory_contents = groups_path.read_dir()?;
 		for item in directory_contents {
 			match item {
 				Ok(inner) => match inner.file_type() {
 					Ok(ty) => {
 						if ty.is_file() {
-							//This is a file in the groups path, we're getting warmer. 
+							//This is a file in the groups path, we're getting warmer.
 							let file_path = inner.path();
 
 							match file_path.extension().map(|val| val.to_str()).flatten() {
-								Some("json") => { 
-									let name_component = file_path.file_stem().unwrap().to_str().unwrap();
+								Some("json") => {
+									let name_component =
+										file_path.file_stem().unwrap().to_str().unwrap();
 									let name_component = reverse_filename_base_64(name_component);
 									let group_id = GroupId::from_base64(&name_component)?;
 
 									let file = OpenOptions::new().read(true).open(&file_path)?;
 									let buf_reader = BufReader::new(file);
-									let entry_storage_form: GroupInfoStorage = serde_json::from_reader(buf_reader)?;
+									let entry_storage_form: GroupInfoStorage =
+										serde_json::from_reader(buf_reader)?;
 									let entry: GroupInfo = entry_storage_form.try_into()?;
 
 									output.insert(group_id, entry);
-								},
+								}
 								_ => {
-									warn!("Ignoring non-json file in groups directory: {}", file_path.display());
-								},
+									warn!(
+										"Ignoring non-json file in groups directory: {}",
+										file_path.display()
+									);
+								}
 							}
 						}
 					}
@@ -546,19 +556,19 @@ pub fn load_groups(data_dir: &Path,
 				}
 			}
 		}
-		Ok( output )
-	}
-	else { 
+		Ok(output)
+	} else {
 		warn!("Groups directory in our data store does not exist!");
-		Ok( HashMap::default() )
+		Ok(HashMap::default())
 	}
 }
 
-pub fn load_sender_keys(data_dir: &Path,
+pub fn load_sender_keys(
+	data_dir: &Path,
 	local_identity: &LocalIdentity,
 	peers: &PeerRecordStructure,
-	_config: &AuxinConfig,) -> Result<AuxinSenderKeyStore>  { 
-
+	_config: &AuxinConfig,
+) -> Result<AuxinSenderKeyStore> {
 	let our_phone_number = local_identity.address.address.get_phone_number().unwrap();
 
 	// Set up a HashMap we will return from this function.
@@ -568,126 +578,145 @@ pub fn load_sender_keys(data_dir: &Path,
 	let our_path = data_dir.join(our_phone_number).with_extension("d");
 	let sender_key_path = our_path.join("sender-keys");
 
-	if sender_key_path.exists() { 
+	if sender_key_path.exists() {
 		let directory_contents = sender_key_path.read_dir()?;
 		for item in directory_contents {
 			match item {
-				Ok(inner) => match inner.file_type() {
-					Ok(ty) => {
-						if ty.is_file() {
-							//This is a file in the sender key path, we're getting warmer. 
-							let file_path = inner.path();
-							
-							info!("Loading a sender key with filename {}", file_path.to_str().unwrap());
+				Ok(inner) => {
+					match inner.file_type() {
+						Ok(ty) => {
+							if ty.is_file() {
+								//This is a file in the sender key path, we're getting warmer.
+								let file_path = inner.path();
 
-							let name_component = file_path.file_stem().unwrap().to_str().unwrap();
-							let name_parts: Vec<&str> = name_component.split("_").collect();
+								info!(
+									"Loading a sender key with filename {}",
+									file_path.to_str().unwrap()
+								);
 
-							match file_path.extension().map(|val| val.to_str()).flatten() {
-								Some("self") => {
-									// Local sender key. It will be {device id}_{distribution id}.self
-									assert_eq!(name_parts.len(), 2);
-									let address = local_identity.address.address.clone();
-									let device_id = u32::from_str_radix(name_parts[0], 10)?;
-									if local_identity.address.device_id != device_id { 
-										warn!("Found a stored local sender key with a device ID that does not match our own. \
+								let name_component =
+									file_path.file_stem().unwrap().to_str().unwrap();
+								let name_parts: Vec<&str> = name_component.split("_").collect();
+
+								match file_path.extension().map(|val| val.to_str()).flatten() {
+									Some("self") => {
+										// Local sender key. It will be {device id}_{distribution id}.self
+										assert_eq!(name_parts.len(), 2);
+										let address = local_identity.address.address.clone();
+										let device_id = u32::from_str_radix(name_parts[0], 10)?;
+										if local_identity.address.device_id != device_id {
+											warn!("Found a stored local sender key with a device ID that does not match our own. \
 										One Auxin protocol state directory should correspond to one device ID. \
 										This sender key will be stored, but may not get used correctly.");
+										}
+										let sender = AuxinDeviceAddress { address, device_id };
+										let distribution_id = Uuid::from_str(name_parts[1])?;
+										let sender_key_name = SenderKeyName {
+											sender,
+											distribution_id,
+										};
+
+										// Now that we have parsed the name, load a sender key.
+
+										let mut file = OpenOptions::new()
+											.read(true)
+											.write(false)
+											.create(false)
+											.open(file_path)?;
+
+										let mut buf = Vec::new();
+										let sz = file.read_to_end(&mut buf)?;
+										assert!(sz == buf.len());
+
+										let skr =
+											libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
+										output.import_sender_key(sender_key_name, skr);
 									}
-									let sender = AuxinDeviceAddress{address, device_id};
-									let distribution_id = Uuid::from_str(name_parts[1])?;
-									let sender_key_name = SenderKeyName{sender, distribution_id};
+									Some("unknown") => {
+										// Unknown peer sender key. It will be {user UUID}_{device id}_{distribution id}.unknown
+										assert_eq!(name_parts.len(), 3);
+										let user_id = Uuid::from_str(name_parts[0])?;
+										let device_id = u32::from_str_radix(name_parts[1], 10)?;
 
-									// Now that we have parsed the name, load a sender key.
+										let sender = AuxinDeviceAddress {
+											address: AuxinAddress::Uuid(user_id),
+											device_id,
+										};
+										let distribution_id = Uuid::from_str(name_parts[2])?;
+										let sender_key_name = SenderKeyName {
+											sender,
+											distribution_id,
+										};
 
-									let mut file = OpenOptions::new()
-										.read(true)
-										.write(false)
-										.create(false)
-										.open(file_path)?;
+										// Now that we have parsed the name, load a sender key.
 
-									let mut buf = Vec::new();
-									let sz = file.read_to_end(&mut buf)?; 
-									assert!(sz == buf.len());
+										let mut file = OpenOptions::new()
+											.read(true)
+											.write(false)
+											.create(false)
+											.open(file_path)?;
 
-									let skr = libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
-									output.import_sender_key(sender_key_name, skr);
+										let mut buf = Vec::new();
+										let sz = file.read_to_end(&mut buf)?;
+										assert!(sz == buf.len());
 
-								},
-								Some("unknown") => { 
-									// Unknown peer sender key. It will be {user UUID}_{device id}_{distribution id}.unknown
-									assert_eq!(name_parts.len(), 3);
-									let user_id = Uuid::from_str(name_parts[0])?;
-									let device_id = u32::from_str_radix(name_parts[1], 10)?;
+										let skr =
+											libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
+										output.import_sender_key(sender_key_name, skr);
+									}
+									None => {
+										// Normal sender key. It will be {peer id}_{device id}_{distribution id}
+										let user_id = u64::from_str_radix(name_parts[0], 10)?;
+										let device_id = u32::from_str_radix(name_parts[1], 10)?;
 
-									let sender = AuxinDeviceAddress{address: AuxinAddress::Uuid(user_id), device_id};
-									let distribution_id = Uuid::from_str(name_parts[2])?;
-									let sender_key_name = SenderKeyName{sender, distribution_id};
+										let address =
+											peers.get_by_peer_id(user_id).unwrap().get_address();
 
-									// Now that we have parsed the name, load a sender key.
+										let sender = AuxinDeviceAddress { address, device_id };
+										let distribution_id = Uuid::from_str(name_parts[2])?;
+										let sender_key_name = SenderKeyName {
+											sender,
+											distribution_id,
+										};
 
-									let mut file = OpenOptions::new()
-										.read(true)
-										.write(false)
-										.create(false)
-										.open(file_path)?;
+										// Now that we have parsed the name, load a sender key.
 
-									let mut buf = Vec::new();
-									let sz = file.read_to_end(&mut buf)?; 
-									assert!(sz == buf.len());
+										let mut file = OpenOptions::new()
+											.read(true)
+											.write(false)
+											.create(false)
+											.open(file_path)?;
 
-									let skr = libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
-									output.import_sender_key(sender_key_name, skr);
-								},
-								None => {
-									// Normal sender key. It will be {peer id}_{device id}_{distribution id}
-									let user_id = u64::from_str_radix(name_parts[0], 10)?;
-									let device_id = u32::from_str_radix(name_parts[1], 10)?;
+										let mut buf = Vec::new();
+										let sz = file.read_to_end(&mut buf)?;
+										assert!(sz == buf.len());
 
-									let address = peers.get_by_peer_id(user_id).unwrap().get_address();
-
-									let sender = AuxinDeviceAddress{address, device_id};
-									let distribution_id = Uuid::from_str(name_parts[2])?;
-									let sender_key_name = SenderKeyName{sender, distribution_id};
-
-									// Now that we have parsed the name, load a sender key.
-
-									let mut file = OpenOptions::new()
-										.read(true)
-										.write(false)
-										.create(false)
-										.open(file_path)?;
-
-									let mut buf = Vec::new();
-									let sz = file.read_to_end(&mut buf)?; 
-									assert!(sz == buf.len());
-
-									let skr = libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
-									output.import_sender_key(sender_key_name, skr);
-								},
-								_ => {
-									warn!("Ignoring invalid extension for a sender key. File was: {}", file_path.display());
-								},
+										let skr =
+											libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
+										output.import_sender_key(sender_key_name, skr);
+									}
+									_ => {
+										warn!("Ignoring invalid extension for a sender key. File was: {}", file_path.display());
+									}
+								}
 							}
 						}
+						Err(e) => {
+							warn!("Suppressing directory traversal error: {}", e);
+						}
 					}
-					Err(e) => {
-						warn!("Suppressing directory traversal error: {}", e);
-					}
-				},
+				}
 				Err(e) => {
 					warn!("Suppressing directory traversal error: {}", e);
 				}
 			}
 		}
-		Ok( output )
-	}
-	else { 
+		Ok(output)
+	} else {
 		warn!("Groups directory in our data store does not exist!");
-		Ok( output )
+		Ok(output)
 	}
 }
-
 
 pub async fn make_context(
 	data_dir: &Path,
@@ -720,7 +749,7 @@ pub async fn make_context(
 	let groups = load_groups(data_dir, &local_identity, &config)?;
 
 	info!("Loading sender-keys...");
-	let sender_keys = load_sender_keys(data_dir, &local_identity, &peers, &config)?; 
+	let sender_keys = load_sender_keys(data_dir, &local_identity, &peers, &config)?;
 
 	let keys_for_print: Vec<&SenderKeyName> = sender_keys.sender_keys.keys().collect();
 	info!("Sender keys loaded with names: {:?}", keys_for_print);
@@ -766,8 +795,8 @@ impl StateManager {
 	fn get_protocol_store_path(&self, context: &AuxinContext) -> PathBuf {
 		// Signal_cli storage v3 support
 		let mut new_path = context.identity.address.get_phone_number().unwrap().clone();
-		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
-			if let Some(our_account) = accounts.get_by_number(&new_path) { 
+		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() {
+			if let Some(our_account) = accounts.get_by_number(&new_path) {
 				new_path = our_account.path.clone();
 			}
 		}
@@ -784,9 +813,9 @@ impl AuxinStateManager for StateManager {
 	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity> {
 		// Signal_cli storage v3 support
 		let mut new_path = phone_number.clone();
-		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() { 
-			if let Some(our_account) = accounts.get_by_number(&new_path) { 
-				new_path = our_account.path.clone(); 
+		if let Some(accounts) = load_v3_accounts(&self.data_dir).unwrap() {
+			if let Some(our_account) = accounts.get_by_number(&new_path) {
+				new_path = our_account.path.clone();
 				info!("Signal datastore v3, using path {}", &new_path);
 			}
 		}
@@ -1036,43 +1065,54 @@ and cannot automatically be repaired.",
 		Ok(())
 	}
 
-	fn load_group_protobuf(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId) -> auxin::Result<auxin_protos::DecryptedGroup> {
-        let group_file_name = group_id.to_base64();
-		let group_file_path = self.get_protocol_store_path(&context).join("group-cache").join(&group_file_name);
+	fn load_group_protobuf(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &auxin::groups::GroupId,
+	) -> auxin::Result<auxin_protos::DecryptedGroup> {
+		let group_file_name = group_id.to_base64();
+		let group_file_path = self
+			.get_protocol_store_path(&context)
+			.join("group-cache")
+			.join(&group_file_name);
 
 		let file = File::open(&group_file_path)?;
 		let mut buf_reader = BufReader::new(file);
 		let mut file_stream = CodedInputStream::from_buffered_reader(&mut buf_reader);
 		// Deserialize an auxin_protos::DecryptedGroup
-		Ok( file_stream.read_message()? )
-    }
+		Ok(file_stream.read_message()?)
+	}
 
-	fn load_group_info(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId) -> auxin::Result<auxin::groups::group_storage::GroupInfoStorage> {
+	fn load_group_info(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &auxin::groups::GroupId,
+	) -> auxin::Result<auxin::groups::group_storage::GroupInfoStorage> {
 		let group_id_b64 = filename_friendly_base_64(&group_id.to_base64());
 
 		let our_path = self.get_protocol_store_path(context);
 		let groups_path = our_path.join(GROUPS_DIR);
 
-		// Make sure we've got a groups folder. 
+		// Make sure we've got a groups folder.
 		if !groups_path.exists() {
 			// Fail early, it's not there.
 			error!(
 				"Expected group info folder {} did not exist, \
 					implying no group info has been stored for this Auxin instance.",
-					groups_path.display()
+				groups_path.display()
 			);
 			return Err("no groups directory".into());
 		}
 
 		let file_path = groups_path.join(group_id_b64).with_extension("json");
 
-		// Make sure we've got a groups folder. 
+		// Make sure we've got a groups folder.
 		if !file_path.exists() {
 			// Fail early, it's not there.
 			error!(
 				"Expected group info file {} did not exist, \
 					implying no group info for this group ID has been stored for this Auxin instance.",
-					file_path.display()
+				file_path.display()
 			);
 			return Err("no group info file".into());
 		}
@@ -1084,18 +1124,24 @@ and cannot automatically be repaired.",
 			.open(&file_path)?;
 
 		let buf = BufReader::new(&mut file);
-		let group_info: auxin::groups::group_storage::GroupInfoStorage = serde_json::from_reader(buf)?;
+		let group_info: auxin::groups::group_storage::GroupInfoStorage =
+			serde_json::from_reader(buf)?;
 
 		Ok(group_info)
 	}
 
-	fn save_group_info(&mut self, context: &AuxinContext, group_id: &auxin::groups::GroupId, group_info: auxin::groups::group_storage::GroupInfoStorage) -> auxin::Result<()> {
+	fn save_group_info(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &auxin::groups::GroupId,
+		group_info: auxin::groups::group_storage::GroupInfoStorage,
+	) -> auxin::Result<()> {
 		let group_id_b64 = filename_friendly_base_64(&group_id.to_base64());
 
 		let our_path = self.get_protocol_store_path(context);
 		let groups_path = our_path.join(GROUPS_DIR);
 
-		// Make sure we've got a groups folder. 
+		// Make sure we've got a groups folder.
 		if !groups_path.exists() {
 			std::fs::create_dir(&groups_path)?;
 		}
@@ -1104,7 +1150,10 @@ and cannot automatically be repaired.",
 		let bk_file_path = base_file_path.with_extension("bk");
 		let resulting_file_path = base_file_path.with_extension("json");
 
-		info!("Attempting to save group information to: {}", bk_file_path.display());
+		info!(
+			"Attempting to save group information to: {}",
+			bk_file_path.display()
+		);
 		// Check to see if there's an existing .bk file, in which case we cannot continue.
 		if bk_file_path.exists() {
 			error!(
@@ -1115,7 +1164,7 @@ and cannot automatically be repaired.",
 			return Err("peer corrupt".into());
 		}
 
-		//Write initially to the temporary file. 
+		//Write initially to the temporary file.
 		let mut bk_file = OpenOptions::new()
 			.truncate(true)
 			.write(true)
@@ -1129,8 +1178,8 @@ and cannot automatically be repaired.",
 		}
 		bk_file.sync_all()?;
 
-		// Now that the file is safely finished writing, 
-		// rename it to {group_id}.json, which should be 
+		// Now that the file is safely finished writing,
+		// rename it to {group_id}.json, which should be
 		// atomic. Also, fs::rename() overwrites existing
 		// files with the destination filename.
 		fs::rename(bk_file_path, resulting_file_path)?;
@@ -1139,11 +1188,11 @@ and cannot automatically be repaired.",
 	}
 
 	fn save_all_group_info(&mut self, context: &AuxinContext) -> auxin::Result<()> {
-		for (id, group_info) in context.groups.iter() { 
+		for (id, group_info) in context.groups.iter() {
 			self.save_group_info(context, id, group_info.into())?;
 		}
 		Ok(())
-    }
+	}
 
 	//So, the files in {your_phone_number}.d/sender-keys will have names following {peer id}_{device id}_{distribution id} and they will be SenderKeyRecordStructure protobuf binaries
 
@@ -1153,22 +1202,34 @@ and cannot automatically be repaired.",
 		let our_path = self.get_protocol_store_path(context);
 		let sender_key_path = our_path.join("sender-keys");
 
-		for (sender_key_name, sender_key_record_structure) in context.sender_key_store.sender_keys.iter() {
-			let SenderKeyName { sender: AuxinDeviceAddress{ address, device_id }, distribution_id } = sender_key_name.clone();
+		for (sender_key_name, sender_key_record_structure) in
+			context.sender_key_store.sender_keys.iter()
+		{
+			let SenderKeyName {
+				sender: AuxinDeviceAddress { address, device_id },
+				distribution_id,
+			} = sender_key_name.clone();
 
-			let filename= {
-				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) { 
+			let filename = {
+				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
 					format!("{}_{}_{}", peer_id, device_id, distribution_id.to_string())
-				}
-				else {
-					if address == context.identity.address.address { 
-						//Local key sent elsewhere, save appropriately. 
-						format!("{}_{}.self", context.identity.address.device_id, distribution_id.to_string())
-					}
-					else { 
-						let filename = format!("{}_{}_{}.unknown", address.get_uuid().unwrap().to_string(), device_id, distribution_id.to_string());
+				} else {
+					if address == context.identity.address.address {
+						//Local key sent elsewhere, save appropriately.
+						format!(
+							"{}_{}.self",
+							context.identity.address.device_id,
+							distribution_id.to_string()
+						)
+					} else {
+						let filename = format!(
+							"{}_{}_{}.unknown",
+							address.get_uuid().unwrap().to_string(),
+							device_id,
+							distribution_id.to_string()
+						);
 						warn!("Sender key on record for an unknown peer. Address is {} and device ID is {}. Writing as {}", address, device_id, &filename);
-	
+
 						filename
 					}
 				}
@@ -1184,25 +1245,29 @@ and cannot automatically be repaired.",
 				.write(true)
 				.create(true)
 				.open(&bk_file_path)?;
-	
+
 			{
 				let mut buf = BufWriter::new(&mut bk_file);
 				buf.write_all(&bytes)?;
 				buf.flush()?;
 			}
 			bk_file.sync_all()?;
-	
-			// Now that the file is safely finished writing, 
-			// rename it to {peer id}_{device id}_{distribution id}, 
-			// which should be atomic. Also, fs::rename() overwrites 
+
+			// Now that the file is safely finished writing,
+			// rename it to {peer id}_{device id}_{distribution id},
+			// which should be atomic. Also, fs::rename() overwrites
 			// existing files with the destination filename.
 			fs::rename(bk_file_path, resulting_path)?;
 		}
-        Ok(())
-    }
+		Ok(())
+	}
 
-	fn load_sender_key(&mut self, context: &AuxinContext, sender_key_name: &SenderKeyName) -> auxin::Result<libsignal_protocol::SenderKeyRecord> {
-        let address = &sender_key_name.sender.address;
+	fn load_sender_key(
+		&mut self,
+		context: &AuxinContext,
+		sender_key_name: &SenderKeyName,
+	) -> auxin::Result<libsignal_protocol::SenderKeyRecord> {
+		let address = &sender_key_name.sender.address;
 		let device_id = sender_key_name.sender.device_id;
 		let distribution_id = sender_key_name.distribution_id;
 
@@ -1211,17 +1276,21 @@ and cannot automatically be repaired.",
 		let our_path = self.get_protocol_store_path(context);
 		let sender_key_path = our_path.join("sender-keys");
 
-		//Filename {peer id}_{device id}_{distribution id} for peer keys. 
+		//Filename {peer id}_{device id}_{distribution id} for peer keys.
 		//{device id}_{distribution id}.self for local keys.
 
-		let filename = match is_local { 
+		let filename = match is_local {
 			true => format!("{}_{}.self", device_id, distribution_id.to_string()),
 			false => {
-				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) { 
+				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
 					format!("{}_{}_{}", peer_id, device_id, distribution_id.to_string())
-				}
-				else {
-					let filename = format!("{}_{}_{}.unknown", address.get_uuid().unwrap().to_string(), device_id, distribution_id.to_string());
+				} else {
+					let filename = format!(
+						"{}_{}_{}.unknown",
+						address.get_uuid().unwrap().to_string(),
+						device_id,
+						distribution_id.to_string()
+					);
 					warn!("Sender key requested for an unknown peer. Address is {} and device ID is {}. Looking for file: {}", address, device_id, &filename);
 					filename
 				}
@@ -1236,13 +1305,18 @@ and cannot automatically be repaired.",
 			.open(file_path)?;
 
 		let mut buf = Vec::new();
-		let sz = file.read_to_end(&mut buf)?; 
+		let sz = file.read_to_end(&mut buf)?;
 		assert!(sz == buf.len());
 
 		Ok(libsignal_protocol::SenderKeyRecord::deserialize(&buf)?)
-    }
+	}
 
-	fn save_sender_key(&mut self, context: &AuxinContext, sender_key_name: &SenderKeyName, record: &libsignal_protocol::SenderKeyRecord) -> auxin::Result<()> {
+	fn save_sender_key(
+		&mut self,
+		context: &AuxinContext,
+		sender_key_name: &SenderKeyName,
+		record: &libsignal_protocol::SenderKeyRecord,
+	) -> auxin::Result<()> {
 		let address = &sender_key_name.sender.address;
 		let device_id = sender_key_name.sender.device_id;
 		let distribution_id = sender_key_name.distribution_id;
@@ -1252,17 +1326,21 @@ and cannot automatically be repaired.",
 		let our_path = self.get_protocol_store_path(context);
 		let sender_key_path = our_path.join("sender-keys");
 
-		//Filename {peer id}_{device id}_{distribution id} for peer keys. 
+		//Filename {peer id}_{device id}_{distribution id} for peer keys.
 		//{device id}_{distribution id}.self for local keys.
 
-		let filename = match is_local { 
+		let filename = match is_local {
 			true => format!("{}_{}.self", device_id, distribution_id.to_string()),
 			false => {
-				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) { 
+				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
 					format!("{}_{}_{}", peer_id, device_id, distribution_id.to_string())
-				}
-				else {
-					let filename = format!("{}_{}_{}.unknown", address.get_uuid().unwrap().to_string(), device_id, distribution_id.to_string());
+				} else {
+					let filename = format!(
+						"{}_{}_{}.unknown",
+						address.get_uuid().unwrap().to_string(),
+						device_id,
+						distribution_id.to_string()
+					);
 					warn!("Sender key on record for an unknown peer. Address is {} and device ID is {}. Writing as {}", address, device_id, &filename);
 					filename
 				}
@@ -1288,25 +1366,25 @@ and cannot automatically be repaired.",
 		}
 		bk_file.sync_all()?;
 
-		// Now that the file is safely finished writing, 
-		// rename it to {peer id}_{device id}_{distribution id}, 
-		// which should be atomic. Also, fs::rename() overwrites 
+		// Now that the file is safely finished writing,
+		// rename it to {peer id}_{device id}_{distribution id},
+		// which should be atomic. Also, fs::rename() overwrites
 		// existing files with the destination filename.
 		fs::rename(bk_file_path, resulting_path)?;
 		Ok(())
-    }
+	}
 }
 
-/// Converts a base-64 string into a variant which 
-/// substitutes the '/' character for a '-', permitting 
+/// Converts a base-64 string into a variant which
+/// substitutes the '/' character for a '-', permitting
 /// its use in filenames.
-pub fn filename_friendly_base_64(filename: &str) -> String { 
+pub fn filename_friendly_base_64(filename: &str) -> String {
 	filename.replace("/", "-")
 }
 /// The inverse of filename_friendly_base_64().
 /// Converts a string produced by filename_friendly_base_64() back
 /// into a usable base64 string.
-pub fn reverse_filename_base_64(filename: &str) -> String { 
+pub fn reverse_filename_base_64(filename: &str) -> String {
 	filename.replace("-", "/")
 }
 

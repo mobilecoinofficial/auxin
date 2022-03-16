@@ -24,11 +24,11 @@ use auxin_protos::{AttachmentPointer, Envelope};
 
 use custom_error::custom_error;
 use futures::TryFutureExt;
-use groups::{GroupApiError, sender_key::DistributionId, group_message::GroupEncryptionError};
+use groups::{group_message::GroupEncryptionError, sender_key::DistributionId, GroupApiError};
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
-	PreKeySignalMessage, ProtocolAddress, PublicKey, SessionRecord, SessionStore,
-	SignalProtocolError, SenderKeyDistributionMessage,
+	PreKeySignalMessage, ProtocolAddress, PublicKey, SenderKeyDistributionMessage, SessionRecord,
+	SessionStore, SignalProtocolError,
 };
 use log::{debug, error, info, trace, warn};
 
@@ -41,7 +41,6 @@ use profile::ProfileConfig;
 use protobuf::CodedInputStream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use zkgroup::groups::{GroupSecretParams, GroupMasterKey};
 use std::{
 	collections::{HashMap, HashSet},
 	convert::TryFrom,
@@ -50,6 +49,7 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
+use zkgroup::groups::{GroupMasterKey, GroupSecretParams};
 
 pub mod address;
 pub mod attachment;
@@ -80,16 +80,23 @@ use crate::{
 		AttestationResponseList, DirectoryAuthResponse, DiscoveryRequest, DiscoveryResponse,
 		ENCLAVE_ID,
 	},
+	groups::{
+		get_group_members_without, get_server_public_params,
+		group_message::{GroupSendContext, GroupSendContextV2},
+		group_storage::GroupInfo,
+		sender_key::{process_sender_key, SenderKeyName},
+		GroupId, GroupIdV2, GroupMemberInfo, GroupsManager,
+	},
 	message::{
-		address_from_envelope, fix_protobuf_buf, remove_message_padding, AuxinMessageList,
-		MessageContent, MessageSendMode, generate_group_v2_message,
+		address_from_envelope, fix_protobuf_buf, generate_group_v2_message, remove_message_padding,
+		AuxinMessageList, MessageContent, MessageSendMode,
 	},
 	net::{common_http_headers, uncommon_http_headers},
 	profile::{build_set_profile_request, ProfileResponse},
 	profile_cipher::ProfileCipher,
 	state::{
 		try_excavate_registration_id, ForeignPeerProfile, PeerProfile, UnidentifiedAccessMode,
-	}, groups::{sender_key::{SenderKeyName, process_sender_key}, GroupsManager, get_server_public_params, get_group_members_without, GroupMemberInfo, GroupIdV2, group_storage::GroupInfo, GroupId, group_message::{GroupSendContextV2, GroupSendContext}},
+	},
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -225,9 +232,9 @@ impl std::fmt::Display for PaymentAddressRetrievalError {
 impl std::error::Error for PaymentAddressRetrievalError {}
 
 impl From<SendGroupError> for SendMessageError {
-    fn from(value: SendGroupError) -> Self {
-        SendMessageError::ErrorSendingToGroup(value)
-    }
+	fn from(value: SendGroupError) -> Self {
+		SendMessageError::ErrorSendingToGroup(value)
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -302,17 +309,17 @@ impl From<SignalProtocolError> for GroupsError {
 #[derive(thiserror::Error, Debug)]
 pub enum SendGroupError {
 	#[error("Group encryption error: {0:?}")]
-    GroupEncryptError(#[from] GroupEncryptionError),
+	GroupEncryptError(#[from] GroupEncryptionError),
 	#[error("Sender key / group state error: {0:?}")]
-    GroupError(#[from] GroupsError),
+	GroupError(#[from] GroupsError),
 	#[error("Signal protocol error encountered while attempting to send a group message: {0:?}")]
-    ProtocolError(#[from] libsignal_protocol::SignalProtocolError),
+	ProtocolError(#[from] libsignal_protocol::SignalProtocolError),
 	#[error("Failed to retrieve a sender certificate: {0}.")]
 	SenderCertRetrieval(String),
 	#[error("Only groups V2 is supported at present, legacy support for GroupsV1 is not yet implemented.")]
 	Gv1NotSupported,
 	#[error("Could not generage groups v2 message: {0}")]
-	CouldNotGenerateMessage(String), 
+	CouldNotGenerateMessage(String),
 	#[error("Failed to get unidentified access key: {0}")]
 	NoUnidentifiedAccess(String),
 	#[error("Encountered an error building an HTTP message for the purposes of sending a group message: {0}")]
@@ -334,7 +341,7 @@ pub enum HandleEnvelopeError {
 	ProfileError(String),
 	InvalidSenderKeyDistributionMessage(String),
 	CouldntSaveSenderKey(String),
-	GroupError(GroupsError)
+	GroupError(GroupsError),
 }
 impl std::fmt::Display for HandleEnvelopeError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -803,23 +810,33 @@ where
 		info!("End of send_message() at {}", generate_timestamp());
 		Ok(sent_timestamp)
 	}
-	
-	pub async fn send_group_message(&mut self, group_id: &GroupId, message: MessageOut) -> std::result::Result<(), SendGroupError> { 
-		let group_info = self.context.groups.get(group_id).ok_or(GroupsError::NoGroupInfo(group_id.clone()))?.clone();
+
+	pub async fn send_group_message(
+		&mut self,
+		group_id: &GroupId,
+		message: MessageOut,
+	) -> std::result::Result<(), SendGroupError> {
+		let group_info = self
+			.context
+			.groups
+			.get(group_id)
+			.ok_or(GroupsError::NoGroupInfo(group_id.clone()))?
+			.clone();
 
 		let current_time = generate_timestamp();
-		let distribution_id = if group_info.local_distribution_id.is_none() 
-			|| ((current_time - group_info.last_distribution_timestamp) >= self.context.config.sender_key_distribution_lifespan) {
+		let distribution_id = if group_info.local_distribution_id.is_none()
+			|| ((current_time - group_info.last_distribution_timestamp)
+				>= self.context.config.sender_key_distribution_lifespan)
+		{
 			debug!("Generating and sending sender key distribution message.");
 			let distribution_message = self.broadcast_sender_key_distribution(group_id).await?;
 			distribution_message.distribution_id()?
-		}
-		else {
-			// As this is the branch that only gets evaluated when local_distribution_id.is_none() is false, 
+		} else {
+			// As this is the branch that only gets evaluated when local_distribution_id.is_none() is false,
 			// we are safe to unwrap here.
 			group_info.local_distribution_id.unwrap()
 		};
-		// Construct a group message sending context. 
+		// Construct a group message sending context.
 		let send_context: GroupSendContext = match group_id {
 			GroupId::V1(_) => todo!("Only groups V2 is supported at present, legacy support for GroupsV1 is not yet implemented."),
 			GroupId::V2(_id) => {
@@ -834,46 +851,56 @@ where
 		self.retrieve_sender_cert()
 			.await
 			.map_err(|e| SendGroupError::SenderCertRetrieval(format!("{:?}", e)))?;
-		
-		let group_members: Vec<&GroupMemberInfo> = group_info.members.iter().collect(); 
-		let group_member_addresses: Vec<AuxinAddress> = group_members.iter().map(|m| AuxinAddress::Uuid(m.id.clone())).collect();
 
-		for member in group_members.iter() { 
+		let group_members: Vec<&GroupMemberInfo> = group_info.members.iter().collect();
+		let group_member_addresses: Vec<AuxinAddress> = group_members
+			.iter()
+			.map(|m| AuxinAddress::Uuid(m.id.clone()))
+			.collect();
+
+		for member in group_members.iter() {
 			let uuid = member.id.clone();
 			let peer_addr = AuxinAddress::Uuid(uuid);
-			self.ensure_peer_loaded(&peer_addr).await.map_err( |e| SendGroupError::PeerError(format!("{:?}", e)))?;
-			if let Some(pk) = member.profile_key.as_ref() { 
-				self.context.peer_cache.get_mut(&peer_addr).unwrap().profile_key = Some(base64::encode(&pk.bytes));
+			self.ensure_peer_loaded(&peer_addr)
+				.await
+				.map_err(|e| SendGroupError::PeerError(format!("{:?}", e)))?;
+			if let Some(pk) = member.profile_key.as_ref() {
+				self.context
+					.peer_cache
+					.get_mut(&peer_addr)
+					.unwrap()
+					.profile_key = Some(base64::encode(&pk.bytes));
 			}
 		}
 
 		let timestamp = generate_timestamp();
 		// Build the path to send to.
-		let path = format!("https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}", timestamp, self.context.report_as_online);
+		let path = format!(
+			"https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}",
+			timestamp, self.context.report_as_online
+		);
 		let mut req = uncommon_http_headers(http::Method::PUT, &path).unwrap(); //FIXME: No unwrap here
 
-		//Build a joined unidentified access by XORing all member keys together. 
+		//Build a joined unidentified access by XORing all member keys together.
 		//let our_profile_key =  base64::encode(&self.context.identity.profile_key);
 		//let mut joined_unidentified_access: Vec<u8> = get_unidentified_access_for_key(&our_profile_key).unwrap();
 		//joined_unidentified_access.truncate(16);
 		//XOR each byte
 		let mut joined_unidentified_access: Vec<u8> = Vec::default();
-		fn join_keys(v1: &Vec<u8>, v2: &Vec<u8>) -> Vec<u8> { 
+		fn join_keys(v1: &Vec<u8>, v2: &Vec<u8>) -> Vec<u8> {
 			assert_eq!(v1.len(), v2.len());
-			v1.iter()
-			.zip(v2.iter())
-			.map(|(&x1, &x2)| x1 ^ x2)
-			.collect()
+			v1.iter().zip(v2.iter()).map(|(&x1, &x2)| x1 ^ x2).collect()
 		}
 
 		for member in group_member_addresses.iter() {
-			let mut ua = self.context.get_unidentified_access_for(member)
+			let mut ua = self
+				.context
+				.get_unidentified_access_for(member)
 				.map_err(|e| SendGroupError::NoUnidentifiedAccess(format!("{:?}", e)))?;
 			ua.truncate(16);
-			if joined_unidentified_access.len() == 0 { 
+			if joined_unidentified_access.len() == 0 {
 				joined_unidentified_access.append(&mut ua);
-			}
-			else { 
+			} else {
 				joined_unidentified_access = join_keys(&ua, &joined_unidentified_access);
 
 				assert_eq!(joined_unidentified_access.len(), 16);
@@ -890,8 +917,17 @@ where
 		req = req.header("Unidentified-Access-Key", unidentified_access_key);
 
 		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
-		let outgoing_buf = generate_group_v2_message(message, group_member_addresses, &mut self.context, group_id, &send_context, &mut self.rng, timestamp).await
-			.map_err(|e | SendGroupError::CouldNotGenerateMessage(format!("{:?}",e) ) )?;
+		let outgoing_buf = generate_group_v2_message(
+			message,
+			group_member_addresses,
+			&mut self.context,
+			group_id,
+			&send_context,
+			&mut self.rng,
+			timestamp,
+		)
+		.await
+		.map_err(|e| SendGroupError::CouldNotGenerateMessage(format!("{:?}", e)))?;
 
 		req = req.header("Content-Type", "application/vnd.signal-messenger.mrm");
 		req = req.header("Content-Length", outgoing_buf.len());
@@ -899,7 +935,7 @@ where
 		let auth = self.context.identity.make_auth_header();
 
 		req = req.header("Authorization", auth);
-		
+
 		debug!("HTTP request is: {:?}", req);
 		let req = req.body(outgoing_buf).unwrap();
 		let message_response = self
@@ -913,7 +949,8 @@ where
 		debug!(
 			"Got response to attempt to send (to group ID {}) a message: {:?} with body {}",
 			group_id.to_base64(),
-			message_response.into_parts().0, message_response_str
+			message_response.into_parts().0,
+			message_response_str
 		);
 		Ok(())
 	}
@@ -1005,7 +1042,6 @@ where
 
 			let prof: ForeignPeerProfile = serde_json::from_str(&res_str)?;
 			recipient.profile = Some(prof.to_local());
-
 		}
 
 		let peer_info = self.request_peer_info(&uuid).await?;
@@ -1902,46 +1938,89 @@ where
 		}
 	}
 
-	fn get_or_create_distribution_id(&mut self, group_id: &GroupId) -> std::result::Result<DistributionId, GroupsError> {
+	fn get_or_create_distribution_id(
+		&mut self,
+		group_id: &GroupId,
+	) -> std::result::Result<DistributionId, GroupsError> {
 		if self.context.groups.get(group_id).is_none() {
 			return Err(GroupsError::NoGroupInfo(group_id.clone()));
 		}
-		let needs_generate = self.context.groups.get(group_id).unwrap().local_distribution_id.is_none();
+		let needs_generate = self
+			.context
+			.groups
+			.get(group_id)
+			.unwrap()
+			.local_distribution_id
+			.is_none();
 
-		let new_id = match needs_generate { 
+		let new_id = match needs_generate {
 			true => Uuid::new_v4(),
-			false => self.context.groups.get(group_id).unwrap().local_distribution_id.unwrap().clone(),
+			false => self
+				.context
+				.groups
+				.get(group_id)
+				.unwrap()
+				.local_distribution_id
+				.unwrap()
+				.clone(),
 		};
 
-		self.context.groups.get_mut(group_id).unwrap().local_distribution_id = Some(new_id);
+		self.context
+			.groups
+			.get_mut(group_id)
+			.unwrap()
+			.local_distribution_id = Some(new_id);
 		Ok(new_id)
 	}
 
-	async fn produce_sender_key_distribution(&mut self, group_id: &GroupId) -> std::result::Result<SenderKeyDistributionMessage, GroupsError> {
-		let sender_key_name = SenderKeyName{
+	async fn produce_sender_key_distribution(
+		&mut self,
+		group_id: &GroupId,
+	) -> std::result::Result<SenderKeyDistributionMessage, GroupsError> {
+		let sender_key_name = SenderKeyName {
 			distribution_id: self.get_or_create_distribution_id(group_id)?,
 			sender: self.context.identity.address.clone(),
 		};
-		let sender_key_distribution_message = groups::sender_key::create_distribution_message(&mut self.context.sender_key_store, &sender_key_name, &mut self.rng, &self.context.ctx).await?;
+		let sender_key_distribution_message = groups::sender_key::create_distribution_message(
+			&mut self.context.sender_key_store,
+			&sender_key_name,
+			&mut self.rng,
+			&self.context.ctx,
+		)
+		.await?;
 		//Make sure we don't lose the information we just set up.
-		process_sender_key(&mut self.context.sender_key_store, sender_key_name, sender_key_distribution_message.clone(), &self.context.ctx).await?;
-		self.state_manager.save_all_sender_keys(&mut self.context)
+		process_sender_key(
+			&mut self.context.sender_key_store,
+			sender_key_name,
+			sender_key_distribution_message.clone(),
+			&self.context.ctx,
+		)
+		.await?;
+		self.state_manager
+			.save_all_sender_keys(&mut self.context)
 			.map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
 		Ok(sender_key_distribution_message)
 	}
 
-	pub async fn broadcast_sender_key_distribution(&mut self, group_id: &GroupId) -> std::result::Result<SenderKeyDistributionMessage, GroupsError> {
+	pub async fn broadcast_sender_key_distribution(
+		&mut self,
+		group_id: &GroupId,
+	) -> std::result::Result<SenderKeyDistributionMessage, GroupsError> {
 		let distribution_message = self.produce_sender_key_distribution(group_id).await?;
 		let mut content = auxin_protos::Content::default();
 		content.set_senderKeyDistributionMessage(distribution_message.serialized().to_vec());
 
-		let group_info = self.context.groups.get(group_id).ok_or(GroupsError::NoGroupInfo(group_id.clone()))?;
-		
+		let group_info = self
+			.context
+			.groups
+			.get(group_id)
+			.ok_or(GroupsError::NoGroupInfo(group_id.clone()))?;
+
 		let mut messages: Vec<(AuxinAddress, MessageOut)> = Vec::new();
-		for group_member in group_info.members.iter() { 
+		for group_member in group_info.members.iter() {
 			let peer_address = AuxinAddress::Uuid(group_member.id.clone());
 			let message_out = MessageOut {
-				content: crate::message::MessageContent{
+				content: crate::message::MessageContent {
 					text_message: None,
 					receipt_message: None,
 					quote: None,
@@ -1952,50 +2031,77 @@ where
 			};
 			messages.push((peer_address, message_out));
 		}
-		for (peer_address, message_out) in messages { 
-			let _ = self.send_message(&peer_address, message_out).await;	
+		for (peer_address, message_out) in messages {
+			let _ = self.send_message(&peer_address, message_out).await;
 		}
 		Ok(distribution_message)
 	}
 
-	/// Examine a Signal Service "Content" message, checking to see if it has a sender key distribution message and processing that incoming message if there is one. 
-	async fn check_sender_key_distribution(&mut self, content: &auxin_protos::Content, remote_address: &AuxinDeviceAddress) -> std::result::Result<(), HandleEnvelopeError> { 
-		if content.has_senderKeyDistributionMessage() { 
+	/// Examine a Signal Service "Content" message, checking to see if it has a sender key distribution message and processing that incoming message if there is one.
+	async fn check_sender_key_distribution(
+		&mut self,
+		content: &auxin_protos::Content,
+		remote_address: &AuxinDeviceAddress,
+	) -> std::result::Result<(), HandleEnvelopeError> {
+		if content.has_senderKeyDistributionMessage() {
 			let sender_key_distribution_message_bytes = content.get_senderKeyDistributionMessage();
-			let sender_key_distribution_message = SenderKeyDistributionMessage::try_from(sender_key_distribution_message_bytes)
-				.map_err(|e| HandleEnvelopeError::InvalidSenderKeyDistributionMessage(format!("{:?}", e)) )?;
+			let sender_key_distribution_message =
+				SenderKeyDistributionMessage::try_from(sender_key_distribution_message_bytes)
+					.map_err(|e| {
+						HandleEnvelopeError::InvalidSenderKeyDistributionMessage(format!("{:?}", e))
+					})?;
 
 			let ctx = self.context.get_signal_ctx().clone();
 			debug!("Got a SenderKeyDistributionMessage: {:?}. GroupsV2 support is a work in progress so this doesn't do anything yet.", &sender_key_distribution_message);
 			//let protocol_address = result.remote_address.uuid_protocol_address().unwrap();
-			let sender_key_name = SenderKeyName{sender: remote_address.clone(), distribution_id: sender_key_distribution_message.distribution_id()?};
+			let sender_key_name = SenderKeyName {
+				sender: remote_address.clone(),
+				distribution_id: sender_key_distribution_message.distribution_id()?,
+			};
 
 			//Update or initialize ongoing group session.
-			process_sender_key(&mut self.context.sender_key_store, sender_key_name, sender_key_distribution_message, &ctx).await?;
+			process_sender_key(
+				&mut self.context.sender_key_store,
+				sender_key_name,
+				sender_key_distribution_message,
+				&ctx,
+			)
+			.await?;
 		}
 		//TODO: Refactor some of process_sender_key into here so that we don't waste work saving all
-		//sender keys every time rather than just one. 
-		self.state_manager.save_all_sender_keys(&mut self.context)
+		//sender keys every time rather than just one.
+		self.state_manager
+			.save_all_sender_keys(&mut self.context)
 			.map_err(|e| HandleEnvelopeError::CouldntSaveSenderKey(format!("{:?}", e)))?;
 		Ok(())
 	}
 
-	/// Examine a Signal Service "DataMessage", checking to see if it has groups or Groupsv2 metadata. 
+	/// Examine a Signal Service "DataMessage", checking to see if it has groups or Groupsv2 metadata.
 	/// Note: This one doesn't check Sender Keys. Try check_sender_key_distribution() or the wrapper
 	/// for this function and that one, update_groups_from()
-	async fn inner_update_groups_from(&mut self, data_message: &auxin_protos::DataMessage, remote_address: &AuxinDeviceAddress) -> std::result::Result<(), GroupsError> { 
+	async fn inner_update_groups_from(
+		&mut self,
+		data_message: &auxin_protos::DataMessage,
+		remote_address: &AuxinDeviceAddress,
+	) -> std::result::Result<(), GroupsError> {
 		// GroupsV1
 		if data_message.has_group() {
 			let group_context = data_message.get_group();
-			debug!("Got GroupContext from {:?}, containing: {:?}", remote_address, group_context);
+			debug!(
+				"Got GroupContext from {:?}, containing: {:?}",
+				remote_address, group_context
+			);
 		}
 		// GroupsV2
 		if data_message.has_groupV2() {
 			let group_context = data_message.get_groupV2();
-			debug!("Got GroupContextV2 from {:?}, containing: {:?}", remote_address, group_context);
+			debug!(
+				"Got GroupContextV2 from {:?}, containing: {:?}",
+				remote_address, group_context
+			);
 			// In testing, group_context.master_key is 32 bytes (I counted, hah)
-			if group_context.get_masterKey().len() == 32 { 
-				let mut master_key_bytes: [u8;32] = [0;32]; 
+			if group_context.get_masterKey().len() == 32 {
+				let mut master_key_bytes: [u8; 32] = [0; 32];
 				master_key_bytes.copy_from_slice(&group_context.get_masterKey()[0..32]);
 				let master_key = GroupMasterKey::new(master_key_bytes.clone());
 				let group_secret_params = GroupSecretParams::derive_from_master_key(master_key);
@@ -2005,24 +2111,34 @@ where
 				let group_id: GroupIdV2 = group_secret_params.get_group_identifier();
 				//let group_ops = GroupOperations::new(group_secret_params);
 
-				let mut group_manager = GroupsManager::new(&mut self.http_client,
-				&mut self.context.credentials_manager,
-				&self.context.identity,
-				get_server_public_params());
+				let mut group_manager = GroupsManager::new(
+					&mut self.http_client,
+					&mut self.context.credentials_manager,
+					&self.context.identity,
+					get_server_public_params(),
+				);
 
 				let our_uuid = self.context.identity.address.get_uuid().unwrap().clone();
 
-				let auth = group_manager.get_authorization_for_today(our_uuid.clone(), group_secret_params.clone()).await?;
+				let auth = group_manager
+					.get_authorization_for_today(our_uuid.clone(), group_secret_params.clone())
+					.await?;
 				let group = group_manager.get_group(group_secret_params, &auth).await?;
 
 				// Get a list of group members without ourselves.
-				let group_members: Vec<GroupMemberInfo> = get_group_members_without(&group, &our_uuid).iter().map(|m| m.as_ref().unwrap().clone() ).collect();
-				
+				let group_members: Vec<GroupMemberInfo> =
+					get_group_members_without(&group, &our_uuid)
+						.iter()
+						.map(|m| m.as_ref().unwrap().clone())
+						.collect();
+
 				// "Store profile keys for known peers" step.
-				for group_member in group_members.iter() { 
+				for group_member in group_members.iter() {
 					if let Some(pk) = group_member.profile_key {
-						if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) { 
-							// I have manually checked - these are valid profile keys for the users, not some key-derivation thing. 
+						if let Some(peer) =
+							self.context.peer_cache.get_by_uuid_mut(&group_member.id)
+						{
+							// I have manually checked - these are valid profile keys for the users, not some key-derivation thing.
 							peer.profile_key = Some(base64::encode(&pk.get_bytes()));
 						}
 					}
@@ -2033,90 +2149,99 @@ where
 				let master_key_b64 = base64::encode(&master_key_bytes);
 				debug!("Master key when converted to base64 is: {}", master_key_b64);
 
-
 				let group_id_qualified = GroupId::V2(group_id);
-				// Keep track of our Auxin-specific retained state per group.  
-				// Avoid overwriting if we already have it. 
+				// Keep track of our Auxin-specific retained state per group.
+				// Avoid overwriting if we already have it.
 				let group_info = match self.context.groups.get(&group_id_qualified) {
 					Some(group) => {
 						let mut new_group = group.clone();
-						if group_context.get_revision() >= group.revision { 
+						if group_context.get_revision() >= group.revision {
 							new_group.master_key = master_key_bytes;
 							new_group.revision = group_context.get_revision();
-							new_group.members = group_members.iter().map(|val| val.clone()).collect();
+							new_group.members =
+								group_members.iter().map(|val| val.clone()).collect();
 						}
 						new_group
-					},
+					}
 					None => {
 						GroupInfo {
 							revision: group_context.get_revision(),
 							master_key: master_key_bytes,
 							members: group_members.iter().map(|val| val.clone()).collect(),
-							// We haven't sent a sender key distribution message here yet. 
+							// We haven't sent a sender key distribution message here yet.
 							local_distribution_id: None,
-        					last_distribution_timestamp: 0,
+							last_distribution_timestamp: 0,
 						}
-					},
+					}
 				};
-				self.state_manager.save_group_info(&self.context, &group_id_qualified, (&group_info).into())
-					.map_err(|e| GroupsError::CannotSave( format!("{:?}", e) ))?;
-				self.context.groups.insert(group_id_qualified.clone(), group_info);
-				
-				/*
-				// "Import new peers" step.
-				for group_member in group_members.iter() {
-					let peer_address = AuxinAddress::Uuid(group_member.id.clone());
-					if !self.context.peer_cache.has_peer(&peer_address) {
-						let new_id = self.context.peer_cache.last_id + 1;
-						self.context.peer_cache.last_id = new_id;
-						let record = PeerRecord {
-							id: new_id,
-							number: None,
-							uuid: Some(group_member.id.clone()),
-							profile_key: group_member.profile_key.map(|pk| base64::encode(&pk.get_bytes())),
-							profile_key_credential: None,
-							contact: None,
-							profile: None,
-							device_ids_used: HashSet::default(),
-							registration_ids: HashMap::default(),
-							identity: None,
-						};
-						self.context.peer_cache.push(record);
-						self.fill_peer_info(&peer_address).await
-							.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
+				self.state_manager
+					.save_group_info(&self.context, &group_id_qualified, (&group_info).into())
+					.map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
+				self.context
+					.groups
+					.insert(group_id_qualified.clone(), group_info);
+
+			/*
+			// "Import new peers" step.
+			for group_member in group_members.iter() {
+				let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+				if !self.context.peer_cache.has_peer(&peer_address) {
+					let new_id = self.context.peer_cache.last_id + 1;
+					self.context.peer_cache.last_id = new_id;
+					let record = PeerRecord {
+						id: new_id,
+						number: None,
+						uuid: Some(group_member.id.clone()),
+						profile_key: group_member.profile_key.map(|pk| base64::encode(&pk.get_bytes())),
+						profile_key_credential: None,
+						contact: None,
+						profile: None,
+						device_ids_used: HashSet::default(),
+						registration_ids: HashMap::default(),
+						identity: None,
+					};
+					self.context.peer_cache.push(record);
+					self.fill_peer_info(&peer_address).await
+						.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
+				}
+			}
+
+			// "Make sure we know their names now that we probably have a profile key" step
+			for group_member in group_members.iter() {
+				let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+				if let Some(_pk) = group_member.profile_key {
+					let profile_response = self.get_and_decrypt_profile(&peer_address).await
+						.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
+					if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) {
+						peer.profile = Some(profile_response);
 					}
 				}
-
-				// "Make sure we know their names now that we probably have a profile key" step
-				for group_member in group_members.iter() { 
-					let peer_address = AuxinAddress::Uuid(group_member.id.clone());
-					if let Some(_pk) = group_member.profile_key {
-						let profile_response = self.get_and_decrypt_profile(&peer_address).await
-							.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
-						if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) {
-							peer.profile = Some(profile_response);
-						}
-					}
-				}*/
-			}
-			else {
-				return Err(GroupsError::InvalidMasterKeyLength(group_context.get_masterKey().len() as usize));
+			}*/
+			} else {
+				return Err(GroupsError::InvalidMasterKeyLength(
+					group_context.get_masterKey().len() as usize,
+				));
 			}
 		}
 		Ok(())
 	}
-	async fn update_groups_from(&mut self, content: &auxin_protos::Content, remote_address: &AuxinDeviceAddress) -> std::result::Result<(), HandleEnvelopeError> { 
-		if content.has_senderKeyDistributionMessage() { 
+	async fn update_groups_from(
+		&mut self,
+		content: &auxin_protos::Content,
+		remote_address: &AuxinDeviceAddress,
+	) -> std::result::Result<(), HandleEnvelopeError> {
+		if content.has_senderKeyDistributionMessage() {
 			debug!("Got SenderKeyDistributionMessage from {:?}", remote_address);
-			self.check_sender_key_distribution(content, remote_address).await?;
+			self.check_sender_key_distribution(content, remote_address)
+				.await?;
 		}
-		if content.has_dataMessage() { 
-			let data_message = content.get_dataMessage(); 
-			self.inner_update_groups_from(data_message, remote_address).await?;
+		if content.has_dataMessage() {
+			let data_message = content.get_dataMessage();
+			self.inner_update_groups_from(data_message, remote_address)
+				.await?;
 		}
 		Ok(())
 	}
-
 
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
 	/// If it's a message internal to the protocol (i.e. it's a PreKey Bundle), it will return Ok(None).
@@ -2153,7 +2278,8 @@ where
 
 				//Handle possible sender key distribution message.
 				if let Some(content) = &result.content.source {
-					self.update_groups_from(content, &result.remote_address).await?;
+					self.update_groups_from(content, &result.remote_address)
+						.await?;
 				}
 
 				info!(
@@ -2305,10 +2431,10 @@ where
 						.unwrap(); // TODO: Proper error handling on clear_session();
 				}
 
-
 				//Handle possible sender key distribution message.
 				if let Some(content) = &result.content.source {
-					self.update_groups_from(content, &result.remote_address).await?;
+					self.update_groups_from(content, &result.remote_address)
+						.await?;
 				}
 
 				info!(
@@ -2319,9 +2445,9 @@ where
 				result
 			})),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
-			auxin_protos::Envelope_Type::SENDER_KEY => { 
+			auxin_protos::Envelope_Type::SENDER_KEY => {
 				todo!("GroupsV2 support is a work in progress. Received a SenderKey message, but we cannot use it yet.")
-			},
+			}
 		}
 	}
 
