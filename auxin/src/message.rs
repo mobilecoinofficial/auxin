@@ -417,16 +417,14 @@ impl OutgoingPushMessageList {
 	/// * `mode` - Are we sending this as regular ciphertext, or as a sealed-sender message?
 	/// * `context` - The Auxin Context providing all cryptographic state needed to send this message.
 	/// * `rng` - The cryptographically-strong source of entropy for this process.
-	pub fn build_http_request<Body, Rng>(
+	pub fn build_http_request<Body>(
 		&self,
 		peer_address: &AuxinAddress,
 		mode: MessageSendMode,
 		context: &mut AuxinContext,
-		rng: &mut Rng,
 	) -> Result<http::Request<Body>>
 	where
 		Body: From<String>,
-		Rng: RngCore + CryptoRng,
 	{
 		let json_message = serde_json::to_string(&self)?;
 
@@ -443,7 +441,7 @@ impl OutgoingPushMessageList {
 
 		if mode == MessageSendMode::SealedSender {
 			let mut unidentified_access_key =
-				context.get_unidentified_access_for(peer_address, rng)?;
+				context.get_unidentified_access_for(peer_address)?;
 			unidentified_access_key.truncate(16);
 			let unidentified_access_key = base64::encode(unidentified_access_key);
 			debug!(
@@ -806,7 +804,6 @@ impl MessageOut {
 	pub async fn encrypt_group_message<Rng: RngCore + CryptoRng>(
 		&self,
 		address_to: &AuxinDeviceAddress,
-		mode: MessageSendMode,
 		context: &mut AuxinContext,
 		group: &GroupSendContext,
 		rng: &mut Rng,
@@ -837,7 +834,7 @@ impl MessageOut {
 		debug!("Padded message length: {}", our_message_bytes.len());
 
 		info!("Encrypting as a group message.");
-		let (_envelope_type, ciphertext_bytes) = group.group_encrypt(&address_to, &our_message_bytes, context, mode, rng).await?;
+		let (_envelope_type, ciphertext_bytes) = group.group_encrypt(&address_to, &our_message_bytes, context, rng).await?;
 		Ok(ciphertext_bytes)
 	}
 }

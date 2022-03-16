@@ -13,7 +13,6 @@ use libsignal_protocol::{
 	InMemSessionStore, InMemSignedPreKeyStore, SenderCertificate,
 };
 use log::debug;
-use rand::{CryptoRng, Rng, RngCore};
 use uuid::Uuid;
 
 use crate::{
@@ -182,15 +181,7 @@ custom_error! { pub UnidentifiedAccessError
 
 impl AuxinContext {
 	/// Generate an unidentified-access key for a user who accepts unrestricted unidentified access.
-	///
-	/// # Arguments
-	///
-	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
-	fn get_unidentified_access_unrestricted<R>(&mut self, rng: &mut R) -> crate::Result<Vec<u8>>
-	where
-		R: RngCore + CryptoRng,
-	{
-		//let bytes: [u8; 16] = rng.gen();
+	fn get_unidentified_access_unrestricted(&mut self) -> crate::Result<Vec<u8>> {
 		let bytes = [0u8;16];
 
 		Ok(Vec::from(bytes))
@@ -201,15 +192,10 @@ impl AuxinContext {
 	/// # Arguments
 	///
 	/// * `peer_address` - The peer for whom to generate an unidentified access key.
-	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
-	pub fn get_unidentified_access_for<R>(
+	pub fn get_unidentified_access_for(
 		&mut self,
 		peer_address: &AuxinAddress,
-		rng: &mut R,
-	) -> crate::Result<Vec<u8>>
-	where
-		R: RngCore + CryptoRng,
-	{
+	) -> crate::Result<Vec<u8>> {
 		let peer = self.peer_cache.get(peer_address);
 		if peer.is_none() {
 			return Err(Box::new(UnidentifiedAccessError::UnrecognizedUser {
@@ -227,7 +213,7 @@ impl AuxinContext {
 						"User {} has unrestricted unidentified access, generating random key.",
 						uuid.to_string()
 					);
-					Ok(self.get_unidentified_access_unrestricted(rng)?)
+					Ok(self.get_unidentified_access_unrestricted()?)
 				}
 				UnidentifiedAccessMode::ENABLED => {
 					debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", uuid.to_string());

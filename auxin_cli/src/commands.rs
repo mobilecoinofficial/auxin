@@ -205,6 +205,7 @@ pub struct DownloadAttachmentCommand {
 pub enum SendCommandError {
 	//Propagated through from app,send_message()
 	SendError(auxin::SendMessageError),
+	SendGroupError(auxin::SendGroupError),
 	AttachmentUploadError(auxin::attachment::upload::AttachmentUploadError),
 	AttachmentEncryptError(auxin::attachment::upload::AttachmentEncryptError),
 	AttachmentFileReadError(std::io::Error),
@@ -216,6 +217,7 @@ impl std::fmt::Display for SendCommandError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match &self {
 			SendCommandError::SendError(e) => write!(f, "Error encountered in app.send_message(): {:?}", e),
+			SendCommandError::SendGroupError(e) => write!(f, "Error encountered in app.send_group_message(): {:?}", e),
 			SendCommandError::AttachmentUploadError(e) => write!(f, "Attempt to upload an attachment while sending a message failed with error: {:?}", e),
 			SendCommandError::AttachmentEncryptError(e) => write!(f, "Attempt to upload an attachment while sending a message failed with error: {:?}", e),
 			SendCommandError::AttachmentFileReadError(e) => write!(f, "Tried to load a file to upload as an attachment (to send on a message), but an error was encountered while opening the file: {:?}", e),
@@ -239,6 +241,11 @@ impl From<auxin::attachment::upload::AttachmentUploadError> for SendCommandError
 impl From<auxin::attachment::upload::AttachmentEncryptError> for SendCommandError {
 	fn from(val: auxin::attachment::upload::AttachmentEncryptError) -> Self {
 		SendCommandError::AttachmentEncryptError(val)
+	}
+}
+impl From<auxin::SendGroupError> for SendCommandError {
+	fn from(val: auxin::SendGroupError) -> Self {
+		SendCommandError::SendGroupError(val)
 	}
 }
 

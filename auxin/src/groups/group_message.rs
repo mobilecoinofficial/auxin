@@ -47,7 +47,7 @@ impl GroupSendContextV2 {
     /// NOTE: This does not do any padding or serialization - it expects a buffer which 
     /// was built from a protobuf `Content` message and then padded.
     pub(crate) async fn sender_key_encrypt<R: Rng + CryptoRng>(&self, destination_address: &AuxinDeviceAddress, padded_plaintext: &[u8],
-            context: &mut AuxinContext, is_sealed_sender: MessageSendMode, rng: &mut R) -> Result<(EnvelopeType, Vec<u8>), GroupEncryptionError> {
+            context: &mut AuxinContext, rng: &mut R) -> Result<(EnvelopeType, Vec<u8>), GroupEncryptionError> {
         let our_address = context.identity.address.uuid_protocol_address()
             .map_err(|_| GroupEncryptionError::OurProtocolAddress(context.identity.address.clone()) )?;
         let is_sealed_sender = MessageSendMode::Standard;
@@ -140,10 +140,10 @@ impl GroupSendContext {
         }
     }
     pub async fn group_encrypt<R: Rng + CryptoRng>(&self, destination_address: &AuxinDeviceAddress, padded_plaintext: &[u8], 
-            context: &mut AuxinContext, is_sealed_sender: MessageSendMode, rng: &mut R) -> Result<(EnvelopeType, Vec<u8>), GroupEncryptionError> {
+            context: &mut AuxinContext, rng: &mut R) -> Result<(EnvelopeType, Vec<u8>), GroupEncryptionError> {
         match &self {
             GroupSendContext::V1(_inner) => todo!("Legacy group message sending is not implemented yet."),
-            GroupSendContext::V2(inner) => inner.sender_key_encrypt(destination_address, padded_plaintext, context, is_sealed_sender, rng).await,
+            GroupSendContext::V2(inner) => inner.sender_key_encrypt(destination_address, padded_plaintext, context, rng).await,
         }
     }
 }
