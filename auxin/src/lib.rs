@@ -1965,11 +1965,13 @@ where
 				.clone(),
 		};
 
-		self.context
+		let group = self.context
 			.groups
 			.get_mut(group_id)
-			.unwrap()
-			.local_distribution_id = Some(new_id);
+			.unwrap();
+		group.local_distribution_id = Some(new_id);
+		group.last_distribution_timestamp = generate_timestamp();
+
 		Ok(new_id)
 	}
 
@@ -2034,6 +2036,7 @@ where
 		for (peer_address, message_out) in messages {
 			let _ = self.send_message(&peer_address, message_out).await;
 		}
+
 		Ok(distribution_message)
 	}
 
