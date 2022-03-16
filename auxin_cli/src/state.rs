@@ -39,7 +39,7 @@ use uuid::Uuid;
 
 use crate::Context;
 
-const GROUPS_DIR: &'static str = "groups";
+const GROUPS_DIR: &str = "groups";
 
 /// The on-disk json format, as used by signal-cli
 ///
@@ -523,7 +523,7 @@ pub fn load_groups(
 							//This is a file in the groups path, we're getting warmer.
 							let file_path = inner.path();
 
-							match file_path.extension().map(|val| val.to_str()).flatten() {
+							match file_path.extension().and_then(|val| val.to_str()) {
 								Some("json") => {
 									let name_component =
 										file_path.file_stem().unwrap().to_str().unwrap();
@@ -596,9 +596,9 @@ pub fn load_sender_keys(
 
 								let name_component =
 									file_path.file_stem().unwrap().to_str().unwrap();
-								let name_parts: Vec<&str> = name_component.split("_").collect();
+								let name_parts: Vec<&str> = name_component.split('_').collect();
 
-								match file_path.extension().map(|val| val.to_str()).flatten() {
+								match file_path.extension().and_then(|val| val.to_str()) {
 									Some("self") => {
 										// Local sender key. It will be {device id}_{distribution id}.self
 										assert_eq!(name_parts.len(), 2);
@@ -1072,7 +1072,7 @@ and cannot automatically be repaired.",
 	) -> auxin::Result<auxin_protos::DecryptedGroup> {
 		let group_file_name = group_id.to_base64();
 		let group_file_path = self
-			.get_protocol_store_path(&context)
+			.get_protocol_store_path(context)
 			.join("group-cache")
 			.join(&group_file_name);
 
@@ -1212,27 +1212,25 @@ and cannot automatically be repaired.",
 
 			let filename = {
 				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
-					format!("{}_{}_{}", peer_id, device_id, distribution_id.to_string())
-				} else {
-					if address == context.identity.address.address {
-						//Local key sent elsewhere, save appropriately.
-						format!(
-							"{}_{}.self",
-							context.identity.address.device_id,
-							distribution_id.to_string()
-						)
-					} else {
-						let filename = format!(
-							"{}_{}_{}.unknown",
-							address.get_uuid().unwrap().to_string(),
-							device_id,
-							distribution_id.to_string()
-						);
-						warn!("Sender key on record for an unknown peer. Address is {} and device ID is {}. Writing as {}", address, device_id, &filename);
+					format!("{}_{}_{}", peer_id, device_id, distribution_id)
+				} else if address == context.identity.address.address {
+    						//Local key sent elsewhere, save appropriately.
+    						format!(
+    							"{}_{}.self",
+    							context.identity.address.device_id,
+    							distribution_id
+    						)
+    					} else {
+    						let filename = format!(
+    							"{}_{}_{}.unknown",
+    							address.get_uuid().unwrap(),
+    							device_id,
+    							distribution_id
+    						);
+    						warn!("Sender key on record for an unknown peer. Address is {} and device ID is {}. Writing as {}", address, device_id, &filename);
 
-						filename
-					}
-				}
+    						filename
+    					}
 			};
 			let bytes = sender_key_record_structure.serialize()?;
 
@@ -1280,16 +1278,16 @@ and cannot automatically be repaired.",
 		//{device id}_{distribution id}.self for local keys.
 
 		let filename = match is_local {
-			true => format!("{}_{}.self", device_id, distribution_id.to_string()),
+			true => format!("{}_{}.self", device_id, distribution_id),
 			false => {
-				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
-					format!("{}_{}_{}", peer_id, device_id, distribution_id.to_string())
+				if let Some(peer_id) = context.peer_cache.get(address).map(|peer| peer.id) {
+					format!("{}_{}_{}", peer_id, device_id, distribution_id)
 				} else {
 					let filename = format!(
 						"{}_{}_{}.unknown",
-						address.get_uuid().unwrap().to_string(),
+						address.get_uuid().unwrap(),
 						device_id,
-						distribution_id.to_string()
+						distribution_id
 					);
 					warn!("Sender key requested for an unknown peer. Address is {} and device ID is {}. Looking for file: {}", address, device_id, &filename);
 					filename
@@ -1330,16 +1328,16 @@ and cannot automatically be repaired.",
 		//{device id}_{distribution id}.self for local keys.
 
 		let filename = match is_local {
-			true => format!("{}_{}.self", device_id, distribution_id.to_string()),
+			true => format!("{}_{}.self", device_id, distribution_id),
 			false => {
-				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
-					format!("{}_{}_{}", peer_id, device_id, distribution_id.to_string())
+				if let Some(peer_id) = context.peer_cache.get(address).map(|peer| peer.id) {
+					format!("{}_{}_{}", peer_id, device_id, distribution_id)
 				} else {
 					let filename = format!(
 						"{}_{}_{}.unknown",
-						address.get_uuid().unwrap().to_string(),
+						address.get_uuid().unwrap(),
 						device_id,
-						distribution_id.to_string()
+						distribution_id
 					);
 					warn!("Sender key on record for an unknown peer. Address is {} and device ID is {}. Writing as {}", address, device_id, &filename);
 					filename
@@ -1379,13 +1377,13 @@ and cannot automatically be repaired.",
 /// substitutes the '/' character for a '-', permitting
 /// its use in filenames.
 pub fn filename_friendly_base_64(filename: &str) -> String {
-	filename.replace("/", "-")
+	filename.replace('/', "-")
 }
 /// The inverse of filename_friendly_base_64().
 /// Converts a string produced by filename_friendly_base_64() back
 /// into a usable base64 string.
 pub fn reverse_filename_base_64(filename: &str) -> String {
-	filename.replace("-", "/")
+	filename.replace('-', "/")
 }
 
 #[cfg(test)]

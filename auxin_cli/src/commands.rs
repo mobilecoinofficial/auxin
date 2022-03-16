@@ -825,7 +825,7 @@ pub async fn handle_send_command(
 	}
 
 	//Set up our address
-	let destination = if cmd.group == true {
+	let destination = if cmd.group {
 		MessageDest::Group(GroupId::from_base64(&cmd.destination).map_err(|e| {
 			SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
 		})?)
@@ -1026,7 +1026,7 @@ pub async fn handle_set_profile_command(
 		None
 	};
 	//TODO: Service configuration to select base URL.
-	Ok(app
+	app
 		.upload_profile(
 			"https://textsecure-service.whispersystems.org",
 			auxin::net::api_paths::SIGNAL_CDN,
@@ -1036,7 +1036,7 @@ pub async fn handle_set_profile_command(
 		.await
 		.map(|res| SetProfileResponse {
 			status: res.status().as_u16(),
-		})?)
+		})
 }
 
 pub async fn handle_get_profile_command(
@@ -1105,7 +1105,7 @@ pub async fn handle_get_uuid_command(
 		.peer_cache
 		.get(&address)
 		.ok_or(GetUuidError::NoUuid)?;
-	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?.clone();
+	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?;
 	Ok(resulting_uuid)
 }
 
