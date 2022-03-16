@@ -828,6 +828,7 @@ where
 			|| ((current_time - group_info.last_distribution_timestamp)
 				>= self.context.config.sender_key_distribution_lifespan)
 		{
+
 			debug!("Generating and sending sender key distribution message.");
 			let distribution_message = self.broadcast_sender_key_distribution(group_id).await?;
 			distribution_message.distribution_id()?
@@ -1952,6 +1953,18 @@ where
 			.unwrap()
 			.local_distribution_id
 			.is_none();
+		let last_distribution_time = self
+			.context
+			.groups
+			.get(group_id)
+			.unwrap()
+			.last_distribution_timestamp;
+		let current_time = generate_timestamp();
+		
+		// Mark that we need to generate a new sender key distribution message if it has
+		// been too long since we generated the last one.
+		let needs_generate = needs_generate | ((current_time - last_distribution_time)
+			>= self.context.config.sender_key_distribution_lifespan);
 
 		let new_id = match needs_generate {
 			true => Uuid::new_v4(),
@@ -1970,7 +1983,9 @@ where
 			.get_mut(group_id)
 			.unwrap();
 		group.local_distribution_id = Some(new_id);
-		group.last_distribution_timestamp = generate_timestamp();
+		if needs_generate { 
+			group.last_distribution_timestamp = generate_timestamp();
+		}
 
 		Ok(new_id)
 	}
