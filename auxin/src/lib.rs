@@ -825,6 +825,15 @@ where
 		let group_members: Vec<&GroupMemberInfo> = group_info.members.iter().collect(); 
 		let group_member_addresses: Vec<AuxinAddress> = group_members.iter().map(|m| AuxinAddress::Uuid(m.id.clone())).collect();
 
+		for member in group_members.iter() { 
+			let uuid = member.id.clone();
+			let peer_addr = AuxinAddress::Uuid(uuid);
+			self.ensure_peer_loaded(&peer_addr).await.unwrap();
+			if let Some(pk) = member.profile_key.as_ref() { 
+				self.context.peer_cache.get_mut(&peer_addr).unwrap().profile_key = Some(base64::encode(&pk.bytes));
+			}
+		}
+
 		let timestamp = generate_timestamp();
 		let path = format!("https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}", timestamp, self.context.report_as_online);
 		let mut req = uncommon_http_headers(http::Method::PUT, &path).unwrap(); //FIXME: No unwrap here

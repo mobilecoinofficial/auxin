@@ -128,6 +128,11 @@ pub struct SendCommand {
 	#[serde(default)]
 	pub content: Option<String>,
 
+	/// Used to specify that this is a group message and the \"destination\" argument should be parsed accordingly.
+	#[structopt(short, long)]
+	#[serde(default)]
+	pub group: bool,
+
 	/// Generate a Signal Service \"Content\" structure without actually sending it.
 	/// Useful for testing the -c / --content option.
 	#[structopt(short, long)]
@@ -204,6 +209,7 @@ pub enum SendCommandError {
 	AttachmentEncryptError(auxin::attachment::upload::AttachmentEncryptError),
 	AttachmentFileReadError(std::io::Error),
 	SimulateErr(String),
+	BadDestination(String, String),
 }
 
 impl std::fmt::Display for SendCommandError {
@@ -214,6 +220,7 @@ impl std::fmt::Display for SendCommandError {
 			SendCommandError::AttachmentEncryptError(e) => write!(f, "Attempt to upload an attachment while sending a message failed with error: {:?}", e),
 			SendCommandError::AttachmentFileReadError(e) => write!(f, "Tried to load a file to upload as an attachment (to send on a message), but an error was encountered while opening the file: {:?}", e),
 			SendCommandError::SimulateErr(e) => write!(f, "Serializing a Signal message content to a json structure for the --simulate argument failed: {:?}", e),
+			SendCommandError::BadDestination(dest, e) => write!(f, "The destination provided, {}, isn't a UUID, phone number, or group ID. Error was: {}", dest, e),
 		}
 	}
 }
@@ -810,11 +817,10 @@ pub async fn handle_send_command(
 	}
 
 	//Set up our address
-	let group_id_maybe = GroupId::from_base64(&cmd.destination);
-
-	let destination = match group_id_maybe {
-		Ok(id) => MessageDest::Group(id),
-		Err(_) => MessageDest::User(AuxinAddress::try_from(cmd.destination.as_str()).unwrap()),
+	let destination = if cmd.group == true { 
+		MessageDest::Group(GroupId::from_base64(&cmd.destination).map_err(|e| SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}",e) ))?)
+	} else {
+		MessageDest::User(AuxinAddress::try_from(cmd.destination.as_str()).map_err(|e| SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}",e) ))?)
 	};
 
 	//MessageContent
