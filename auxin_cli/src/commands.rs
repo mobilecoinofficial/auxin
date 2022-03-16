@@ -129,11 +129,6 @@ pub struct SendCommand {
 	#[serde(default)]
 	pub content: Option<String>,
 
-	/// Used to specify that this is a group message and the \"destination\" argument should be parsed accordingly.
-	#[structopt(short, long)]
-	#[serde(default)]
-	pub group: bool,
-
 	/// Generate a Signal Service \"Content\" structure without actually sending it.
 	/// Useful for testing the -c / --content option.
 	#[structopt(short, long)]
@@ -825,12 +820,9 @@ pub async fn handle_send_command(
 	}
 
 	//Set up our address
-	let destination = if cmd.group {
-		MessageDest::Group(GroupId::from_base64(&cmd.destination).map_err(|e| {
-			SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
-		})?)
-	} else {
-		MessageDest::User(
+	let destination = match GroupId::from_base64(&cmd.destination) {
+		Ok(group_id) => MessageDest::Group(group_id),
+		Err(_e) => MessageDest::User(
 			AuxinAddress::try_from(cmd.destination.as_str()).map_err(|e| {
 				SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
 			})?,
@@ -1105,7 +1097,7 @@ pub async fn handle_get_uuid_command(
 		.peer_cache
 		.get(&address)
 		.ok_or(GetUuidError::NoUuid)?;
-	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?;
+	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?.clone();
 	Ok(resulting_uuid)
 }
 

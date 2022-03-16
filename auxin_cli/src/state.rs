@@ -177,8 +177,13 @@ pub fn load_v3_accounts(data_dir: &Path) -> Result<Option<LocalAccounts>> {
 				.create(false)
 				.open(accounts_path)?;
 			let accounts_bufread = BufReader::new(accounts_file);
-			let accounts: LocalAccounts = serde_json::from_reader(accounts_bufread)?;
-			Ok(Some(accounts))
+			match serde_json::from_reader(accounts_bufread) {
+				Ok(accounts) => Ok(accounts),
+				Err(error_msg) => {
+					warn!("Failed to deser accounts.json file! {:?}", error_msg);
+					Ok(None)
+				}
+			}
 		} else {
 			error!("accounts.json should never be a directory!");
 			Ok(None)
