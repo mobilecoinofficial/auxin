@@ -82,9 +82,9 @@ use crate::{
 	},
 	message::{
 		address_from_envelope, fix_protobuf_buf, remove_message_padding, AuxinMessageList,
-		MessageContent, MessageSendMode,
+		MessageContent, MessageSendMode, generate_group_v2_message,
 	},
-	net::common_http_headers,
+	net::{common_http_headers, uncommon_http_headers},
 	profile::{build_set_profile_request, ProfileResponse},
 	profile_cipher::ProfileCipher,
 	state::{
@@ -796,7 +796,7 @@ where
 		// Construct a group message sending context. 
 		let send_context: GroupSendContext = match group_id {
 			GroupId::V1(_) => todo!("Only groups V2 is supported at present, legacy support for GroupsV1 is not yet implemented."),
-			GroupId::V2(_) => {
+			GroupId::V2(_id) => {
 				GroupSendContext::V2(GroupSendContextV2 {
 					master_key: group_info.master_key.clone(),
 					distribution_id,
@@ -805,83 +805,95 @@ where
 			},
 		};
 
-		for member in group_info.members.iter() {
-			let uuid_address = AuxinAddress::Uuid(member.id.clone());
-			let recipient_addr = self
-				.context
-				.peer_cache
-				.complete_address(&uuid_address)
-				.or_else(|| Some(uuid_address))
-				.unwrap();
+		self.retrieve_sender_cert()
+			.await
+			.map_err(|e| SendMessageError::SenderCertRetrieval(format!("{:?}", e)))?;
 
-			debug!("Generating message to {:?}", recipient_addr);
-			let message_list = AuxinMessageList {
-				messages: vec![message.clone()],
-				remote_address: recipient_addr.clone(),
-			};
+		/*let mode = match sealed_sender {
+			true => {
+				// Make sure we have a sender certificate to do this stuff with.
+				self.retrieve_sender_cert()
+					.await
+					.map_err(|e| SendMessageError::SenderCertRetrieval(format!("{:?}", e)))?;
+				MessageSendMode::SealedSender
+			}
+			false => MessageSendMode::Standard,
+		};*/
+		let our_uuid = self.context.identity.address.get_uuid().unwrap();
 
-			// Can we do sealed sender messages here?
-			let sealed_sender: bool = self
-				.context
-				.peer_cache
-				.get(&recipient_addr)
-				.unwrap()
-				.supports_sealed_sender();
+		//.filter(|m| m.id != *our_uuid)
+		let group_members: Vec<&GroupMemberInfo> = group_info.members.iter().collect(); 
+		let group_member_addresses: Vec<AuxinAddress> = group_members.iter().map(|m| AuxinAddress::Uuid(m.id.clone())).collect();
 
-			let mode = match sealed_sender {
-				true => {
-					// Make sure we have a sender certificate to do this stuff with.
-					self.retrieve_sender_cert()
-						.await
-						.map_err(|e| SendMessageError::SenderCertRetrieval(format!("{:?}", e)))?;
-					MessageSendMode::SealedSender
-				}
-				false => MessageSendMode::Standard,
-			};
+		let timestamp = generate_timestamp();
+		let path = format!("https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}", timestamp, self.context.report_as_online);
+		let mut req = uncommon_http_headers(http::Method::PUT, &path).unwrap(); //FIXME: No unwrap here
 
-			let timestamp = generate_timestamp();
-			debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
-			let mut outgoing_push_list = message_list
-				.generate_group_messages(&mut self.context, &send_context, mode, &mut self.rng, timestamp)
-				.await
-				.map_err(|e| SendMessageError::MessageBuildErr(format!("{:?}", e)))?;
+		//Build a joined unidentified access by XORing all member keys together. 
+		//let our_profile_key =  base64::encode(&self.context.identity.profile_key);
+		//let mut joined_unidentified_access: Vec<u8> = get_unidentified_access_for_key(&our_profile_key).unwrap();
+		//joined_unidentified_access.truncate(16);
+		//XOR each byte
+		let mut joined_unidentified_access: Vec<u8> = Vec::default();
+		fn join_keys(v1: &Vec<u8>, v2: &Vec<u8>) -> Vec<u8> { 
+			assert_eq!(v1.len(), v2.len());
+			v1.iter()
+			.zip(v2.iter())
+			.map(|(&x1, &x2)| x1 ^ x2)
+			.collect()
+		}
 
-			// Build the path to send to. 
-			let path = format!("https://chat.signal.org/v1/messages/multi_recipient?ts={}&online={}", timestamp, self.context.report_as_online); 
-			for mut buf_original in outgoing_push_list.drain(0..) {
-				let mut buf = vec![0x22];
-				buf.append(&mut buf_original);
-				let req = common_http_headers(http::Method::PUT, &path, self.context.identity.make_auth_header().as_str()).unwrap(); //FIXME: No unwrap here
-				let req = req.header("Content-Type", "application/vnd.signal-messenger.mrm");
-				let mut req = req.header("Content-Length", buf.len());
-				/*if mode == MessageSendMode::SealedSender {
-					let mut unidentified_access_key =
-						self.context.get_unidentified_access_for(&recipient_addr, &mut self.rng).unwrap();
-					unidentified_access_key.truncate(16);
-					let unidentified_access_key = base64::encode(unidentified_access_key);
-					debug!(
-						"Attempting to send with unidentified access key {:?}",
-						unidentified_access_key
-					);
-					req = req.header("Unidentified-Access-Key", unidentified_access_key);
-				}*/
-				debug!("HTTP request is: {:?}", req);
-				let req = req.body(buf).unwrap();
-				let message_response = self
-					.http_client
-					.request(req)
-					.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
-					.await?;
+		for member in group_member_addresses.iter() { 
+			//let pk = member.profile_key.as_ref().unwrap();
+			//let b64_profile_key = base64::encode(&pk.bytes);
+			let mut ua = self.context.get_unidentified_access_for(member, &mut self.rng).unwrap();
+			ua.truncate(16);
+			if joined_unidentified_access.len() == 0 { 
+				joined_unidentified_access.append(&mut ua);
+			}
+			else { 
+				joined_unidentified_access = join_keys(&ua, &joined_unidentified_access);
 
-				//Parse the response
-				let message_response_str = String::from_utf8(message_response.body().to_vec()).unwrap();
-				debug!(
-					"Got response to attempt to send (to group ID {}) a message: {:?} with body {}",
-					group_id.to_base64(),
-					message_response.into_parts().0, message_response_str
-				);
+				assert_eq!(joined_unidentified_access.len(), 16);
 			}
 		}
+
+		assert_eq!(joined_unidentified_access.len(), 16);
+
+		let unidentified_access_key = base64::encode(joined_unidentified_access);
+		debug!(
+			"Attempting to send with unidentified access key {:?}",
+			unidentified_access_key
+		);
+		req = req.header("Unidentified-Access-Key", unidentified_access_key);
+
+		debug!("Building an outgoing message list with timestamp {}, which will be used as the message ID.", timestamp);
+		let outgoing_buf = generate_group_v2_message(message, group_member_addresses, &mut self.context, group_id, &send_context, &mut self.rng, timestamp).await.unwrap();
+
+		// Build the path to send to.
+
+		req = req.header("Content-Type", "application/vnd.signal-messenger.mrm");
+		req = req.header("Content-Length", outgoing_buf.len());
+
+		let auth = self.context.identity.make_auth_header();
+
+		req = req.header("Authorization", auth);
+		
+		debug!("HTTP request is: {:?}", req);
+		let req = req.body(outgoing_buf).unwrap();
+		let message_response = self
+			.http_client
+			.request(req)
+			.map_err(|e| SendMessageError::CannotMakeMessageRequest(format!("{:?}", e)))
+			.await?;
+
+		//Parse the response
+		let message_response_str = String::from_utf8(message_response.body().to_vec()).unwrap();
+		debug!(
+			"Got response to attempt to send (to group ID {}) a message: {:?} with body {}",
+			group_id.to_base64(),
+			message_response.into_parts().0, message_response_str
+		);
 		Ok(())
 	}
 

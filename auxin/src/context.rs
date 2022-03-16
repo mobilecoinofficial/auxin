@@ -190,7 +190,8 @@ impl AuxinContext {
 	where
 		R: RngCore + CryptoRng,
 	{
-		let bytes: [u8; 16] = rng.gen();
+		//let bytes: [u8; 16] = rng.gen();
+		let bytes = [0u8;16];
 
 		Ok(Vec::from(bytes))
 	}

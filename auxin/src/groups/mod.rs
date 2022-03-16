@@ -695,6 +695,12 @@ impl GroupId {
             GroupId::V2(inner) => base64::encode(inner),
         }
     }
+    pub fn to_vec(&self) -> Vec<u8> { 
+        match &self {
+            GroupId::V1(inner) => inner.to_vec(),
+            GroupId::V2(inner) => inner.to_vec(),
+        }
+    }
 }
 
 
