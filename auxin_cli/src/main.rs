@@ -23,8 +23,9 @@ use auxin::{
 
 use auxin_protos::WebSocketMessage;
 use futures::executor::block_on;
-use log::{debug, error, trace, warn};
-use rand::{rngs::OsRng, Rng};
+use libsignal_protocol::KeyPair;
+use log::{debug, error, trace};
+use rand::{rngs::OsRng, CryptoRng, Rng};
 use reqwest::{header, StatusCode};
 use std::convert::TryFrom;
 use structopt::StructOpt;
@@ -36,9 +37,10 @@ use tokio::{
 	task::JoinHandle,
 	time::{interval_at, Duration, Instant},
 };
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
+use uuid::Uuid;
 
 pub mod app;
 pub mod attachment;
@@ -127,15 +129,117 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	config.enable_read_receipts = !arguments.no_read_receipt;
 
 	{
+		/// A signal account "password"
+		///
+		/// 18 random bytes, base64 encoded
+		#[derive(Debug, serde::Serialize, serde::Deserialize)]
+		struct Password(String);
+		impl Password {
+			pub fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
+				Self(base64::encode(rng.gen::<[u8; 18]>()))
+			}
+
+			pub fn password(&self) -> &str {
+				&self.0
+			}
+		}
+
+		/// A 32-byte 256-bit profile key
+		#[derive(Debug, serde::Serialize, serde::Deserialize)]
+		struct ProfileKey([u8; 32]);
+		impl ProfileKey {
+			pub fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
+				Self(rng.gen())
+			}
+
+			pub fn key(&self) -> &[u8; 32] {
+				&self.0
+			}
+		}
+
+		/// E164 formatted phone number
+		#[derive(Debug, serde::Serialize, serde::Deserialize)]
+		struct PhoneNumber(String);
+
+		/// Represents the state we are required to keep for our own user account
+		#[derive(Debug, serde::Serialize, serde::Deserialize)]
+		struct SignalAccount<Rng> {
+			rng: Rng,
+
+			/// Phone number
+			phone: String,
+
+			/// ACI
+			account_identity: Option<Uuid>,
+
+			/// PNI
+			phone_identity: Option<Uuid>,
+
+			/// Registration ID
+			reg_id: i32,
+
+			/// Profile Key
+			profile_key: ProfileKey,
+
+			/// Randomly generated "password"
+			password: Password,
+		}
+		impl<R: Rng + CryptoRng> SignalAccount<R> {
+			/// Create a new signal account
+			pub fn new(phone: impl Into<String>, mut rng: R) -> Self {
+				Self {
+					password: dbg!(Password::generate(&mut rng)),
+					phone: phone.into(),
+					account_identity: None,
+					phone_identity: None,
+					// See https://github.com/signalapp/libsignal-client/blob/6787408e5d8fc8e60c92e43cb0cee3dd6d2c8640/java/shared/java/org/whispersystems/libsignal/util/KeyHelper.java#L41
+					reg_id: rng.gen_range(1, 16380),
+					// As a new account we won't have an existing profile key, so make one
+					profile_key: ProfileKey::generate(&mut rng),
+					rng,
+				}
+			}
+
+			pub fn auth_token(&self) -> String {
+				match self.account_identity {
+					Some(aci) => base64::encode(format!("{}:{}", &aci, self.password.password())),
+					None => base64::encode(format!("{}:{}", &self.phone, self.password.password())),
+				}
+			}
+
+			pub fn registration_id(&self) -> i32 {
+				self.reg_id
+			}
+
+			pub fn profile_key(&self) -> &[u8] {
+				self.profile_key.key()
+			}
+
+			pub fn set_aci(&mut self, aci: Uuid) {
+				self.account_identity.insert(aci);
+			}
+		}
+
+		//
+		let account = SignalAccount::new(&arguments.user, rand::thread_rng());
+		//
+		let mut rng = rand::thread_rng();
 		let mut headers = header::HeaderMap::new();
-		headers.insert("X-Signal-Agent", header::HeaderValue::from_static("value"));
+		headers.insert(
+			"X-Signal-Agent",
+			header::HeaderValue::from_static(auxin::net::USER_AGENT),
+		);
+		headers.insert(
+			"Authorization",
+			header::HeaderValue::from_str(&format!("Basic {}", account.auth_token()))?,
+		);
+		dbg!(&headers);
 		let cert = reqwest::Certificate::from_pem(auxin::SIGNAL_TLS_CERT.as_bytes())?;
 		let client = reqwest::ClientBuilder::new()
-			//
 			.add_root_certificate(cert)
 			.tls_built_in_root_certs(false)
-			.user_agent(auxin::net::USER_AGENT)
 			.default_headers(headers)
+			.user_agent(auxin::net::USER_AGENT)
 			.build()?;
 		match &arguments.command {
 			AuxinCommand::Register { captcha } => {
@@ -167,17 +271,13 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					StatusCode::OK => (),
 					c => warn!("Received unknown response from signal servers: {c}"),
 				}
-				dbg!(body);
 				return Ok(());
 			}
 			AuxinCommand::Verify { code } => {
-				let mut rng = rand::thread_rng();
-                // See https://github.com/signalapp/libsignal-client/blob/6787408e5d8fc8e60c92e43cb0cee3dd6d2c8640/java/shared/java/org/whispersystems/libsignal/util/KeyHelper.java#L41
-				let id: u16 = rng.gen_range(1, 16380);
 				let url = format!("https://chat.signal.org/v1/accounts/code/{}", code);
+				dbg!(&code);
+				// TODO(Diana): registration lock code 423
 
-				// As a new account we won't have an existing profile key, so make one
-				let profile_key: [u8; 32] = rng.gen();
 				// See [`auxin::context::get_unidentified_access_for_key`]
 				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/crypto/UnidentifiedAccess.java#L40-L55
 				let unidentified_access = {
@@ -185,7 +285,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						aead::{Aead, NewAead},
 						Aes256Gcm, Key, Nonce,
 					};
-					let profile_key = Key::from_slice(&profile_key);
+					let profile_key = Key::from_slice(&account.profile_key());
 					// panic!("UGH");
 					let cipher = Aes256Gcm::new(profile_key);
 					let nonce = Nonce::from_slice(&[0u8; 12]);
@@ -221,7 +321,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 					// Currently soft-coded to false by feature flags
 					// Presumably will change at some point
-                    // https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/PhoneNumberPrivacyValues.java#L47-L50
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/PhoneNumberPrivacyValues.java#L47-L50
 					"discoverableByPhoneNumber": false,
 
 					// Hard coded
@@ -238,10 +338,95 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 					// Random 14-bit?? number unique to this signal install
 					// "Should" remain consistent across registrations
-					"registrationId": id
+					"registrationId": account.registration_id()
 				}};
-				dbg!(&json);
-				// let _res = client.put(url).json(&json).send().await?;
+				// let json = serde_json::to_string(&json)?;
+				let req = dbg!(client.put(url).json(&json)).build()?;
+				dbg!(req.headers());
+				let res = client.execute(req).await?;
+				dbg!(&res);
+				let status = res.status();
+				dbg!(&status);
+				match status {
+					StatusCode::OK => {
+						// Returns our UUID/ACI and UUID/PNI from the server
+						let json: serde_json::Value = res.json().await?;
+						dbg!(&json);
+
+						// On registration, after getting the ACI/PNI
+						// Signal generates an identity keypair for both
+						//
+						// See
+						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/dependencies/ApplicationDependencyProvider.java#L287-L309
+						// and
+						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/RegistrationRepository.java#L131-L140
+						let aci = json["uuid"].as_str().unwrap();
+						let aci_identity_pair = KeyPair::generate(&mut rng);
+
+						let pni = json["pni"].as_str().unwrap();
+						let pni_identity_pair = KeyPair::generate(&mut rng);
+
+						// Signal then generates a keypair for the prekeys
+						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/AccountValues.kt#L223-L230
+						let signed_prekey_id: i32 = rng.gen_range(0, 0xFFFFFF);
+						let signed_prekey = KeyPair::generate(&mut rng);
+
+						// And a signature, from our ACI identity.
+						let message = signed_prekey.public_key.public_key_bytes()?;
+						let sig = aci_identity_pair.calculate_signature(message, &mut rng)?;
+
+						// From this point on, next ACI signed_prekey ID is as follows
+						// (signed_prekey_id + 1) % 0xFFFFFF
+						// See
+						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L76
+
+						// See https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L50
+						let prekey_id_offset: i32 = rng.gen_range(0, 0xFFFFFF);
+						let mut prekeys = Vec::new();
+						for i in 0..100 {
+							let prekey_id = (prekey_id_offset + i) % 0xFFFFFF;
+							let prekey_pair = KeyPair::generate(&mut rng);
+							let p = prekey_pair.public_key.public_key_bytes()?;
+
+							// prekeys.push((prekey_id, base64::encode(p)));
+							// prekeys((prekey_id, base64::encode(p)));
+							let j = serde_json::json! {{
+								"keyId": prekey_id,
+								"publicKey": base64::encode(p)
+							}};
+							prekeys.push(j);
+						}
+						// Next ACI pre_key IDs are as follows
+						// (prekey_id_offset + 100 + 1) % 0xFFFFFF
+
+						// And sends it all to the server
+						let json = serde_json::json! {{
+							"identityKey": base64::encode(aci_identity_pair.public_key.public_key_bytes()?),
+							"preKeys": [
+								prekeys
+							],
+							"signedPreKey": {
+								"keyId": signed_prekey_id,
+								"publicKey": base64::encode(message),
+								"signature": base64::encode(sig)
+							}
+						}};
+						let url = "https://chat.signal.org/v2/keys/?identity=aci";
+						let _res = client
+							.put(url)
+							.bearer_auth(account.auth_token())
+							.json(&json)
+							.send()
+							.await?;
+					}
+					StatusCode::INTERNAL_SERVER_ERROR
+					| StatusCode::FORBIDDEN
+					| StatusCode::UNAUTHORIZED => {
+						error!("Invalid SMS code, cannot verify");
+						return Err("Invalid SMS code, cannot verify".into());
+					}
+					c => warn!("Received unknown response from signal servers: {c}"),
+				}
 				return Ok(());
 			}
 			_ => (),
