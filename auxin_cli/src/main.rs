@@ -241,6 +241,8 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			.default_headers(headers)
 			.user_agent(auxin::net::USER_AGENT)
 			.build()?;
+		// TODO(Diana): Probably get a cryptographer to review before we use this?
+		// Since we/i generate our own keys and give them to signal?
 		match &arguments.command {
 			AuxinCommand::Register { captcha } => {
 				let url = match captcha {
