@@ -1,3 +1,6 @@
+// Copyright (c) 2022 MobileCoin Inc.
+// Copyright (c) 2022 Emily Cultip
+
 use libsignal_protocol::{
 	group_encrypt, sealed_sender_encrypt_from_usmc, CiphertextMessageType, ContentHint,
 	SignalProtocolError, UnidentifiedSenderMessageContent,
@@ -44,7 +47,6 @@ pub struct GroupSendContextV1 {
 
 #[derive(Clone, Debug)]
 pub struct GroupSendContextV2 {
-	//pub(crate) group_id: GroupIdV2,
 	/// Group master key. Group ID can be derived from this, if necessary.
 	pub(crate) master_key: MasterKeyBytes,
 	/// Which opaque random Uuid have we associated with this group?
@@ -157,6 +159,7 @@ impl GroupSendContext {
 			GroupSendContext::V2(_) => GroupProtocolVersion::V2,
 		}
 	}
+	/// Distribute group-related information by adding it to our DataMessage.
 	pub fn add_group_data_to(
 		&self,
 		data_message: &mut auxin_protos::DataMessage,

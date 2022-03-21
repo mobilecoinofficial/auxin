@@ -1,3 +1,6 @@
+// Copyright (c) 2022 MobileCoin Inc.
+// Copyright (c) 2022 Emily Cultip
+
 use std::collections::HashMap;
 
 use auxin_protos::{SenderChainKey, SenderKeyStateStructure, SenderSigningKey};

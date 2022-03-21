@@ -1,3 +1,6 @@
+// Copyright (c) 2022 MobileCoin Inc.
+// Copyright (c) 2022 Emily Cultip
+
 use std::collections::HashSet;
 
 use auxin_protos::{Member_Role, SenderKeyRecordStructure};

@@ -811,6 +811,13 @@ where
 		Ok(sent_timestamp)
 	}
 
+	/// Send a Signal GroupsV2 message, looking up the sender key distribution ID and generating
+	/// a new one if necessary, and broadcasting a sender key distribution message if necessary.
+	/// 
+	/// # Arguments
+	///
+	/// * `group_id` - ID of a group to generate a distribution ID for. 
+	/// * `message` - Message to send. 
 	pub async fn send_group_message(
 		&mut self,
 		group_id: &GroupId,
@@ -1772,6 +1779,7 @@ where
 		&mut self.http_client
 	}
 
+	/// Retain any useful information we got from a MessageIn which we didn't already have.
 	async fn record_ids_from_message(&mut self, message: &MessageIn) -> Result<()> {
 		info!(
 			"Start of record_ids_from_message() at {}",
@@ -1939,6 +1947,12 @@ where
 		}
 	}
 
+	/// Look up our group-messaging sender-key distribution ID. 
+	/// Generate it if it doesn't exist, or if it's out of date. 
+	/// 
+	/// # Arguments
+	///
+	/// * `group_id` - ID of a group to generate a distribution ID for. 
 	fn get_or_create_distribution_id(
 		&mut self,
 		group_id: &GroupId,
@@ -1990,6 +2004,8 @@ where
 		Ok(new_id)
 	}
 
+	/// Generate a sender key distribution message when it's already been determined that we need one. 
+	/// This is called in broadcast_sender_key_distribution()
 	async fn produce_sender_key_distribution(
 		&mut self,
 		group_id: &GroupId,
@@ -2019,6 +2035,13 @@ where
 		Ok(sender_key_distribution_message)
 	}
 
+
+	/// Send a Signal GroupsV2 "sender key distribution" message,
+	/// ensuring all of our peers know the sender key alias (uuid) we use for this group.
+	/// 
+	/// # Arguments
+	///
+	/// * `group_id` - ID of a group to generate a distribution ID for.
 	pub async fn broadcast_sender_key_distribution(
 		&mut self,
 		group_id: &GroupId,
@@ -2243,6 +2266,13 @@ where
 		}
 		Ok(())
 	}
+
+	/// Record group information from an incoming message. 
+	///
+	/// # Arguments
+	///
+	/// * `content` - Signal Service message data we got from a message.
+	/// * `remote_address` - The peer we got this message from.
 	async fn update_groups_from(
 		&mut self,
 		content: &auxin_protos::Content,
