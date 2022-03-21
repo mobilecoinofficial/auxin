@@ -27,7 +27,7 @@ use libsignal_protocol::KeyPair;
 use log::{debug, error, trace};
 use rand::{rngs::OsRng, CryptoRng, Rng};
 use reqwest::{header, StatusCode};
-use std::convert::TryFrom;
+use std::{collections::HashMap, convert::TryFrom};
 use structopt::StructOpt;
 use tokio::{
 	sync::{
@@ -135,10 +135,16 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 		#[derive(Debug, serde::Serialize, serde::Deserialize)]
 		struct Password(String);
 		impl Password {
+			/// Generate a new password
+			///
+			/// Should only be called once at registration
 			pub fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
+				// Signal generates a 18 byte random password at registration
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/viewmodel/RegistrationViewModel.java#L42
 				Self(base64::encode(rng.gen::<[u8; 18]>()))
 			}
 
+			/// Base64 encoded password
 			pub fn password(&self) -> &str {
 				&self.0
 			}
@@ -148,7 +154,13 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 		#[derive(Debug, serde::Serialize, serde::Deserialize)]
 		struct ProfileKey([u8; 32]);
 		impl ProfileKey {
+			/// Generate a profile key
+			///
+			/// Should only be called once at registration
 			pub fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
+				// Signal generates a 32 byte random key at registration
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/ProfileKeyUtil.java#L75
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/RegistrationRepository.java#L81
 				Self(rng.gen())
 			}
 
@@ -161,13 +173,23 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 		#[derive(Debug, serde::Serialize, serde::Deserialize)]
 		struct PhoneNumber(String);
 
+		impl PhoneNumber {
+			fn new(phone: impl Into<String>) -> Self {
+				Self(phone.into())
+			}
+
+			fn phone(&self) -> &str {
+				&self.0
+			}
+		}
+
 		/// Represents the state we are required to keep for our own user account
 		#[derive(Debug, serde::Serialize, serde::Deserialize)]
 		struct SignalAccount<Rng> {
 			rng: Rng,
 
 			/// Phone number
-			phone: String,
+			phone: PhoneNumber,
 
 			/// ACI
 			account_identity: Option<Uuid>,
@@ -183,16 +205,23 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 			/// Randomly generated "password"
 			password: Password,
+
+			/// All our prekeys and their IDs
+			// NOTE: Signal-android for some reason generates 2^24-1 bit IDs
+			prekeys: HashMap<u32, String>,
 		}
+
 		impl<R: Rng + CryptoRng> SignalAccount<R> {
 			/// Create a new signal account
 			pub fn new(phone: impl Into<String>, mut rng: R) -> Self {
 				Self {
+					prekeys: HashMap::new(),
 					password: dbg!(Password::generate(&mut rng)),
-					phone: phone.into(),
+					phone: PhoneNumber::new(phone),
 					account_identity: None,
 					phone_identity: None,
 					// See https://github.com/signalapp/libsignal-client/blob/6787408e5d8fc8e60c92e43cb0cee3dd6d2c8640/java/shared/java/org/whispersystems/libsignal/util/KeyHelper.java#L41
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/RegistrationRepository.java#L68-L75
 					reg_id: rng.gen_range(1, 16380),
 					// As a new account we won't have an existing profile key, so make one
 					profile_key: ProfileKey::generate(&mut rng),
@@ -200,10 +229,36 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				}
 			}
 
+			/// Register a signal account with the server
+			///
+			/// `code` is the verification code from SMS verification.
+			pub async fn register_sms(
+				phone: impl Into<String>,
+				code: impl Into<String>,
+				rng: R,
+			) -> Result<Self> {
+				todo!()
+			}
+
+			pub fn set_aci(&mut self, aci: Uuid) {
+				let _ = self.account_identity.insert(aci);
+				let keys = KeyPair::generate(&mut self.rng);
+			}
+		}
+
+		impl<R> SignalAccount<R> {
 			pub fn auth_token(&self) -> String {
+				// If no ACI, such as during registering, uses the phone number
+				// See
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L1794
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L2129
 				match self.account_identity {
 					Some(aci) => base64::encode(format!("{}:{}", &aci, self.password.password())),
-					None => base64::encode(format!("{}:{}", &self.phone, self.password.password())),
+					None => base64::encode(format!(
+						"{}:{}",
+						&self.phone.phone(),
+						self.password.password()
+					)),
 				}
 			}
 
@@ -213,10 +268,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 			pub fn profile_key(&self) -> &[u8] {
 				self.profile_key.key()
-			}
-
-			pub fn set_aci(&mut self, aci: Uuid) {
-				self.account_identity.insert(aci);
 			}
 		}
 
@@ -281,6 +332,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				// TODO(Diana): registration lock code 423
 
 				// See [`auxin::context::get_unidentified_access_for_key`]
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.5/app/src/main/java/org/thoughtcrime/securesms/registration/VerifyAccountRepository.kt#L56
 				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/crypto/UnidentifiedAccess.java#L40-L55
 				let unidentified_access = {
 					use aes_gcm::{
@@ -311,7 +363,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					"voice": true,
 					"video": true,
 
-					// This is true if FCM is *not* being used.
+					// This is true if FCM(Firebase Cloud Messaging) is *not* being used.
 					// For us that probably means this should always be true.
 					"fetchesMessages": true,
 
