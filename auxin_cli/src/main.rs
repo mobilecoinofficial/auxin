@@ -373,10 +373,12 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					// Hard-coded/defaults to false?
 					"unrestrictedUnidentifiedAccess": false,
 
-					// Currently soft-coded to false by feature flags
+					// Currently soft-coded to true by feature flags
 					// Presumably will change at some point
+					//
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.5/app/src/main/java/org/thoughtcrime/securesms/registration/VerifyAccountRepository.kt#L73
 					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/PhoneNumberPrivacyValues.java#L47-L50
-					"discoverableByPhoneNumber": false,
+					"discoverableByPhoneNumber": true,
 
 					// Hard coded
 					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/AppCapabilities.java
