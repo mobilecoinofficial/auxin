@@ -3,18 +3,22 @@
 
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress},
-	generate_timestamp, sealed_sender_trust_root,
+	generate_timestamp,
+	groups::{group_message::GroupSendContext, GroupId},
+	sealed_sender_trust_root,
 	state::PeerStore,
 	AuxinContext, ProfileKey, Result,
 };
 use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope, Envelope_Type};
 use custom_error::custom_error;
 use libsignal_protocol::{
-	message_decrypt, message_encrypt, sealed_sender_decrypt, sealed_sender_encrypt,
-	CiphertextMessage, CiphertextMessageType, SessionRecord, SessionStore, SignalMessage,
-	SignalProtocolError,
+	group_decrypt, group_encrypt, message_decrypt, message_decrypt_prekey, message_decrypt_signal,
+	message_encrypt, sealed_sender_decrypt_to_usmc, sealed_sender_encrypt,
+	sealed_sender_multi_recipient_encrypt, CiphertextMessage, CiphertextMessageType, ContentHint,
+	PreKeySignalMessage, ProtocolAddress, SealedSenderDecryptionResult, SessionRecord,
+	SessionStore, SignalMessage, SignalProtocolError, UnidentifiedSenderMessageContent,
 };
-use log::debug;
+use log::{debug, info};
 use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -57,6 +61,9 @@ pub mod envelope_types {
 	/// A sealed/sender message - this envelope will not have any phone number or UUID on it.
 	pub const UNIDENTIFIED_SENDER: u8 = 6;
 
+	/// Sender key for Groups
+	pub const SENDER_KEY: u8 = 7;
+
 	//
 	pub const PLAINTEXT_CONTENT: u8 = 8;
 
@@ -83,6 +90,7 @@ pub mod envelope_types {
 		Recipt = RECEIPT,
 		/// A sealed/sender message - this envelope will not have any phone number or UUID on it.
 		UnidentifiedSender = UNIDENTIFIED_SENDER,
+		SenderKey = SENDER_KEY,
 		PlaintextContent = PLAINTEXT_CONTENT,
 	}
 
@@ -97,6 +105,7 @@ pub mod envelope_types {
 				PREKEY_BUNDLE => Ok(EnvelopeType::PreKeyBundle),
 				RECEIPT => Ok(EnvelopeType::Recipt),
 				UNIDENTIFIED_SENDER => Ok(EnvelopeType::UnidentifiedSender),
+				SENDER_KEY => Ok(EnvelopeType::SenderKey),
 				PLAINTEXT_CONTENT => Ok(EnvelopeType::PlaintextContent),
 				_ => Err(EnvelopeTypeError::InvalidTypeId {
 					attempted_value: value as i128,
@@ -142,6 +151,7 @@ pub mod envelope_types {
 					EnvelopeType::UnidentifiedSender
 				}
 				auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => EnvelopeType::PlaintextContent,
+				auxin_protos::Envelope_Type::SENDER_KEY => EnvelopeType::SenderKey,
 			}
 		}
 	}
@@ -157,6 +167,7 @@ pub mod envelope_types {
 				EnvelopeType::UnidentifiedSender => {
 					auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER
 				}
+				EnvelopeType::SenderKey => auxin_protos::Envelope_Type::SENDER_KEY,
 				EnvelopeType::PlaintextContent => auxin_protos::Envelope_Type::PLAINTEXT_CONTENT,
 			}
 		}
@@ -336,13 +347,13 @@ pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>,
 /// * `buf` - A buffer containing a protocol buffer message sent to us from Signal's Web API.
 #[allow(clippy::ptr_arg)]
 // TODO(Diana): buf
-pub fn fix_protobuf_buf(buf: &Vec<u8>) -> Result<Vec<u8>> {
+pub fn fix_protobuf_buf(buf: &[u8]) -> std::result::Result<Vec<u8>, protobuf::ProtobufError> {
 	let mut new_buf: Vec<u8> = Vec::new();
 	// It is expecting this to start with "Len".
 	let mut writer = protobuf::CodedOutputStream::vec(&mut new_buf);
 	writer.write_raw_varint64(buf.len() as u64)?;
 	writer.flush()?;
-	new_buf.append(&mut buf.clone());
+	new_buf.append(&mut buf.to_vec());
 	Ok(new_buf)
 }
 
@@ -410,21 +421,21 @@ impl OutgoingPushMessageList {
 	/// * `mode` - Are we sending this as regular ciphertext, or as a sealed-sender message?
 	/// * `context` - The Auxin Context providing all cryptographic state needed to send this message.
 	/// * `rng` - The cryptographically-strong source of entropy for this process.
-	pub fn build_http_request<Body, Rng>(
+	pub fn build_http_request<Body>(
 		&self,
 		peer_address: &AuxinAddress,
 		mode: MessageSendMode,
 		context: &mut AuxinContext,
-		rng: &mut Rng,
 	) -> Result<http::Request<Body>>
 	where
 		Body: From<String>,
-		Rng: RngCore + CryptoRng,
 	{
 		let json_message = serde_json::to_string(&self)?;
 
-		let mut msg_path = String::from("https://chat.signal.org/v1/messages/");
-		msg_path.push_str(peer_address.get_uuid().unwrap().to_string().as_str());
+		let msg_path = format!(
+			"https://chat.signal.org/v1/messages/{}",
+			peer_address.get_uuid().unwrap().to_string().as_str()
+		);
 
 		let mut req = match mode == MessageSendMode::SealedSender {
 			false => crate::net::common_http_headers(
@@ -434,9 +445,9 @@ impl OutgoingPushMessageList {
 			)?,
 			true => crate::net::uncommon_http_headers(http::Method::PUT, msg_path.as_str())?,
 		};
+
 		if mode == MessageSendMode::SealedSender {
-			let mut unidentified_access_key =
-				context.get_unidentified_access_for(peer_address, rng)?;
+			let mut unidentified_access_key = context.get_unidentified_access_for(peer_address)?;
 			unidentified_access_key.truncate(16);
 			let unidentified_access_key = base64::encode(unidentified_access_key);
 			debug!(
@@ -482,7 +493,7 @@ impl Default for MessageDirection {
 pub enum MessageSendMode {
 	/// Sent as regular Signal ciphertext
 	Standard,
-	/// Sent asa sealed-sender / unidentified-sender message.
+	/// Sent as a sealed-sender / unidentified-sender message.
 	SealedSender,
 }
 
@@ -537,6 +548,7 @@ impl MessageContent {
 	pub fn build_signal_content(
 		&self,
 		our_profile_key: &String,
+		group: Option<&GroupSendContext>,
 		timestamp: Timestamp,
 	) -> Result<auxin_protos::Content> {
 		// Did we create this message using a content message directly?
@@ -595,6 +607,12 @@ impl MessageContent {
 				result.set_receiptMessage(receipt_message);
 			}
 
+			//Add Group information to the DataMessage if necessary.
+			if let Some(group_info) = group {
+				use_data_message = true;
+				group_info.add_group_data_to(&mut data_message)?;
+			}
+
 			if use_data_message {
 				result.set_dataMessage(data_message);
 				let _ = protobuf::Message::compute_size(&result);
@@ -642,6 +660,11 @@ impl MessageOut {
 			.unwrap();
 		//Get a valid protocol address with name=uuid
 		let their_address = address_to.uuid_protocol_address()?;
+
+		debug!(
+			"Looking up registration id with address {:?}",
+			their_address
+		);
 
 		let sess = match context
 			.session_store
@@ -696,9 +719,9 @@ impl MessageOut {
 		let mut outstream = CodedOutputStream::vec(&mut serialized_message);
 
 		let b64_profile_key = base64::encode(context.identity.profile_key);
-		let content_message = self
-			.content
-			.build_signal_content(&b64_profile_key, timestamp)?;
+		let content_message =
+			self.content
+				.build_signal_content(&b64_profile_key, None, timestamp)?;
 
 		let sz = protobuf::Message::compute_size(&content_message);
 		debug!("Estimated content message size: {}", sz);
@@ -714,13 +737,12 @@ impl MessageOut {
 		let our_message_bytes = pad_message_body(serialized_message.as_slice());
 		debug!("Padded message length: {}", our_message_bytes.len());
 
-		// Do we have a valid session?
-
+		// Not a group message, proceed with regular one user to one user cryptography.
 		Ok(match mode {
 			MessageSendMode::Standard => {
 				//It is critically important that, at the very least, process_prekey_bundle (or something else that can start a session)
 				//is called before this. In Auxin, process_prekey_bundle is called in AuxinApp.fill_peer_info()
-				let cyphertext_message = message_encrypt(
+				let ciphertext_message = message_encrypt(
 					&our_message_bytes,
 					&their_address,
 					&mut context.session_store,
@@ -728,13 +750,14 @@ impl MessageOut {
 					signal_ctx,
 				)
 				.await?;
-				let envelope_type = match cyphertext_message.message_type() {
+				let envelope_type = match ciphertext_message.message_type() {
 					CiphertextMessageType::Whisper => envelope_types::CIPHERTEXT,
 					CiphertextMessageType::PreKey => envelope_types::PREKEY_BUNDLE,
+					CiphertextMessageType::SenderKey => envelope_types::SENDER_KEY,
 					_ => todo!(),
 				};
 
-				let content = base64::encode(cyphertext_message.serialize());
+				let content = base64::encode(ciphertext_message.serialize());
 				debug!("Encoded to {} bytes of base64", content.len());
 
 				OutgoingPushMessage {
@@ -753,7 +776,7 @@ impl MessageOut {
 				)?;
 
 				//Encipher the content we just encoded.
-				let cyphertext_message = sealed_sender_encrypt(
+				let ciphertext_message = sealed_sender_encrypt(
 					&their_address,
 					sender_cert,
 					our_message_bytes.as_slice(),
@@ -765,7 +788,7 @@ impl MessageOut {
 				.await?;
 
 				//Serialize our cyphertext.
-				let content = base64::encode(cyphertext_message);
+				let content = base64::encode(ciphertext_message);
 
 				debug!("Encoded to {} bytes of base64", content.len());
 				OutgoingPushMessage {
@@ -776,6 +799,53 @@ impl MessageOut {
 				}
 			}
 		})
+	}
+	/// Encrypts our MessageOut for purposes of sending to a group, and builds all of the data the Signal Web API will need to process it.
+	///
+	/// # Arguments
+	///
+	/// * `address_to` - The address and device ID of the peer to whom we're sending this message.
+	/// * `mode` - A MessageSendMode, controlling if we're sending this as a Sealed Sender message or a regular Signal ciphertext message.
+	/// * `context` - All keys and session state data required to encrypt this message.
+	/// * `group` - Information required to encrypt messages sent to a group.
+	/// * `rng` - Cryptographically-strong source of entropy for this message.
+	/// * `timestamp` - The timestamp to attach to this message. This is the number of milliseconds (at the time of constructing this message) since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
+	pub async fn encrypt_group_message<Rng: RngCore + CryptoRng>(
+		&self,
+		address_to: &AuxinDeviceAddress,
+		context: &mut AuxinContext,
+		group: &GroupSendContext,
+		rng: &mut Rng,
+		timestamp: u64,
+	) -> Result<Vec<u8>> {
+		//Build our message.
+		let mut serialized_message: Vec<u8> = Vec::default();
+		let mut outstream = CodedOutputStream::vec(&mut serialized_message);
+
+		let b64_profile_key = base64::encode(context.identity.profile_key);
+		let content_message =
+			self.content
+				.build_signal_content(&b64_profile_key, Some(group), timestamp)?;
+
+		let sz = protobuf::Message::compute_size(&content_message);
+		debug!("Estimated content message size: {}", sz);
+
+		protobuf::Message::write_to_with_cached_sizes(&content_message, &mut outstream)?;
+		outstream.flush()?;
+		drop(outstream);
+		debug!(
+			"Length of message before padding: {}",
+			serialized_message.len()
+		);
+
+		let our_message_bytes = pad_message_body(serialized_message.as_slice());
+		debug!("Padded message length: {}", our_message_bytes.len());
+
+		info!("Encrypting as a group message.");
+		let (_envelope_type, ciphertext_bytes) = group
+			.group_encrypt(&address_to, &our_message_bytes, context, rng)
+			.await?;
+		Ok(ciphertext_bytes)
 	}
 }
 
@@ -826,21 +896,133 @@ pub async fn decrypt_unidentified_sender(
 	context: &mut AuxinContext,
 ) -> std::result::Result<(MessageContent, AuxinDeviceAddress), MessageInError> {
 	let signal_ctx = context.get_signal_ctx().ctx;
-	let decrypted = sealed_sender_decrypt(
+	debug!(
+		"Decrypting unidentified sender message of type {:?}",
+		envelope.get_field_type()
+	);
+	let unidentified_message_content = sealed_sender_decrypt_to_usmc(
 		envelope.get_content(),
-		&sealed_sender_trust_root(),
-		generate_timestamp() as u64,
-		context.identity.address.get_phone_number().ok().cloned(),
-		context.identity.address.get_uuid().unwrap().to_string(),
-		context.identity.address.device_id,
 		&mut context.identity_store,
-		&mut context.session_store,
-		&mut context.pre_key_store,
-		&mut context.signed_pre_key_store,
 		signal_ctx,
 	)
-	.await
-	.map_err(MessageInError::ProtocolError)?;
+	.await?;
+
+	let local_e164 = context.identity.address.get_phone_number().ok().cloned();
+	let local_uuid = context.identity.address.get_uuid().unwrap().to_string();
+	let trust_root = sealed_sender_trust_root();
+
+	if !unidentified_message_content
+		.sender()?
+		.validate(&trust_root, generate_timestamp() as u64)?
+	{
+		return Err(MessageInError::ProtocolError(
+			SignalProtocolError::InvalidSealedSenderMessage(
+				"trust root validation failed".to_string(),
+			),
+		));
+	}
+
+	let is_local_uuid = local_uuid == unidentified_message_content.sender()?.sender_uuid()?;
+
+	let is_local_e164 = match (
+		local_e164,
+		unidentified_message_content.sender()?.sender_e164()?,
+	) {
+		(Some(l), Some(s)) => l == s,
+		(_, _) => false,
+	};
+
+	if (is_local_e164 || is_local_uuid)
+		&& unidentified_message_content.sender()?.sender_device_id()?
+			== context.identity.address.device_id
+	{
+		return Err(MessageInError::ProtocolError(
+			SignalProtocolError::SealedSenderSelfSend,
+		));
+	}
+
+	let mut rng = rand::rngs::OsRng;
+
+	let remote_address = ProtocolAddress::new(
+		unidentified_message_content
+			.sender()?
+			.sender_uuid()?
+			.to_string(),
+		unidentified_message_content.sender()?.sender_device_id()?,
+	);
+	let sender_uuid = unidentified_message_content
+		.sender()?
+		.sender_uuid()?
+		.to_string();
+	let sender_protocol_address = ProtocolAddress::new(
+		sender_uuid.clone(),
+		unidentified_message_content.sender()?.sender_device_id()?,
+	);
+
+	let message = match unidentified_message_content.msg_type()? {
+		CiphertextMessageType::Whisper => {
+			let ctext = SignalMessage::try_from(unidentified_message_content.contents()?)?;
+			message_decrypt_signal(
+				&ctext,
+				&remote_address,
+				&mut context.session_store,
+				&mut context.identity_store,
+				&mut rng,
+				signal_ctx,
+			)
+			.await?
+		}
+		CiphertextMessageType::PreKey => {
+			let ctext = PreKeySignalMessage::try_from(unidentified_message_content.contents()?)?;
+			message_decrypt_prekey(
+				&ctext,
+				&remote_address,
+				&mut context.session_store,
+				&mut context.identity_store,
+				&mut context.pre_key_store,
+				&mut context.signed_pre_key_store,
+				&mut rng,
+				signal_ctx,
+			)
+			.await?
+		}
+		CiphertextMessageType::SenderKey => {
+			// Sender key / group behavior.
+			let skm = libsignal_protocol::SenderKeyMessage::try_from(
+				unidentified_message_content.contents()?,
+			)?;
+			debug!(
+				"SenderKeyMessage has distribution id: {:?}",
+				skm.distribution_id()
+			);
+			debug!("SenderKeyMessage has chain id: {:?}", skm.chain_id());
+			debug!("SenderKeyMessage has iteration: {:?}", skm.iteration());
+			group_decrypt(
+				unidentified_message_content.contents()?,
+				&mut context.sender_key_store,
+				&sender_protocol_address,
+				signal_ctx,
+			)
+			.await?
+		}
+		msg_type => {
+			return Err(MessageInError::ProtocolError(
+				SignalProtocolError::InvalidSealedSenderMessage(format!(
+					"Unexpected message type {}",
+					msg_type as i32,
+				)),
+			))
+		}
+	};
+	let decrypted = SealedSenderDecryptionResult {
+		sender_uuid,
+		sender_e164: unidentified_message_content
+			.sender()?
+			.sender_e164()?
+			.map(|s| s.to_string()),
+		device_id: unidentified_message_content.sender()?.sender_device_id()?,
+		message,
+	};
 
 	debug!("Length of decrypted message: {:?}", decrypted.message.len());
 
@@ -1298,4 +1480,106 @@ impl TryFrom<auxin_protos::Content> for MessageContent {
 		// TODO: More fine-grained results.
 		Ok(result)
 	}
+}
+
+/// Group equivalent of generate_messages_to_all_devices().
+/// - One for each of remote_address's devices on file.
+///
+/// # Arguments
+///
+/// * `context` - The Auxin Context providing all cryptographic state needed to send this message.
+/// * `mode` - Are we sending this as regular ciphertext, or as a sealed-sender message?
+/// * `rng` - The cryptographically-strong source of entropy for this process.
+/// * `timestamp` - The timestamp for when we began generating this message
+/// - this is also used as its ID. This value corresponds to the number of
+/// milliseconds since the Unix Epoch, which was January 1st, 1970 00:00:00 UTC.
+pub async fn generate_group_v2_message<Rng: RngCore + CryptoRng>(
+	message: MessageOut,
+	recipients: Vec<AuxinAddress>,
+	context: &mut AuxinContext,
+	group_id: &GroupId,
+	group: &GroupSendContext,
+	rng: &mut Rng,
+	timestamp: u64,
+) -> Result<Vec<u8>> {
+	let signal_ctx = context.get_signal_ctx().ctx;
+	//Build our message.
+	let mut serialized_message: Vec<u8> = Vec::default();
+	let mut outstream = CodedOutputStream::vec(&mut serialized_message);
+
+	let b64_profile_key = base64::encode(context.identity.profile_key);
+	let content_message =
+		message
+			.content
+			.build_signal_content(&b64_profile_key, Some(group), timestamp)?;
+
+	let sz = protobuf::Message::compute_size(&content_message);
+	debug!("Estimated content message size: {}", sz);
+
+	protobuf::Message::write_to_with_cached_sizes(&content_message, &mut outstream)?;
+	outstream.flush()?;
+	drop(outstream);
+	debug!(
+		"Length of message before padding: {}",
+		serialized_message.len()
+	);
+
+	let our_message_bytes = pad_message_body(serialized_message.as_slice());
+	debug!("Padded message length: {}", our_message_bytes.len());
+
+	let our_protocol_address = context.identity.address.uuid_protocol_address()?;
+	let distribution_id = group.get_distribution_id().unwrap();
+
+	let encrypted_message = group_encrypt(
+		&mut context.sender_key_store,
+		&our_protocol_address,
+		distribution_id.clone(),
+		&our_message_bytes,
+		rng,
+		signal_ctx,
+	)
+	.await?;
+	let usmc = UnidentifiedSenderMessageContent::new(
+		CiphertextMessageType::SenderKey,
+		context.sender_certificate.as_ref().unwrap().clone(),
+		encrypted_message.serialized().to_vec(),
+		ContentHint::Default,
+		Some(group_id.to_vec()),
+	)?;
+
+	let mut destinations: Vec<ProtocolAddress> = Vec::default();
+
+	for recipient_addr in recipients.iter() {
+		let recipient = context.peer_cache.get(recipient_addr).unwrap().clone();
+		let address: AuxinAddress = (&recipient).into();
+
+		for i in recipient.device_ids_used.iter() {
+			let device_address = AuxinDeviceAddress {
+				address: address.clone(),
+				device_id: *i,
+			};
+			let protocol_address = device_address.uuid_protocol_address()?;
+			debug!("Send to ProtocolAddress {:?}", protocol_address,);
+
+			destinations.push(protocol_address);
+		}
+	}
+	let destination_refs: Vec<&ProtocolAddress> = destinations.iter().map(|dest| dest).collect();
+	// There should absolutely be sessions for each of these users at this point.
+	let destination_sessions: Vec<&SessionRecord> = context
+		.session_store
+		.load_existing_sessions(&destination_refs)
+		.expect("Session should have been loaded for user before attempting to send to a group");
+
+	let output = sealed_sender_multi_recipient_encrypt(
+		&destination_refs,
+		&destination_sessions,
+		&usmc,
+		&mut context.identity_store,
+		signal_ctx,
+		rng,
+	)
+	.await?;
+
+	Ok(output)
 }

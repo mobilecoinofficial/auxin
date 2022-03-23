@@ -7,7 +7,7 @@ use std::{
 	collections::{HashMap, HashSet},
 };
 
-use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey};
+use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey, SenderKeyRecord};
 use log::warn;
 use protobuf::CodedInputStream;
 use serde::{
@@ -20,6 +20,7 @@ use uuid::Uuid;
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
+	groups::{group_storage::GroupInfoStorage, sender_key::SenderKeyName, GroupId},
 	message::fix_protobuf_buf,
 	AuxinConfig, AuxinContext, LocalIdentity,
 };
@@ -237,6 +238,21 @@ impl PeerRecord {
 			None => false,
 		}
 	}
+	pub fn get_address(&self) -> AuxinAddress {
+		if let Some(uuid) = &self.uuid {
+			if let Some(phone) = &self.number {
+				AuxinAddress::Both(phone.clone(), uuid.clone())
+			} else {
+				AuxinAddress::Uuid(uuid.clone())
+			}
+		} else {
+			if let Some(phone) = &self.number {
+				AuxinAddress::Phone(phone.clone())
+			} else {
+				panic!("Peer record with no ID - neither a phone number nor a UUID. This should not be possible.")
+			}
+		}
+	}
 }
 
 impl Ord for PeerRecord {
@@ -311,6 +327,8 @@ pub trait PeerStore {
 	/// Gets a mutable peer record using an AuxinAddress, trying UUID if it one or phone number if it does not.
 	fn get_mut(&mut self, address: &AuxinAddress) -> Option<&mut PeerRecord>;
 
+	fn get_by_peer_id(&self, id: u64) -> Option<&PeerRecord>;
+
 	/// Finds the UUID that corresponds to this phone number.
 	#[allow(clippy::ptr_arg)]
 	// TODO(Diana): phone_number
@@ -356,6 +374,11 @@ pub trait PeerStore {
 				// Empty lists of device IDs should return None.
 			})
 			.filter(|v: &Vec<AuxinDeviceAddress>| !v.is_empty())
+	}
+	/// Query whether we have a peer or not. Useful helper method in cases where get()'s reference into this data structure
+	/// leads to borrow checker trouble
+	fn has_peer(&self, address: &AuxinAddress) -> bool {
+		self.get(address).is_some()
 	}
 }
 
@@ -438,6 +461,14 @@ impl PeerStore for PeerRecordStructure {
 			}),
 			None => None,
 		}
+	}
+
+	fn get_by_peer_id(&self, id: u64) -> Option<&PeerRecord> {
+		self.peers
+			.binary_search_by(|peer| peer.id.cmp(&id))
+			.map(|idx| self.peers.get(idx as usize))
+			.ok()
+			.flatten()
 	}
 }
 /// Stores the public key of a peer (encoded as a base-64 string)
@@ -597,9 +628,44 @@ pub trait AuxinStateManager {
 		self.save_all_peer_records(context)?;
 		self.save_pre_keys(context)?;
 		self.save_all_sessions(context)?;
+		self.save_all_group_info(context)?;
+		self.save_all_sender_keys(context)?;
 		self.flush(context)?;
 		Ok(())
 	}
+	// An implementation of the signal_cli-compatible group data store for the DecryptedGroup protobuf.
+	fn load_group_protobuf(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &GroupId,
+	) -> crate::Result<auxin_protos::DecryptedGroup>;
+	fn load_group_info(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &GroupId,
+	) -> crate::Result<GroupInfoStorage>;
+	fn save_group_info(
+		&mut self,
+		context: &AuxinContext,
+		group_id: &GroupId,
+		group_info: GroupInfoStorage,
+	) -> crate::Result<()>;
+	fn save_all_group_info(&mut self, context: &AuxinContext) -> crate::Result<()>;
+
+	// Save a sender key we received. Use the local address and device ID in sender_key_name to save a sent / local sender key.
+	fn load_sender_key(
+		&mut self,
+		context: &AuxinContext,
+		sender_key_name: &SenderKeyName,
+	) -> crate::Result<SenderKeyRecord>;
+	fn save_sender_key(
+		&mut self,
+		context: &AuxinContext,
+		sender_key_name: &SenderKeyName,
+		record: &SenderKeyRecord,
+	) -> crate::Result<()>;
+	// Save all sender keys we sent or received.
+	fn save_all_sender_keys(&mut self, context: &AuxinContext) -> crate::Result<()>;
 }
 
 /// Attempt to get a registration ID from the previous-session records.

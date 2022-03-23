@@ -12,3 +12,4 @@ Generally speaking the Auxin refactor can have a much lower LoC if we do it righ
 * Get rid of `customerror` completely. Replace with either `thiserror` (looks promising) or just plain Rust enums.
 * Statefulness primitives should include functionality for caching attachments and other large blobs, either directly or by exposing some kind of hooks (jsonrpc?).
 * Better support for unit testing in the way the networking works (i.e. a context where you can send fake http requests that don't do actual i/o).
+* The "auxin" sub-crate should be renamed to "auxin-core" to avoid ambiguity.

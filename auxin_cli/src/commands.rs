@@ -6,6 +6,7 @@
 use auxin::{
 	address::{AuxinAddress, E164},
 	generate_timestamp,
+	groups::GroupId,
 	message::{MessageContent, MessageIn, MessageOut},
 	profile::ProfileConfig,
 	state::{PeerProfile, PeerStore},
@@ -17,6 +18,10 @@ use uuid::Uuid;
 
 use crate::net::AuxinTungsteniteConnection;
 use auxin_protos::AttachmentPointer;
+
+use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_TIMEOUT_DURATION};
+
+//External dependencies
 use log::debug;
 
 use rand::rngs::OsRng;
@@ -26,8 +31,6 @@ use std::{convert::TryFrom, path::PathBuf};
 use structopt::StructOpt;
 
 use serde::{Deserialize, Serialize};
-
-use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_TIMEOUT_DURATION};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
 pub const VERSION_STR: &str = env!("CARGO_PKG_VERSION");
@@ -102,7 +105,7 @@ pub enum AuxinCommand {
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct SendCommand {
-	/// Sets the destination for our message (as E164-format phone number or a UUID).
+	/// Sets the destination for our message (as E164-format phone number, user UUID, or group ID encoded as base-64).
 	pub destination: String,
 
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
@@ -198,20 +201,24 @@ pub struct DownloadAttachmentCommand {
 pub enum SendCommandError {
 	//Propagated through from app,send_message()
 	SendError(auxin::SendMessageError),
+	SendGroupError(auxin::SendGroupError),
 	AttachmentUploadError(auxin::attachment::upload::AttachmentUploadError),
 	AttachmentEncryptError(auxin::attachment::upload::AttachmentEncryptError),
 	AttachmentFileReadError(std::io::Error),
 	SimulateErr(String),
+	BadDestination(String, String),
 }
 
 impl std::fmt::Display for SendCommandError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match &self {
 			SendCommandError::SendError(e) => write!(f, "Error encountered in app.send_message(): {:?}", e),
+			SendCommandError::SendGroupError(e) => write!(f, "Error encountered in app.send_group_message(): {:?}", e),
 			SendCommandError::AttachmentUploadError(e) => write!(f, "Attempt to upload an attachment while sending a message failed with error: {:?}", e),
 			SendCommandError::AttachmentEncryptError(e) => write!(f, "Attempt to upload an attachment while sending a message failed with error: {:?}", e),
 			SendCommandError::AttachmentFileReadError(e) => write!(f, "Tried to load a file to upload as an attachment (to send on a message), but an error was encountered while opening the file: {:?}", e),
 			SendCommandError::SimulateErr(e) => write!(f, "Serializing a Signal message content to a json structure for the --simulate argument failed: {:?}", e),
+			SendCommandError::BadDestination(dest, e) => write!(f, "The destination provided, {}, isn't a UUID, phone number, or group ID. Error was: {}", dest, e),
 		}
 	}
 }
@@ -230,6 +237,11 @@ impl From<auxin::attachment::upload::AttachmentUploadError> for SendCommandError
 impl From<auxin::attachment::upload::AttachmentEncryptError> for SendCommandError {
 	fn from(val: auxin::attachment::upload::AttachmentEncryptError) -> Self {
 		SendCommandError::AttachmentEncryptError(val)
+	}
+}
+impl From<auxin::SendGroupError> for SendCommandError {
+	fn from(val: auxin::SendGroupError) -> Self {
+		SendCommandError::SendGroupError(val)
 	}
 }
 
@@ -790,6 +802,12 @@ pub async fn process_jsonrpc_input(
 	output
 }
 
+#[derive(Debug, Clone)]
+enum MessageDest {
+	Group(GroupId),
+	User(AuxinAddress),
+}
+
 pub async fn handle_send_command(
 	mut cmd: SendCommand,
 	app: &mut crate::app::App,
@@ -802,7 +820,14 @@ pub async fn handle_send_command(
 	}
 
 	//Set up our address
-	let recipient_addr = AuxinAddress::try_from(cmd.destination.as_str()).unwrap();
+	let destination = match GroupId::from_base64(&cmd.destination) {
+		Ok(group_id) => MessageDest::Group(group_id),
+		Err(_e) => MessageDest::User(
+			AuxinAddress::try_from(cmd.destination.as_str()).map_err(|e| {
+				SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
+			})?,
+		)
+	};
 
 	//MessageContent
 	let mut message_content = MessageContent {
@@ -878,6 +903,7 @@ pub async fn handle_send_command(
 			.content
 			.build_signal_content(
 				&base64::encode(&app.context.identity.profile_key),
+				None,
 				timestamp,
 			)
 			.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
@@ -890,10 +916,21 @@ pub async fn handle_send_command(
 		}
 	} else {
 		//Not just testing, no -s argument, actually send our message.
-		let timestamp = app.send_message(&recipient_addr, message).await?;
-		SendOutput {
-			timestamp,
-			simulate_output: None,
+		match destination {
+			MessageDest::Group(group_id) => {
+				app.send_group_message(&group_id, message).await?;
+				SendOutput {
+					timestamp: generate_timestamp(),
+					simulate_output: None,
+				}
+			}
+			MessageDest::User(recipient_addr) => {
+				let timestamp = app.send_message(&recipient_addr, message).await?;
+				SendOutput {
+					timestamp,
+					simulate_output: None,
+				}
+			}
 		}
 	})
 }
@@ -981,7 +1018,7 @@ pub async fn handle_set_profile_command(
 		None
 	};
 	//TODO: Service configuration to select base URL.
-	Ok(app
+	app
 		.upload_profile(
 			"https://textsecure-service.whispersystems.org",
 			auxin::net::api_paths::SIGNAL_CDN,
@@ -991,7 +1028,7 @@ pub async fn handle_set_profile_command(
 		.await
 		.map(|res| SetProfileResponse {
 			status: res.status().as_u16(),
-		})?)
+		})
 }
 
 pub async fn handle_get_profile_command(

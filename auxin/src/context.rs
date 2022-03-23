@@ -1,21 +1,26 @@
 // Copyright (c) 2021 MobileCoin Inc.
 // Copyright (c) 2021 Emily Cultip
 
+use std::collections::HashMap;
+
 use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
 	Nonce,
 };
 use custom_error::custom_error;
 use libsignal_protocol::{
-	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSenderKeyStore,
-	InMemSessionStore, InMemSignedPreKeyStore, SenderCertificate,
+	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore,
+	InMemSignedPreKeyStore, SenderCertificate,
 };
 use log::debug;
-use rand::{CryptoRng, Rng, RngCore};
 use uuid::Uuid;
 
 use crate::{
 	address::*,
+	groups::{
+		group_storage::GroupInfo, sender_key::AuxinSenderKeyStore, GroupId,
+		InMemoryCredentialsCache,
+	},
 	state::{PeerRecordStructure, PeerStore, UnidentifiedAccessMode},
 };
 
@@ -25,12 +30,15 @@ pub type ProfileKey = [u8; PROFILE_KEY_LEN];
 #[derive(Clone, Debug)]
 pub struct AuxinConfig {
 	pub enable_read_receipts: bool,
+	/// How many milliseconds should a sender key distribution live before we create a new one automatically?
+	pub sender_key_distribution_lifespan: u64,
 }
 
 impl Default for AuxinConfig {
 	fn default() -> Self {
 		Self {
 			enable_read_receipts: true,
+			sender_key_distribution_lifespan: 172800000, // 48 hours in milliseconds
 		}
 	}
 }
@@ -123,12 +131,15 @@ pub struct AuxinContext {
 	pub signed_pre_key_store: InMemSignedPreKeyStore,
 	/// Stores public keys from peers.
 	pub identity_store: InMemIdentityKeyStore,
-	pub sender_key_store: InMemSenderKeyStore,
+	pub sender_key_store: AuxinSenderKeyStore,
 
 	/// Configuration for the Auxin library.
 	pub config: AuxinConfig,
 	/// Should we show up as "Online" to other Signal users?
 	pub report_as_online: bool,
+
+	pub groups: HashMap<GroupId, GroupInfo>,
+	pub credentials_manager: InMemoryCredentialsCache,
 
 	/// Signal context - pointer to a C data type.
 	///
@@ -174,15 +185,8 @@ custom_error! { pub UnidentifiedAccessError
 
 impl AuxinContext {
 	/// Generate an unidentified-access key for a user who accepts unrestricted unidentified access.
-	///
-	/// # Arguments
-	///
-	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
-	fn get_unidentified_access_unrestricted<R>(&mut self, rng: &mut R) -> crate::Result<Vec<u8>>
-	where
-		R: RngCore + CryptoRng,
-	{
-		let bytes: [u8; 16] = rng.gen();
+	fn get_unidentified_access_unrestricted(&mut self) -> crate::Result<Vec<u8>> {
+		let bytes = [0u8; 16];
 
 		Ok(Vec::from(bytes))
 	}
@@ -192,15 +196,10 @@ impl AuxinContext {
 	/// # Arguments
 	///
 	/// * `peer_address` - The peer for whom to generate an unidentified access key.
-	/// * `rng` - Mutable reference to a random number generator, which must be cryptographically-strong (i.e. implements the CryptoRng interface).
-	pub fn get_unidentified_access_for<R>(
+	pub fn get_unidentified_access_for(
 		&mut self,
 		peer_address: &AuxinAddress,
-		rng: &mut R,
-	) -> crate::Result<Vec<u8>>
-	where
-		R: RngCore + CryptoRng,
-	{
+	) -> crate::Result<Vec<u8>> {
 		let peer = self.peer_cache.get(peer_address);
 		if peer.is_none() {
 			return Err(Box::new(UnidentifiedAccessError::UnrecognizedUser {
@@ -218,7 +217,7 @@ impl AuxinContext {
 						"User {} has unrestricted unidentified access, generating random key.",
 						uuid.to_string()
 					);
-					Ok(self.get_unidentified_access_unrestricted(rng)?)
+					Ok(self.get_unidentified_access_unrestricted()?)
 				}
 				UnidentifiedAccessMode::ENABLED => {
 					debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", uuid.to_string());

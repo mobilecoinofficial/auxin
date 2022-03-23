@@ -7,6 +7,7 @@
 //! Developer (and bot) friendly wrapper around the Signal protocol.
 
 #![feature(async_closure)]
+#![feature(path_file_prefix)]
 #![deny(bare_trait_objects)]
 
 //Auxin dependencies

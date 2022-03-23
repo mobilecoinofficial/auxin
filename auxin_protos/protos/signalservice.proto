@@ -13,6 +13,7 @@ message Envelope {
     PREKEY_BUNDLE       = 3;
     RECEIPT             = 5;
     UNIDENTIFIED_SENDER = 6;
+    SENDER_KEY          = 7; // For GroupsV2
     PLAINTEXT_CONTENT   = 8;
   }
 

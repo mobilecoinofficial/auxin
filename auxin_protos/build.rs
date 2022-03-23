@@ -10,6 +10,8 @@ fn main() {
 		.inputs(&["protos/signalservice.proto"])
 		.inputs(&["protos/sealed_sender.proto"])
 		.inputs(&["protos/storage.proto"])
+		.inputs(&["protos/groups.proto"])
+		.inputs(&["protos/decrypted_groups.proto"])
 		.customize(Customize {
 			gen_mod_rs: Some(true),
 			serde_derive: Some(true),

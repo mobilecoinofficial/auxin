@@ -125,6 +125,22 @@ impl From<AuxinDeviceAddress> for AuxinAddress {
 	}
 }
 
+impl TryFrom<ProtocolAddress> for AuxinDeviceAddress {
+	type Error = Box<dyn Error>;
+	fn try_from(val: ProtocolAddress) -> std::result::Result<Self, Self::Error> {
+		let address = AuxinAddress::try_from(val.name())?;
+		let device_id = val.device_id();
+		Ok(Self { address, device_id })
+	}
+}
+
+impl TryFrom<ProtocolAddress> for AuxinAddress {
+	type Error = Box<dyn Error>;
+	fn try_from(val: ProtocolAddress) -> std::result::Result<Self, Self::Error> {
+		AuxinAddress::try_from(val.name())
+	}
+}
+
 impl TryFrom<&str> for AuxinAddress {
 	type Error = Box<dyn Error>;
 	fn try_from(val: &str) -> std::result::Result<Self, Self::Error> {
