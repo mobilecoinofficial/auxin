@@ -58,6 +58,81 @@ pub type Context = auxin::AuxinContext;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
+/// Response from the Signal servers when registering an account
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignalRegistrationResponse {
+	uuid: String,
+	number: String,
+	pni: String,
+	username: Option<String>,
+	storage_capable: bool,
+}
+
+/// Prekey record sent to the Signal servers
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrekeyRecord {
+	/// Key ID
+	key_id: u32,
+
+	/// Base64 of public key
+	public_key: String,
+}
+
+impl PrekeyRecord {
+	fn new(record: (&u32, &auxin::account::AuxinKeyPair)) -> Self {
+		Self {
+			key_id: *record.0,
+			public_key: base64::encode(record.1.public()),
+		}
+	}
+}
+
+/// Signed prekey record sent to the Signal servers
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedPrekeyRecord {
+	/// Key ID
+	key_id: u32,
+
+	/// Base64 of public key
+	public_key: String,
+
+	/// Base64 of signature
+	signature: String,
+}
+
+impl SignedPrekeyRecord {
+	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
+		Self {
+			key_id: identity.signed_id(),
+			public_key: base64::encode(identity.signed_prekey().public()),
+			signature: base64::encode(identity.signature()),
+		}
+	}
+}
+
+/// Prekey data sent to the Signal servers on registration
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignalPrekeyData {
+	/// base64 of Identity public key
+	identity_key: String,
+	pre_keys: Vec<PrekeyRecord>,
+	signed_pre_key: SignedPrekeyRecord,
+}
+
+impl SignalPrekeyData {
+	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
+		Self {
+			identity_key: base64::encode(identity.identity().public()),
+			pre_keys: identity.prekeys().map(PrekeyRecord::new).collect(),
+			signed_pre_key: SignedPrekeyRecord::new(identity),
+		}
+	}
+}
+
 pub fn main() {
 	// used to send the exit code from async_main to the main task
 	let (tx, rx) = tokio::sync::oneshot::channel::<i32>();
@@ -129,9 +204,8 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	{
 		use auxin::account::*;
 
-		//
 		let mut account = SignalAccount::new(&arguments.user, rand::thread_rng());
-		//
+
 		let mut headers = header::HeaderMap::new();
 		headers.insert(
 			"X-Signal-Agent",
@@ -246,37 +320,18 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				match status {
 					StatusCode::OK => {
 						// Returns our UUID/ACI and UUID/PNI from the server
-						let json: serde_json::Value = res.json().await?;
+						let json: SignalRegistrationResponse = res.json().await?;
 						dbg!(&json);
 
-						let aci = json["uuid"].as_str().unwrap();
+						let aci = json.uuid;
 						account.set_aci(aci);
 
-						let pni = json["pni"].as_str().unwrap();
+						let pni = json.pni;
 						account.set_pni(pni);
 
-						let mut prekeys = Vec::new();
-						for (k, v) in account.aci().prekeys() {
-							let j = serde_json::json! {{
-								"keyId": k,
-								"publicKey": base64::encode(v.public())
-							}};
-							prekeys.push(j);
-						}
+						let json = SignalPrekeyData::new(account.aci());
+						let _ = dbg!(serde_json::to_string_pretty(&json));
 
-						// And sends it all to the server
-						let json = serde_json::json! {{
-							"identityKey": base64::encode(account.aci().identity().public()),
-							"preKeys": [
-								prekeys
-							],
-							"signedPreKey": {
-								"keyId": account.aci().signed_id(),
-								"publicKey": base64::encode(account.aci().signed_prekey().public()),
-								"signature": base64::encode(account.aci().signature())
-							}
-						}};
-						dbg!(&json);
 						let url = "https://chat.signal.org/v2/keys/?identity=aci";
 						let _res = client
 							.put(url)
