@@ -333,12 +333,37 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						let _ = dbg!(serde_json::to_string_pretty(&json));
 
 						let url = "https://chat.signal.org/v2/keys/?identity=aci";
-						let _res = client
+						let res = client
 							.put(url)
 							.bearer_auth(account.auth_token())
 							.json(&json)
 							.send()
 							.await?;
+						let status = res.status();
+						match status {
+							StatusCode::OK | StatusCode::NO_CONTENT => {
+								// TODO: This is ????
+								// Per the log ilia gave for registration, something weird happens next.
+								// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/services/ProfileService.java#L84
+								// TODO(Diana): This seems to basically just be AuxinApp::retrieve_profile but on ourselves
+								// This seems to be what signal does after registering.
+								// Do we even need to do it?
+								// Maybe future stuff, to get some of our own profile settings from the server
+								// I *think* Signal returns some feature flags here? like whether stories are enabled
+
+								// let uuid = account.aci().uuid();
+								// let version = account.profile_key().version(uuid);
+								// let url =
+								// 	format!("https://chat.signal.org/v1/profile/{uuid}/{version}",);
+								// let res = client
+								// 	.put(url)
+								// 	.bearer_auth(account.auth_token())
+								// 	.json(&json)
+								// 	.send()
+								// 	.await?;
+							}
+							c => warn!("Received unknown response from signal servers: {c}"),
+						}
 					}
 					StatusCode::INTERNAL_SERVER_ERROR
 					| StatusCode::FORBIDDEN
