@@ -120,6 +120,9 @@ pub struct Identity<Rng> {
 	/// Next signed prekey ID
 	next_signed_id: u32,
 
+	#[serde(skip)]
+	// #[serde(default = "rand::thread_rng")]
+	#[serde(bound = "Rng: rand::Rng")]
 	rng: Rng,
 }
 
@@ -222,6 +225,8 @@ impl<R> Identity<R> {
 /// Represents the state we are required to keep for our own user account
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SignalAccount<Rng> {
+	#[serde(skip)]
+	#[serde(bound = "Rng: rand::Rng")]
 	rng: Rng,
 
 	/// Phone number
