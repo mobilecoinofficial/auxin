@@ -66,6 +66,8 @@ pub mod utils;
 pub use context::*;
 pub use message::Timestamp;
 
+pub mod account;
+
 /// Self-signing root cert for TLS connections to Signal's web API..
 pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
 /// Trust anchor for IAS - required to validate certificate chains for remote SGX attestation.
