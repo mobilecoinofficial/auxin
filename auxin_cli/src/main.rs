@@ -23,7 +23,7 @@ use auxin::{
 
 use auxin_protos::WebSocketMessage;
 use futures::executor::block_on;
-use libsignal_protocol::KeyPair;
+use libsignal_protocol::{KeyPair, PrivateKey};
 use log::{debug, error, trace};
 use rand::{rngs::OsRng, CryptoRng, Rng};
 use reqwest::{header, StatusCode};
@@ -40,7 +40,6 @@ use tokio::{
 use tracing::{info, warn, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
-use uuid::Uuid;
 
 pub mod app;
 pub mod attachment;
@@ -183,6 +182,171 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			}
 		}
 
+		#[derive(Debug, serde::Serialize, serde::Deserialize)]
+		struct AuxinKeyPair {
+			public: [u8; 32],
+			private: [u8; 32],
+		}
+
+		impl AuxinKeyPair {
+			pub fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
+				let keys = KeyPair::generate(rng);
+				// Unwraps should be fine, these methods should never error.
+				let public = keys
+					.public_key
+					.public_key_bytes()
+					.unwrap()
+					.try_into()
+					.unwrap();
+				let private = keys.private_key.serialize().try_into().unwrap();
+				Self { public, private }
+			}
+
+			pub fn calculate_signature<R: Rng + CryptoRng>(
+				&self,
+				message: &[u8],
+				rng: &mut R,
+			) -> [u8; 64] {
+				let keypair = PrivateKey::deserialize(self.private()).unwrap();
+				keypair.calculate_signature(message, rng).unwrap()[..]
+					.try_into()
+					.unwrap()
+			}
+
+			pub fn public(&self) -> &[u8; 32] {
+				&self.public
+			}
+
+			pub fn private(&self) -> &[u8; 32] {
+				&self.private
+			}
+		}
+
+		/// An account or phone number identity, ACI or PNI respectively
+		#[derive(Debug, serde::Serialize, serde::Deserialize)]
+		struct Identity<Rng> {
+			/// Identity UUID
+			uuid: String,
+
+			/// Identity keys
+			identity_keys: AuxinKeyPair,
+
+			/// Prekeys
+			identity_prekeys: HashMap<u32, AuxinKeyPair>,
+
+			/// Currently active signed prekey
+			signed_prekey: AuxinKeyPair,
+			signed_prekey_id: u32,
+
+			/// Signature of identity key and signed prekey
+			#[serde(with = "serde_arrays")]
+			signature: [u8; 64],
+
+			/// Next prekey ID
+			next_prekey_id: u32,
+
+			/// Next signed prekey ID
+			next_signed_id: u32,
+
+			rng: Rng,
+		}
+
+		impl<R: Rng + CryptoRng> Identity<R> {
+			fn new(uuid: impl Into<String>, mut rng: R) -> Self {
+				// On registration, after getting the ACI/PNI
+				// Signal generates an identity keypair for both
+				//
+				// See
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/dependencies/ApplicationDependencyProvider.java#L287-L309
+				// and
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/RegistrationRepository.java#L131-L140
+				let identity_keys = AuxinKeyPair::generate(&mut rng);
+				let signed_prekey = AuxinKeyPair::generate(&mut rng);
+
+				// NOTE: Signal-android for some reason generates 2^24-1 bit IDs
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/AccountValues.kt#L223-L230
+				let signed_prekey_id = rng.gen_range(0, 0xFFFFFF);
+
+				let mut s = Self {
+					uuid: uuid.into(),
+					signature: {
+						let message = signed_prekey.public();
+						identity_keys.calculate_signature(message, &mut rng)
+					},
+					identity_keys,
+					identity_prekeys: HashMap::new(),
+					signed_prekey,
+					signed_prekey_id,
+
+					next_prekey_id: rng.gen_range(0, 0xFFFFFF),
+					next_signed_id: Self::next_id(signed_prekey_id),
+					rng,
+				};
+				s.generate_prekeys();
+				s
+			}
+
+			pub fn prekeys(&self) -> impl Iterator<Item = (&u32, &AuxinKeyPair)> {
+				self.identity_prekeys.iter()
+			}
+
+			pub fn identity(&self) -> &AuxinKeyPair {
+				&self.identity_keys
+			}
+
+			pub fn signed_prekey(&self) -> &AuxinKeyPair {
+				&self.signed_prekey
+			}
+
+			pub fn signed_id(&self) -> u32 {
+				self.next_signed_id
+			}
+
+			pub fn signature(&self) -> &[u8; 64] {
+				&self.signature
+			}
+
+			fn next_id(id: u32) -> u32 {
+				(id + 1) % 0xFFFFFF
+			}
+
+			fn _next_signed_id(&mut self) -> u32 {
+				// From this point on, next signed_prekey ID is as follows
+				// (signed_prekey_id + 1) % 0xFFFFFF
+				// See
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L76
+				self.next_signed_id = Self::next_id(self.next_signed_id);
+				self.next_signed_id
+			}
+
+			fn _next_prekey_id(&mut self) -> u32 {
+				// See https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L46-L63
+				self.next_signed_id = Self::next_id(self.next_signed_id + 100);
+				self.next_signed_id
+			}
+
+			fn next_prekey_offset(&self, i: u32) -> u32 {
+				(self.next_prekey_id + i) % 0xFFFFFF
+			}
+
+			fn generate_prekeys(&mut self) {
+				// On registration, signal generates 100 prekeys
+				// See https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L46-L63
+				for i in 0..100 {
+					self.identity_prekeys.insert(
+						self.next_prekey_offset(i),
+						AuxinKeyPair::generate(&mut self.rng),
+					);
+				}
+			}
+		}
+
+		impl<R> Identity<R> {
+			pub fn uuid(&self) -> &str {
+				&self.uuid
+			}
+		}
+
 		/// Represents the state we are required to keep for our own user account
 		#[derive(Debug, serde::Serialize, serde::Deserialize)]
 		struct SignalAccount<Rng> {
@@ -191,11 +355,11 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			/// Phone number
 			phone: PhoneNumber,
 
-			/// ACI
-			account_identity: Option<Uuid>,
+			/// Account Identity
+			aci: Option<Identity<Rng>>,
 
-			/// PNI
-			phone_identity: Option<Uuid>,
+			/// Phone Number Identity
+			pni: Option<Identity<Rng>>,
 
 			/// Registration ID
 			reg_id: i32,
@@ -205,21 +369,16 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 			/// Randomly generated "password"
 			password: Password,
-
-			/// All our prekeys and their IDs
-			// NOTE: Signal-android for some reason generates 2^24-1 bit IDs
-			prekeys: HashMap<u32, String>,
 		}
 
-		impl<R: Rng + CryptoRng> SignalAccount<R> {
+		impl<R: Rng + CryptoRng + Clone> SignalAccount<R> {
 			/// Create a new signal account
 			pub fn new(phone: impl Into<String>, mut rng: R) -> Self {
 				Self {
-					prekeys: HashMap::new(),
 					password: dbg!(Password::generate(&mut rng)),
 					phone: PhoneNumber::new(phone),
-					account_identity: None,
-					phone_identity: None,
+					aci: None,
+					pni: None,
 					// See https://github.com/signalapp/libsignal-client/blob/6787408e5d8fc8e60c92e43cb0cee3dd6d2c8640/java/shared/java/org/whispersystems/libsignal/util/KeyHelper.java#L41
 					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/RegistrationRepository.java#L68-L75
 					reg_id: rng.gen_range(1, 16380),
@@ -229,20 +388,28 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				}
 			}
 
-			/// Register a signal account with the server
+			/// Create a new SignalAccount for a newly registered account.
 			///
-			/// `code` is the verification code from SMS verification.
-			pub async fn register_sms(
-				phone: impl Into<String>,
-				code: impl Into<String>,
-				rng: R,
+			/// `aci` and `pni` will be from the Signal servers
+			pub async fn _register(
+				_phone: impl Into<String>,
+				_aci: impl Into<String>,
+				_pni: impl Into<String>,
+				_rng: R,
 			) -> Result<Self> {
 				todo!()
 			}
 
-			pub fn set_aci(&mut self, aci: Uuid) {
-				let _ = self.account_identity.insert(aci);
-				let keys = KeyPair::generate(&mut self.rng);
+			pub fn set_aci(&mut self, aci: impl Into<String>) {
+				let _ = self.aci.insert(Identity::new(aci, self.rng.clone()));
+			}
+
+			pub fn set_pni(&mut self, pni: impl Into<String>) {
+				let _ = self.pni.insert(Identity::new(pni, self.rng.clone()));
+			}
+
+			pub fn aci(&self) -> &Identity<R> {
+				self.aci.as_ref().unwrap()
 			}
 		}
 
@@ -252,8 +419,10 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				// See
 				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L1794
 				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L2129
-				match self.account_identity {
-					Some(aci) => base64::encode(format!("{}:{}", &aci, self.password.password())),
+				match &self.aci {
+					Some(aci) => {
+						base64::encode(format!("{}:{}", &aci.uuid(), self.password.password()))
+					}
 					None => base64::encode(format!(
 						"{}:{}",
 						&self.phone.phone(),
@@ -269,12 +438,32 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			pub fn profile_key(&self) -> &[u8] {
 				self.profile_key.key()
 			}
+
+			/// Unidentified Access key as used by signal
+			// during registration only?
+			// Groups different?
+			pub fn unidentified_access(&self) -> Vec<u8> {
+				// See [`auxin::context::get_unidentified_access_for_key`]
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.5/app/src/main/java/org/thoughtcrime/securesms/registration/VerifyAccountRepository.kt#L56
+				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/crypto/UnidentifiedAccess.java#L40-L55
+				use aes_gcm::{
+					aead::{Aead, NewAead},
+					Aes256Gcm, Key, Nonce,
+				};
+				let profile_key = Key::from_slice(self.profile_key());
+				let cipher = Aes256Gcm::new(profile_key);
+				let nonce = Nonce::from_slice(&[0u8; 12]);
+
+				// Signal trims this to 16 bytes?
+				let mut x = cipher.encrypt(nonce, &[0u8; 16][..]).unwrap(); //[..16]
+				x.truncate(x.len() - 16);
+				x
+			}
 		}
 
 		//
-		let account = SignalAccount::new(&arguments.user, rand::thread_rng());
+		let mut account = SignalAccount::new(&arguments.user, rand::thread_rng());
 		//
-		let mut rng = rand::thread_rng();
 		let mut headers = header::HeaderMap::new();
 		headers.insert(
 			"X-Signal-Agent",
@@ -331,22 +520,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				dbg!(&code);
 				// TODO(Diana): registration lock code 423
 
-				// See [`auxin::context::get_unidentified_access_for_key`]
-				// https://github.com/signalapp/Signal-Android/blob/v5.33.5/app/src/main/java/org/thoughtcrime/securesms/registration/VerifyAccountRepository.kt#L56
-				// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/crypto/UnidentifiedAccess.java#L40-L55
-				let unidentified_access = {
-					use aes_gcm::{
-						aead::{Aead, NewAead},
-						Aes256Gcm, Key, Nonce,
-					};
-					let profile_key = Key::from_slice(&account.profile_key());
-					// panic!("UGH");
-					let cipher = Aes256Gcm::new(profile_key);
-					let nonce = Nonce::from_slice(&[0u8; 12]);
-
-					// Signal trims this to 16 bytes?
-					&cipher.encrypt(nonce, &[0u8; 16][..])?[..16]
-				};
+				let unidentified_access = account.unidentified_access();
 
 				let json = serde_json::json! {{
 					// Next few are hard-coded to null
@@ -409,64 +583,34 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						let json: serde_json::Value = res.json().await?;
 						dbg!(&json);
 
-						// On registration, after getting the ACI/PNI
-						// Signal generates an identity keypair for both
-						//
-						// See
-						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/dependencies/ApplicationDependencyProvider.java#L287-L309
-						// and
-						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/RegistrationRepository.java#L131-L140
 						let aci = json["uuid"].as_str().unwrap();
-						let aci_identity_pair = KeyPair::generate(&mut rng);
+						account.set_aci(aci);
 
 						let pni = json["pni"].as_str().unwrap();
-						let pni_identity_pair = KeyPair::generate(&mut rng);
+						account.set_pni(pni);
 
-						// Signal then generates a keypair for the prekeys
-						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/AccountValues.kt#L223-L230
-						let signed_prekey_id: i32 = rng.gen_range(0, 0xFFFFFF);
-						let signed_prekey = KeyPair::generate(&mut rng);
-
-						// And a signature, from our ACI identity.
-						let message = signed_prekey.public_key.public_key_bytes()?;
-						let sig = aci_identity_pair.calculate_signature(message, &mut rng)?;
-
-						// From this point on, next ACI signed_prekey ID is as follows
-						// (signed_prekey_id + 1) % 0xFFFFFF
-						// See
-						// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L76
-
-						// See https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L50
-						let prekey_id_offset: i32 = rng.gen_range(0, 0xFFFFFF);
 						let mut prekeys = Vec::new();
-						for i in 0..100 {
-							let prekey_id = (prekey_id_offset + i) % 0xFFFFFF;
-							let prekey_pair = KeyPair::generate(&mut rng);
-							let p = prekey_pair.public_key.public_key_bytes()?;
-
-							// prekeys.push((prekey_id, base64::encode(p)));
-							// prekeys((prekey_id, base64::encode(p)));
+						for (k, v) in account.aci().prekeys() {
 							let j = serde_json::json! {{
-								"keyId": prekey_id,
-								"publicKey": base64::encode(p)
+								"keyId": k,
+								"publicKey": base64::encode(v.public())
 							}};
 							prekeys.push(j);
 						}
-						// Next ACI pre_key IDs are as follows
-						// (prekey_id_offset + 100 + 1) % 0xFFFFFF
 
 						// And sends it all to the server
 						let json = serde_json::json! {{
-							"identityKey": base64::encode(aci_identity_pair.public_key.public_key_bytes()?),
+							"identityKey": base64::encode(account.aci().identity().public()),
 							"preKeys": [
 								prekeys
 							],
 							"signedPreKey": {
-								"keyId": signed_prekey_id,
-								"publicKey": base64::encode(message),
-								"signature": base64::encode(sig)
+								"keyId": account.aci().signed_id(),
+								"publicKey": base64::encode(account.aci().signed_prekey().public()),
+								"signature": base64::encode(account.aci().signature())
 							}
 						}};
+						dbg!(&json);
 						let url = "https://chat.signal.org/v2/keys/?identity=aci";
 						let _res = client
 							.put(url)
