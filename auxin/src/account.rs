@@ -187,12 +187,6 @@ impl<R: Rng + CryptoRng> Identity<R> {
 		self.next_signed_id
 	}
 
-	fn _next_prekey_id(&mut self) -> u32 {
-		// See https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/PreKeyUtil.java#L46-L63
-		self.next_signed_id = Self::next_id(self.next_signed_id + 100);
-		self.next_signed_id
-	}
-
 	fn next_prekey_offset(&self, i: u32) -> u32 {
 		(self.next_prekey_id + i) % 0xFFFFFF
 	}
@@ -206,6 +200,7 @@ impl<R: Rng + CryptoRng> Identity<R> {
 				AuxinKeyPair::generate(&mut self.rng),
 			);
 		}
+		self.next_prekey_id = Self::next_id(self.next_signed_id + 100);
 	}
 }
 
@@ -238,6 +233,16 @@ impl<R> Identity<R> {
 	/// Signature of identity private key and signed prekey public key
 	pub fn signature(&self) -> &[u8; 64] {
 		&self.signature
+	}
+
+	/// Current next prekey ID
+	pub fn next_prekey_id(&self) -> u32 {
+		self.next_prekey_id
+	}
+
+	/// Current next signed prekey ID
+	pub fn next_signed_id(&self) -> u32 {
+		self.next_signed_id
 	}
 }
 
