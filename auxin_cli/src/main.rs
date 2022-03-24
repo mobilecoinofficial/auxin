@@ -215,7 +215,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			"Authorization",
 			header::HeaderValue::from_str(&format!("Basic {}", account.auth_token()))?,
 		);
-		dbg!(&headers);
 		let cert = reqwest::Certificate::from_pem(auxin::SIGNAL_TLS_CERT.as_bytes())?;
 		let client = reqwest::ClientBuilder::new()
 			.add_root_certificate(cert)
@@ -257,7 +256,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			}
 			AuxinCommand::Verify { code } => {
 				let url = format!("https://chat.signal.org/v1/accounts/code/{}", code);
-				dbg!(&code);
 				// TODO(Diana): registration lock code 423
 
 				let unidentified_access = account.unidentified_access();
@@ -311,17 +309,13 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					"registrationId": account.registration_id()
 				}};
 				// let json = serde_json::to_string(&json)?;
-				let req = dbg!(client.put(url).json(&json)).build()?;
-				dbg!(req.headers());
+				let req = client.put(url).json(&json).build()?;
 				let res = client.execute(req).await?;
-				dbg!(&res);
 				let status = res.status();
-				dbg!(&status);
 				match status {
 					StatusCode::OK => {
 						// Returns our UUID/ACI and UUID/PNI from the server
 						let json: SignalRegistrationResponse = res.json().await?;
-						dbg!(&json);
 
 						let aci = json.uuid;
 						account.set_aci(aci);
@@ -330,7 +324,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						account.set_pni(pni);
 
 						let json = SignalPrekeyData::new(account.aci());
-						let _ = dbg!(serde_json::to_string_pretty(&json));
 
 						let url = "https://chat.signal.org/v2/keys/?identity=aci";
 						let res = client
@@ -342,6 +335,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						let status = res.status();
 						match status {
 							StatusCode::OK | StatusCode::NO_CONTENT => {
+								account.to_signal_cli(&arguments.config)?;
 								// TODO: This is ????
 								// Per the log ilia gave for registration, something weird happens next.
 								// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/services/ProfileService.java#L84
