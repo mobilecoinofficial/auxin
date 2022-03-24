@@ -276,7 +276,7 @@ impl<R: Rng + CryptoRng + Clone> SignalAccount<R> {
 	/// Create a new signal account
 	pub fn new(phone: impl Into<String>, mut rng: R) -> Self {
 		Self {
-			password: dbg!(Password::generate(&mut rng)),
+			password: Password::generate(&mut rng),
 			phone: PhoneNumber::new(phone),
 			aci: None,
 			pni: None,
