@@ -1,8 +1,9 @@
 //! Holds and manages data for a Signal account
-use crate::Result;
 use libsignal_protocol::{KeyPair, PrivateKey};
 use rand::{CryptoRng, Rng};
-use std::collections::HashMap;
+use std::{collections::HashMap, convert::TryInto};
+use uuid::Uuid;
+use zkgroup::api::profiles::profile_key::ProfileKey as ZkProfileKey;
 
 /// A signal account "password"
 ///
@@ -25,21 +26,33 @@ impl Password {
 	}
 }
 
-/// A 32-byte 256-bit profile key
+/// Signal profile key
+// A 32-byte 256-bit profile key
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ProfileKey([u8; 32]);
+pub struct ProfileKey([u8; 32]);
 impl ProfileKey {
 	/// Generate a profile key
 	///
 	/// Should only be called once at registration
-	pub fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
+	fn generate<R: Rng + CryptoRng>(rng: &mut R) -> Self {
 		// Signal generates a 32 byte random key at registration
 		// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/crypto/ProfileKeyUtil.java#L75
 		// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/registration/RegistrationRepository.java#L81
-		Self(rng.gen())
+		// Idk crypto, just use ZkProfileKey to be safe. it does weird math or something.
+		Self(ZkProfileKey::generate(rng.gen()).bytes)
 	}
 
-	pub fn key(&self) -> &[u8; 32] {
+	/// Get the profile key "version"
+	pub fn version(&self, uuid: &str) -> String {
+		let ver = ZkProfileKey::create(self.0)
+			.get_profile_key_version(*Uuid::parse_str(uuid).unwrap().as_bytes());
+		// Seems to be internally guaranteed to succeed?
+		// This is literally how signal does it.
+		let serialized = bincode::serialize(&ver).unwrap();
+		String::from_utf8(serialized).unwrap()
+	}
+
+	pub fn as_bytes(&self) -> &[u8; 32] {
 		&self.0
 	}
 }
@@ -197,26 +210,32 @@ impl<R: Rng + CryptoRng> Identity<R> {
 }
 
 impl<R> Identity<R> {
+	/// Identity UUID
 	pub fn uuid(&self) -> &str {
 		&self.uuid
 	}
 
+	/// Iterator over prekey IDs and prekeys for this identity, in arbitrary order.
 	pub fn prekeys(&self) -> impl Iterator<Item = (&u32, &AuxinKeyPair)> {
 		self.identity_prekeys.iter()
 	}
 
+	/// Identity keypair
 	pub fn identity(&self) -> &AuxinKeyPair {
 		&self.identity_keys
 	}
 
+	/// Signed prekey pair
 	pub fn signed_prekey(&self) -> &AuxinKeyPair {
 		&self.signed_prekey
 	}
 
+	/// Signed prekey ID
 	pub fn signed_id(&self) -> u32 {
 		self.next_signed_id
 	}
 
+	/// Signature of identity private key and signed prekey public key
 	pub fn signature(&self) -> &[u8; 64] {
 		&self.signature
 	}
@@ -265,32 +284,23 @@ impl<R: Rng + CryptoRng + Clone> SignalAccount<R> {
 		}
 	}
 
-	/// Create a new SignalAccount for a newly registered account.
-	///
-	/// `aci` and `pni` will be from the Signal servers
-	pub async fn _register(
-		_phone: impl Into<String>,
-		_aci: impl Into<String>,
-		_pni: impl Into<String>,
-		_rng: R,
-	) -> Result<Self> {
-		todo!()
-	}
-
+	/// Set the ACI uuid.
+	/// Should only be called during registration.
 	pub fn set_aci(&mut self, aci: impl Into<String>) {
 		let _ = self.aci.insert(Identity::new(aci, self.rng.clone()));
 	}
 
+	/// Set the PNI uuid.
+	/// Should only be called during registration.
 	pub fn set_pni(&mut self, pni: impl Into<String>) {
 		let _ = self.pni.insert(Identity::new(pni, self.rng.clone()));
-	}
-
-	pub fn aci(&self) -> &Identity<R> {
-		self.aci.as_ref().unwrap()
 	}
 }
 
 impl<R> SignalAccount<R> {
+	/// Authentication token for Signal APIs
+	///
+	/// If ACI has not yet been set, uses our phone number instead.
 	pub fn auth_token(&self) -> String {
 		// If no ACI, such as during registering, uses the phone number
 		// See
@@ -306,12 +316,14 @@ impl<R> SignalAccount<R> {
 		}
 	}
 
+	/// Random number identifying this install
 	pub fn registration_id(&self) -> i32 {
 		self.reg_id
 	}
 
-	pub fn profile_key(&self) -> &[u8] {
-		self.profile_key.key()
+	/// Our profile key
+	pub fn profile_key(&self) -> &ProfileKey {
+		&self.profile_key
 	}
 
 	/// Unidentified Access key as used by signal
@@ -325,7 +337,7 @@ impl<R> SignalAccount<R> {
 			aead::{Aead, NewAead},
 			Aes256Gcm, Key, Nonce,
 		};
-		let profile_key = Key::from_slice(self.profile_key());
+		let profile_key = Key::from_slice(self.profile_key().as_bytes());
 		let cipher = Aes256Gcm::new(profile_key);
 		let nonce = Nonce::from_slice(&[0u8; 12]);
 
@@ -333,5 +345,10 @@ impl<R> SignalAccount<R> {
 		let mut x = cipher.encrypt(nonce, &[0u8; 16][..]).unwrap(); //[..16]
 		x.truncate(x.len() - 16);
 		x
+	}
+
+	/// Account Identity
+	pub fn aci(&self) -> &Identity<R> {
+		self.aci.as_ref().unwrap()
 	}
 }
