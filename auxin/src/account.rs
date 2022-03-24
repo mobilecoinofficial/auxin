@@ -351,4 +351,9 @@ impl<R> SignalAccount<R> {
 	pub fn aci(&self) -> &Identity<R> {
 		self.aci.as_ref().unwrap()
 	}
+
+	/// Account Identity
+	pub fn pni(&self) -> &Identity<R> {
+		self.pni.as_ref().unwrap()
+	}
 }
