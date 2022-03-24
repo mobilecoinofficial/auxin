@@ -22,7 +22,9 @@ use auxin::{
 //External dependencies
 
 use auxin_protos::WebSocketMessage;
+use base64::STANDARD_NO_PAD;
 use futures::executor::block_on;
+use libsignal_protocol::PublicKey;
 use log::{debug, error, trace};
 use rand::rngs::OsRng;
 use reqwest::{header, StatusCode};
@@ -76,7 +78,11 @@ struct PrekeyRecord {
 	/// Key ID
 	key_id: u32,
 
-	/// Base64 of public key
+	/// Special Signal encoding
+	///
+	/// See
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PreKeyEntity.java#L31-L34
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/push/SignedPreKeyEntity.java#L25-L35
 	public_key: String,
 }
 
@@ -84,7 +90,13 @@ impl PrekeyRecord {
 	fn new(record: (&u32, &auxin::account::AuxinKeyPair)) -> Self {
 		Self {
 			key_id: *record.0,
-			public_key: base64::encode(record.1.public()),
+			// public_key: base64::encode_config(record.1.public(), STANDARD_NO_PAD),
+			public_key: base64::encode_config(
+				PublicKey::from_djb_public_key_bytes(record.1.public())
+					.unwrap()
+					.serialize(),
+				STANDARD_NO_PAD,
+			),
 		}
 	}
 }
@@ -96,7 +108,11 @@ struct SignedPrekeyRecord {
 	/// Key ID
 	key_id: u32,
 
-	/// Base64 of public key
+	/// Special Signal encoding
+	///
+	/// See
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PreKeyEntity.java#L31-L34
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/push/SignedPreKeyEntity.java#L25-L35
 	public_key: String,
 
 	/// Base64 of signature
@@ -107,8 +123,14 @@ impl SignedPrekeyRecord {
 	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
 		Self {
 			key_id: identity.signed_id(),
-			public_key: base64::encode(identity.signed_prekey().public()),
-			signature: base64::encode(identity.signature()),
+			// public_key: base64::encode_config(identity.signed_prekey().public(), STANDARD_NO_PAD),
+			public_key: base64::encode_config(
+				PublicKey::from_djb_public_key_bytes(identity.signed_prekey().public())
+					.unwrap()
+					.serialize(),
+				STANDARD_NO_PAD,
+			),
+			signature: base64::encode_config(identity.signature(), STANDARD_NO_PAD),
 		}
 	}
 }
@@ -119,14 +141,22 @@ impl SignedPrekeyRecord {
 struct SignalPrekeyData {
 	/// base64 of Identity public key
 	identity_key: String,
+
 	pre_keys: Vec<PrekeyRecord>,
+
 	signed_pre_key: SignedPrekeyRecord,
 }
 
 impl SignalPrekeyData {
 	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
 		Self {
-			identity_key: base64::encode(identity.identity().public()),
+			// identity_key: base64::encode_config(identity.identity().public(), STANDARD_NO_PAD),
+			identity_key: base64::encode_config(
+				PublicKey::from_djb_public_key_bytes(identity.identity().public())
+					.unwrap()
+					.serialize(),
+				STANDARD_NO_PAD,
+			),
 			pre_keys: identity.prekeys().map(PrekeyRecord::new).collect(),
 			signed_pre_key: SignedPrekeyRecord::new(identity),
 		}
@@ -323,7 +353,10 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						let pni = json.pni;
 						account.set_pni(pni);
 
+						account.to_signal_cli(&arguments.config)?;
+
 						let json = SignalPrekeyData::new(account.aci());
+						println!("{}", serde_json::to_string_pretty(&json)?);
 
 						let url = "https://chat.signal.org/v2/keys/?identity=aci";
 						let res = client
@@ -333,8 +366,16 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 							.send()
 							.await?;
 						let status = res.status();
+						dbg!(status);
+						dbg!(res.text().await?);
+						// TODO(Diana): This keeps failing and i don't know why.
+						// See https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PreKeyState.java#L13-L33
+						// For details. I fixed the encoding, but it still fails?
+						// Might need a new account. Maybe try with signal-cli to see if it registers.
 						match status {
 							StatusCode::OK | StatusCode::NO_CONTENT => {
+								dbg!("SUCCESS");
+								dbg!(&account);
 								account.to_signal_cli(&arguments.config)?;
 								// TODO: This is ????
 								// Per the log ilia gave for registration, something weird happens next.
@@ -355,6 +396,10 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 								// 	.json(&json)
 								// 	.send()
 								// 	.await?;
+							}
+							StatusCode::UNAUTHORIZED => {
+								error!("Couldn't upload prekeys");
+								return Err("Couldn't upload prekeys".into());
 							}
 							c => warn!("Received unknown response from signal servers: {c}"),
 						}
