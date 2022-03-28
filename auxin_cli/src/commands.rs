@@ -33,7 +33,7 @@ use structopt::StructOpt;
 use serde::{Deserialize, Serialize};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
-pub const VERSION_STR: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"),"-",env!("GIT_HASH"));
 
 pub const JSONRPC_VER: &str = "2.0";
 
@@ -566,6 +566,13 @@ pub async fn process_jsonrpc_input(
 						id: req.id.clone(),
 					}),
 				}
+			},
+			"version" => {
+				JsonRpcResponse::Ok(JsonRpcGoodResponse {
+					jsonrpc: JSONRPC_VER.to_string(),
+					result: serde_json::Value::String(VERSION_STR.to_string()),
+					id: req.id.clone(),
+				})
 			},
 			"upload" => {
 				match serde_json::from_value::<UploadCommand>(req.params) {
