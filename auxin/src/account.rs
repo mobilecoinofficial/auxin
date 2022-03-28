@@ -332,6 +332,13 @@ impl<R: Rng + CryptoRng + Clone> SignalAccount<R> {
 		let _ = self.pni.insert(Identity::new(pni, self.rng.clone()));
 	}
 
+	/// Read our SignalAccount from signal-cli
+	///
+	/// This should be a temporary thing pending the rewrite
+	///
+	/// Errors if the file/data for our account already exists
+	///
+	/// `state_dir` is the signal-cli state directory.
 	pub fn from_signal_cli(
 		state_dir: impl AsRef<Path>,
 		phone: impl Into<String>,
@@ -397,7 +404,6 @@ impl<R: Rng + CryptoRng + Clone> SignalAccount<R> {
 			)
 		};
 
-		// let mut
 		Ok(Self {
 			phone: PhoneNumber::new(phone),
 			aci: Some(Identity {
