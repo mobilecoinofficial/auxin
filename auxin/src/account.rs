@@ -14,7 +14,18 @@ use zkgroup::api::profiles::profile_key::ProfileKey as ZkProfileKey;
 
 /// A signal account "password"
 ///
-/// 18 random bytes, base64 encoded
+/// This is used primarily for authorization with the API
+///
+/// For API Authorization, Signal uses Basic Authorization,
+/// with the ACI UUID as username and this "password"
+///
+/// If the ACI UUID is unavailable, the phone number is used
+///
+/// For non default devices, the username has `.<device id>` appended
+///
+/// See for more details
+/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L1794
+/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L2129
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Password(String);
 impl Password {
@@ -86,6 +97,10 @@ impl PhoneNumber {
 	}
 }
 
+/// Represents a public and private keypair for use with Signal
+///
+/// This exists instead of `libsignal`s keypair for the sake of convenience
+/// and format control.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AuxinKeyPair {
 	public: [u8; 32],
@@ -135,6 +150,7 @@ pub struct Identity<Rng> {
 	identity_prekeys: HashMap<u32, AuxinKeyPair>,
 
 	/// Currently active signed prekey
+	// TODO(Diana): Make a HashMap, store active one.
 	signed_prekey: AuxinKeyPair,
 	signed_prekey_id: u32,
 
