@@ -294,7 +294,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 			// task that triggers pings, running in its own happy little sleep environment
 			tokio::task::spawn(async move {
-				// trigger a PING every 10s
+				// trigger a PING every 55s
 				let mut interval = interval_at(Instant::now(), Duration::from_secs(55));
 				loop {
 					interval.tick().await;
