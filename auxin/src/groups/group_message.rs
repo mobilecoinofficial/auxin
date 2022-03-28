@@ -80,7 +80,7 @@ impl GroupSendContextV2 {
 				let ciphertext_message = libsignal_protocol::group_encrypt(
 					&mut context.sender_key_store,
 					&our_address,
-					self.distribution_id.clone(),
+					self.distribution_id,
 					padded_plaintext,
 					rng,
 					signal_ctx,
@@ -107,7 +107,7 @@ impl GroupSendContextV2 {
 						let group_message = group_encrypt(
 							&mut context.sender_key_store,
 							&our_address,
-							self.distribution_id.clone(),
+							self.distribution_id,
 							padded_plaintext,
 							rng,
 							signal_ctx,

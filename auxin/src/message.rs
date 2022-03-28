@@ -845,7 +845,7 @@ impl MessageOut {
 
 		info!("Encrypting as a group message.");
 		let (_envelope_type, ciphertext_bytes) = group
-			.group_encrypt(&address_to, &our_message_bytes, context, rng)
+			.group_encrypt(address_to, &our_message_bytes, context, rng)
 			.await?;
 		Ok(ciphertext_bytes)
 	}
