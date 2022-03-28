@@ -515,24 +515,6 @@ impl<R> SignalAccount<R> {
 		Ok(())
 	}
 
-	/// Authentication token for Signal APIs
-	///
-	/// If ACI has not yet been set, uses our phone number instead.
-	pub fn auth_token(&self) -> String {
-		// If no ACI, such as during registering, uses the phone number
-		// See
-		// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L1794
-		// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PushServiceSocket.java#L2129
-		match &self.aci {
-			Some(aci) => base64::encode(format!("{}:{}", &aci.uuid(), self.password.password())),
-			None => base64::encode(format!(
-				"{}:{}",
-				&self.phone.phone(),
-				self.password.password()
-			)),
-		}
-	}
-
 	/// Random number identifying this install
 	pub fn registration_id(&self) -> i32 {
 		self.reg_id

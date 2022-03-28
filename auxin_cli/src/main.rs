@@ -243,7 +243,11 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 		);
 		headers.insert(
 			"Authorization",
-			header::HeaderValue::from_str(&format!("Basic {}", account.auth_token()))?,
+			header::HeaderValue::from_str(&format!(
+				"Basic {}:{}",
+				account.phone(),
+				account.password()
+			))?,
 		);
 		let cert = reqwest::Certificate::from_pem(auxin::SIGNAL_TLS_CERT.as_bytes())?;
 		let client = reqwest::ClientBuilder::new()
