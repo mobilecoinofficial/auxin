@@ -356,31 +356,25 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						account.to_signal_cli(&arguments.config)?;
 
 						let json = SignalPrekeyData::new(account.aci());
-						println!("{}", serde_json::to_string_pretty(&json)?);
 
 						let url = "https://chat.signal.org/v2/keys/?identity=aci";
 						let res = client
 							.put(url)
-							.bearer_auth(account.auth_token())
+							.basic_auth(account.aci().uuid(), Some(account.password()))
 							.json(&json)
 							.send()
 							.await?;
 						let status = res.status();
-						dbg!(status);
-						dbg!(res.text().await?);
-						// TODO(Diana): This keeps failing and i don't know why.
-						// See https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PreKeyState.java#L13-L33
-						// For details. I fixed the encoding, but it still fails?
-						// Might need a new account. Maybe try with signal-cli to see if it registers.
+
 						match status {
 							StatusCode::OK | StatusCode::NO_CONTENT => {
-								dbg!("SUCCESS");
-								dbg!(&account);
-								account.to_signal_cli(&arguments.config)?;
-								// TODO: This is ????
+								info!("Account successfully registered");
+								return Ok(());
+								// TODO(Diana): This seems to basically just be AuxinApp::retrieve_profile but on ourselves
+								// Do we need to do this? Don't think so
+								// Might need to do this to create recipients-store?
 								// Per the log ilia gave for registration, something weird happens next.
 								// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/services/ProfileService.java#L84
-								// TODO(Diana): This seems to basically just be AuxinApp::retrieve_profile but on ourselves
 								// This seems to be what signal does after registering.
 								// Do we even need to do it?
 								// Maybe future stuff, to get some of our own profile settings from the server
@@ -392,16 +386,14 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 								// 	format!("https://chat.signal.org/v1/profile/{uuid}/{version}",);
 								// let res = client
 								// 	.put(url)
-								// 	.bearer_auth(account.auth_token())
+								// 	.basic_auth(account.aci().uuid(), Some(account.password()))
 								// 	.json(&json)
 								// 	.send()
 								// 	.await?;
 							}
-							StatusCode::UNAUTHORIZED => {
-								error!("Couldn't upload prekeys");
-								return Err("Couldn't upload prekeys".into());
+							c => {
+								error!("Received unknown response from signal servers. Status {c}\nBody: {}",res.text().await?);
 							}
-							c => warn!("Received unknown response from signal servers: {c}"),
 						}
 					}
 					StatusCode::INTERNAL_SERVER_ERROR
@@ -410,7 +402,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 						error!("Invalid SMS code, cannot verify");
 						return Err("Invalid SMS code, cannot verify".into());
 					}
-					c => warn!("Received unknown response from signal servers: {c}"),
+					c => error!("Received unknown response from signal servers: {c}"),
 				}
 				return Ok(());
 			}

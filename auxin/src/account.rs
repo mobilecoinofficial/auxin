@@ -559,6 +559,18 @@ impl<R> SignalAccount<R> {
 	pub fn pni(&self) -> &Identity<R> {
 		self.pni.as_ref().unwrap()
 	}
+
+	/// Account phone number
+	pub fn phone(&self) -> &str {
+		self.phone.phone()
+	}
+
+	/// Account "password", base64
+	///
+	/// Generally only used for the HTTP authorization header
+	pub fn password(&self) -> &str {
+		self.password.password()
+	}
 }
 
 type E164 = String;
