@@ -387,7 +387,11 @@ impl<R: Rng + CryptoRng + Clone> SignalAccount<R> {
 			aci: Some(Identity {
 				uuid: local.uuid,
 				identity_keys: AuxinKeyPair {
-					public: base64::decode(local.public_key)?[..].try_into()?,
+					public: libsignal_protocol::PublicKey::deserialize(&base64::decode(
+						local.public_key,
+					)?)?
+					.public_key_bytes()?
+					.try_into()?,
 					private: base64::decode(local.private_key)?[..].try_into()?,
 				},
 				identity_prekeys,
@@ -401,7 +405,11 @@ impl<R: Rng + CryptoRng + Clone> SignalAccount<R> {
 			pni: Some(Identity {
 				uuid: local.pni,
 				identity_keys: AuxinKeyPair {
-					public: base64::decode(local.pni_public_key)?[..].try_into()?,
+					public: libsignal_protocol::PublicKey::deserialize(&base64::decode(
+						local.pni_public_key,
+					)?)?
+					.public_key_bytes()?
+					.try_into()?,
 					private: base64::decode(local.pni_private_key)?[..].try_into()?,
 				},
 				// TODO(Diana): signal-cli doesn't save these?
@@ -463,9 +471,15 @@ impl<R> SignalAccount<R> {
 			self.registration_id() as _,
 			base64::encode(self.profile_key().as_bytes()),
 			base64::encode(aci_key.private()),
-			base64::encode(aci_key.public()),
+			base64::encode(
+				libsignal_protocol::PublicKey::from_djb_public_key_bytes(aci_key.public())?
+					.serialize(),
+			),
 			base64::encode(pni_key.private()),
-			base64::encode(pni_key.public()),
+			base64::encode(
+				libsignal_protocol::PublicKey::from_djb_public_key_bytes(pni_key.public())?
+					.serialize(),
+			),
 			self.aci().next_prekey_id(),
 			self.aci().next_signed_id(),
 		);
