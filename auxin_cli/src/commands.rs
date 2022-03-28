@@ -33,6 +33,10 @@ use structopt::StructOpt;
 use serde::{Deserialize, Serialize};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
+
+#[cfg(git_untracked)]
+pub const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"),"-",env!("GIT_HASH"), "*");
+#[cfg(not(git_untracked))]
 pub const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"),"-",env!("GIT_HASH"));
 
 pub const JSONRPC_VER: &str = "2.0";
