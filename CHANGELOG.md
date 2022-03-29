@@ -1,3 +1,20 @@
+## 0.1.15
+
+ * Bugfixes, version command, support sending typing.
+ * PRs #55, #56, #57, #58
+
+## 0.1.14
+
+ * Groups V2!
+ * PR #54
+
+## 0.1.12
+
+ * Async / tokio refactoring, PR #51
+
+## 0.1.11
+
+ * Fix sealed sender (PR #48)
 
 ## 0.1.7
 
