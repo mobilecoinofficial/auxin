@@ -384,14 +384,20 @@ impl AuxinTungsteniteConnection {
 	) -> std::result::Result<Self, EstablishConnectionError> {
 		let client = Self::connect(&credentials).await?;
 		let (watchdog_tx, mut watchdog_rx) = tokio::sync::mpsc::channel(1);
+		let ping_interval_secs = 55;
+		let wakeup_time_millis = 100;
+		let exit_after_wakeups = 3 * ping_interval_secs * 1000 / wakeup_time_millis;
+		debug!("Using PING interval {:?}secs, waking up every {:?}ms, and exiting after {:?} wakeups without a PONG.", ping_interval_secs, wakeup_time_millis, exit_after_wakeups);
 		watchdog_tx.send(true).await.unwrap();
 		tokio::task::spawn(async move {
-			let mut interval = tokio::time::interval_at(Instant::now(), Duration::from_secs(10));
-			let mut tick = tokio::time::interval_at(Instant::now(), Duration::from_millis(100));
+			let mut interval =
+				tokio::time::interval_at(Instant::now(), Duration::from_secs(ping_interval_secs));
+			let mut tick =
+				tokio::time::interval_at(Instant::now(), Duration::from_millis(wakeup_time_millis));
 			let mut counts_since_reset = 0;
 			loop {
 				tokio::select! (
-				_ =  interval.tick() => {if counts_since_reset > 1000 { std::process::exit(1); }}
+				_ =  interval.tick() => {if counts_since_reset > exit_after_wakeups { std::process::exit(1); }}
 				_ =  tick.tick() => {counts_since_reset += 1;}
 				maybe_input =  watchdog_rx.recv() => {match maybe_input { Some(_) => { counts_since_reset = 0;} ,
 				None => {},
