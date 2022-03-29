@@ -556,6 +556,8 @@ impl MessageContent {
 			let mut new_content = content.clone();
 			if new_content.has_dataMessage() {
 				new_content.mut_dataMessage().set_timestamp(timestamp);
+			} else if new_content.has_typingMessage() {
+				new_content.mut_typingMessage().set_timestamp(timestamp);
 			}
 
 			let _ = protobuf::Message::compute_size(&new_content);
