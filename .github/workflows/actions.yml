@@ -34,10 +34,13 @@ jobs:
           key: ${{ runner.os }}-nightly-target-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-nightly-target-
+      # - name: Setup tmate session # this lets you SSH into the container
+      #   uses: mxschmitt/action-tmate@v3
       - name: Run cargo check
         uses: actions-rs/cargo@v1
         with:
           command: check
+          args: --target x86_64-unknown-linux-gnu
       - name: Run cargo build
         uses: actions-rs/cargo@v1
         with:
