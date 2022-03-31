@@ -209,6 +209,7 @@ pub enum SendCommandError {
 	AttachmentUploadError(auxin::attachment::upload::AttachmentUploadError),
 	AttachmentEncryptError(auxin::attachment::upload::AttachmentEncryptError),
 	AttachmentFileReadError(std::io::Error),
+	PreparedAttachmentError(String),
 	SimulateErr(String),
 	BadDestination(String, String),
 }
@@ -223,6 +224,7 @@ impl std::fmt::Display for SendCommandError {
 			SendCommandError::AttachmentFileReadError(e) => write!(f, "Tried to load a file to upload as an attachment (to send on a message), but an error was encountered while opening the file: {:?}", e),
 			SendCommandError::SimulateErr(e) => write!(f, "Serializing a Signal message content to a json structure for the --simulate argument failed: {:?}", e),
 			SendCommandError::BadDestination(dest, e) => write!(f, "The destination provided, {}, isn't a UUID, phone number, or group ID. Error was: {}", dest, e),
+			SendCommandError::PreparedAttachmentError(e) => write!(f, "Could not parse json as attachment pointer: {}", e),
 		}
 	}
 }
@@ -890,6 +892,28 @@ pub async fn handle_send_command(
 			} else {
 				//Otherwise, we are constructing content regularly.
 
+				//Add it to our list!
+				message_content.attachments.push(attachment_pointer);
+			}
+		}
+	}
+
+	//Prepared attachments? 
+	if let Some(prepared_attachments) = cmd.prepared_attachments.as_ref() { 
+		for attachment_string in prepared_attachments.iter() { 
+			//Parse each entry
+			let attachment_pointer: AttachmentPointer = serde_json::from_str(attachment_string)
+				.map_err(|e| SendCommandError::PreparedAttachmentError(format!("{:?}",e)))?;
+
+			//Attach to our message. 
+			//If we have a premade content, put the attachments there instead.
+			if let Some(c) = &mut premade_content {
+				if !c.has_dataMessage() {
+					c.set_dataMessage(auxin_protos::DataMessage::default());
+				}
+				c.mut_dataMessage().attachments.push(attachment_pointer);
+			} else {
+				//Otherwise, we are constructing content regularly.
 				//Add it to our list!
 				message_content.attachments.push(attachment_pointer);
 			}
