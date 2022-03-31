@@ -110,7 +110,12 @@ pub enum AuxinCommand {
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct SendCommand {
 	/// Sets the destination for our message (as E164-format phone number, user UUID, or group ID encoded as base-64).
-	pub destination: String,
+	pub destination: Option<String>,
+
+	/// Used instead of `destination` to send a message to a group.
+	#[serde(default)]
+	#[structopt(short, long="groupId")]
+	pub group_id: Option<String>,
 
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
 	#[serde(default)]
@@ -211,6 +216,7 @@ pub enum SendCommandError {
 	AttachmentFileReadError(std::io::Error),
 	SimulateErr(String),
 	BadDestination(String, String),
+	NoDestination,
 }
 
 impl std::fmt::Display for SendCommandError {
@@ -223,6 +229,7 @@ impl std::fmt::Display for SendCommandError {
 			SendCommandError::AttachmentFileReadError(e) => write!(f, "Tried to load a file to upload as an attachment (to send on a message), but an error was encountered while opening the file: {:?}", e),
 			SendCommandError::SimulateErr(e) => write!(f, "Serializing a Signal message content to a json structure for the --simulate argument failed: {:?}", e),
 			SendCommandError::BadDestination(dest, e) => write!(f, "The destination provided, {}, isn't a UUID, phone number, or group ID. Error was: {}", dest, e),
+			SendCommandError::NoDestination => write!(f, "Neither a GroupId nor a UserId was provided."),
 		}
 	}
 }
@@ -831,13 +838,15 @@ pub async fn handle_send_command(
 	}
 
 	//Set up our address
-	let destination = match GroupId::from_base64(&cmd.destination) {
-		Ok(group_id) => MessageDest::Group(group_id),
-		Err(_e) => MessageDest::User(
-			AuxinAddress::try_from(cmd.destination.as_str()).map_err(|e| {
-				SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
-			})?,
-		)
+	let destination = match cmd.destination.as_ref() {
+		Some(user_id) => MessageDest::User(
+			AuxinAddress::try_from(user_id.as_str()).map_err( |e| SendCommandError::BadDestination(user_id.clone(), format!("{}", e)) )?
+		),
+		None => {
+			let group_b64 = cmd.group_id.as_ref().ok_or( SendCommandError::NoDestination )?; 
+			let group_id = GroupId::from_base64(group_b64).map_err( |e| SendCommandError::BadDestination(group_b64.clone(), format!("{}", e)) )?;
+			MessageDest::Group(group_id)
+		},
 	};
 
 	//MessageContent
