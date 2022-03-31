@@ -114,8 +114,8 @@ pub struct SendCommand {
 
 	/// Used instead of `destination` to send a message to a group.
 	#[serde(default)]
-	#[structopt(short, long="group-id")]
-	pub group_id: Option<String>,
+	#[structopt(short, long)]
+	pub group: Option<String>,
 
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
 	#[serde(default)]
@@ -843,7 +843,7 @@ pub async fn handle_send_command(
 			AuxinAddress::try_from(user_id.as_str()).map_err( |e| SendCommandError::BadDestination(user_id.clone(), format!("{}", e)) )?
 		),
 		None => {
-			let group_b64 = cmd.group_id.as_ref().ok_or( SendCommandError::NoDestination )?; 
+			let group_b64 = cmd.group.as_ref().ok_or( SendCommandError::NoDestination )?; 
 			let group_id = GroupId::from_base64(group_b64).map_err( |e| SendCommandError::BadDestination(group_b64.clone(), format!("{}", e)) )?;
 			MessageDest::Group(group_id)
 		},
