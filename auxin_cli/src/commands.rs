@@ -114,7 +114,7 @@ pub struct SendCommand {
 
 	/// Used instead of `destination` to send a message to a group.
 	#[serde(default)]
-	#[structopt(short, long="groupId")]
+	#[structopt(short, long="group-id")]
 	pub group_id: Option<String>,
 
 	/// Add one or more attachments to this message, passed in as a file path to pull from.
