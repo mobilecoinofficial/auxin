@@ -208,7 +208,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 	env_logger::init();
 
-
 	#[cfg(not(git_untracked))]
 	warn!("Could not determine if this build has been modified from the source repository. Please ensure build.rs is being run correctly.");
 
