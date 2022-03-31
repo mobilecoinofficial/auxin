@@ -256,6 +256,9 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			.build()?;
 		match &arguments.command {
 			AuxinCommand::Register { captcha } => {
+				let captcha = captcha
+					.as_ref()
+					.map(|s| s.strip_prefix("signalcaptcha://").unwrap_or(s));
 				let url = match captcha {
 					Some(c) => format!(
 						"https://chat.signal.org/v1/accounts/sms/code/{}?client=android&captcha={c}",
