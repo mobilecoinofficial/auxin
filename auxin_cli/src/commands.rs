@@ -587,12 +587,22 @@ pub async fn process_jsonrpc_input(
 						// Actually do send behavior.
 						let upload_output = handle_upload_command(val, app).await;
 						match upload_output {
-							Ok(attachment_pointers) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
-								jsonrpc: JSONRPC_VER.to_string(),
-								// send_output shouldn't be possible to error while encoding to json.
-								result: serde_json::to_value(attachment_pointers).unwrap(),
-								id: req.id.clone(),
-							}),
+							Ok(attachment_pointers) => { 
+								let result = if attachment_pointers.len() == 0 {
+									serde_json::Value::Null
+								} 
+								else if attachment_pointers.len() == 1 { 
+									serde_json::to_value(&attachment_pointers[0]).unwrap()
+								}
+								else { 
+									serde_json::to_value(attachment_pointers).unwrap()
+								};
+								JsonRpcResponse::Ok(JsonRpcGoodResponse {
+									jsonrpc: JSONRPC_VER.to_string(),
+									result,
+									id: req.id.clone(),
+								})
+							},
 							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
 								jsonrpc: JSONRPC_VER.to_string(),
 								error: JsonRpcError {
@@ -905,7 +915,7 @@ pub async fn handle_send_command(
 			let attachment_pointer: AttachmentPointer = serde_json::from_str(attachment_string)
 				.map_err(|e| SendCommandError::PreparedAttachmentError(format!("{:?}",e)))?;
 
-			//Attach to our message. 
+			//Attach to our message.
 			//If we have a premade content, put the attachments there instead.
 			if let Some(c) = &mut premade_content {
 				if !c.has_dataMessage() {

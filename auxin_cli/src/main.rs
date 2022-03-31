@@ -167,7 +167,16 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			let start_time = Instant::now();
 			let attachments = handle_upload_command(upload_command, &mut app).await?;
 
-			let json_attachment_pointer = serde_json::to_string(&attachments)?;
+			let json_attachment_pointer = if attachments.len() == 1 { 
+				serde_json::to_string(&attachments[0])?
+			}
+			else if attachments.len() > 1 {
+				serde_json::to_string(&attachments)?
+			}
+			else { 
+				String::default()
+			};
+			
 			println!("{}", json_attachment_pointer);
 
 			info!(
