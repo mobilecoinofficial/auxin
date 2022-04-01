@@ -1068,7 +1068,6 @@ pub async fn decrypt_unidentified_sender(
 
 /// Represents any message we have received over Signal
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MessageIn {
 	pub content: MessageContent,
 	/// The address of the peer we are receiving from.
