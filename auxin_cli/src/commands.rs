@@ -25,7 +25,7 @@ use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_T
 use log::debug;
 
 use rand::rngs::OsRng;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use std::{convert::TryFrom, path::PathBuf};
 use structopt::StructOpt;
@@ -149,7 +149,7 @@ pub struct SendCommand {
 	/// Used to pass a \"Content\" protocol buffer struct from signalservice.proto, serialized as a json string.
 	#[structopt(short, long)]
 	#[serde(default)]
-	pub content: Option<String>,
+	pub content: Option<serde_json::Value>,
 
 	/// Generate a Signal Service \"Content\" structure without actually sending it.
 	/// Useful for testing the -c / --content option.
@@ -851,6 +851,21 @@ enum MessageDest {
 	User(AuxinAddress),
 }
 
+/// merge two jsons
+fn merge(a: &mut Value, b: &Value) {
+    match (a, b) {
+        (&mut Value::Object(ref mut a), &Value::Object(ref b)) => {
+            for (k, v) in b {
+                merge(a.entry(k.clone()).or_insert(Value::Null), v);
+            }
+        }
+        (a, b) => {
+            *a = b.clone();
+        }
+    }
+}
+
+
 pub async fn handle_send_command(
 	mut cmd: SendCommand,
 	app: &mut crate::app::App,
@@ -885,10 +900,26 @@ pub async fn handle_send_command(
 		..MessageContent::default()
 	};
 
+	//our content as json.
+	let built_content = MessageContent::default()
+		.build_signal_content(
+			&base64::encode(&app.context.identity.profile_key),
+			None,
+			generate_timestamp(),
+		)
+		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
+
+	let mut base_content_json = serde_json::to_value(built_content).map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
 	//Did the user pass in a "Content" protocol buffer serialized as json?
 	let mut premade_content: Option<auxin_protos::Content> = cmd
 		.content
-		.map(|s| serde_json::from_str(s.as_ref()).unwrap());
+		.map(|s| {
+			merge(&mut base_content_json, & s);
+			serde_json::from_value(base_content_json).unwrap()
+		}
+//			serde_json::from_str(s.as_ref()).unwrap()
+	);
+	
 
 	// TODO: PARALLELIZE ATTACHMENT UPLOADS
 
@@ -1204,7 +1235,6 @@ impl From<GetUuidError> for JsonRpcErrorResponse {
 
 #[allow(unused_assignments)]
 pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::Value>> {
-	use serde_json::Value;
 	let mut output = None;
 	match val {
 		// Silence nulls
