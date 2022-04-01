@@ -1079,6 +1079,8 @@ pub struct MessageIn {
 	/// Timestamp for when we got this message. Technically this is when it was *decoded*, not *received,* but it should be close enough for any metric we're worried about.
 	pub timestamp_received: u64,
 	pub server_guid: String,
+	/// The GroupId of the group this message pertains to (formatted as Base64), if this is a group message.
+	pub group_id: Option<String>,
 }
 
 impl MessageIn {
@@ -1208,6 +1210,7 @@ impl MessageIn {
 			timestamp: envelope.get_timestamp(),
 			timestamp_received: generate_timestamp(), //Keep track of when we got it.
 			server_guid: envelope.get_serverGuid().to_string(),
+			group_id: None,
 		})
 	}
 
@@ -1235,6 +1238,7 @@ impl MessageIn {
 			timestamp: envelope.get_timestamp(),
 			timestamp_received: generate_timestamp(), //Keep track of when we got it.
 			server_guid: envelope.get_serverGuid().to_string(),
+			group_id: None,
 		})
 	}
 
@@ -1283,6 +1287,7 @@ impl MessageIn {
 			timestamp: envelope.get_timestamp(),
 			timestamp_received: generate_timestamp(), //Keep track of when we got it.
 			server_guid: envelope.get_serverGuid().to_string(),
+			group_id: None,
 		})
 	}
 

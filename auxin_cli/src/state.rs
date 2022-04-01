@@ -1207,6 +1207,10 @@ and cannot automatically be repaired.",
 		let our_path = self.get_protocol_store_path(context);
 		let sender_key_path = our_path.join("sender-keys");
 
+		if !sender_key_path.exists() { 
+			std::fs::create_dir_all(&sender_key_path)?;
+		}
+
 		for (sender_key_name, sender_key_record_structure) in
 			context.sender_key_store.sender_keys.iter()
 		{
@@ -1328,6 +1332,9 @@ and cannot automatically be repaired.",
 		let our_path = self.get_protocol_store_path(context);
 		let sender_key_path = our_path.join("sender-keys");
 
+		if !sender_key_path.exists() { 
+			std::fs::create_dir_all(&sender_key_path)?;
+		}
 		//Filename {peer id}_{device id}_{distribution id} for peer keys.
 		//{device id}_{distribution id}.self for local keys.
 

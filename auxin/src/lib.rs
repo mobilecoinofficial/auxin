@@ -2121,7 +2121,7 @@ where
 		&mut self,
 		data_message: &auxin_protos::DataMessage,
 		remote_address: &AuxinDeviceAddress,
-	) -> std::result::Result<(), GroupsError> {
+	) -> std::result::Result<Option<GroupId>, GroupsError> {
 		// GroupsV1
 		if data_message.has_group() {
 			let group_context = data_message.get_group();
@@ -2255,13 +2255,15 @@ where
 					}
 				}
 			}*/
+
+				return Ok(Some(GroupId::V2(group_id)));
 			} else {
 				return Err(GroupsError::InvalidMasterKeyLength(
 					group_context.get_masterKey().len() as usize,
 				));
 			}
 		}
-		Ok(())
+		Ok(None)
 	}
 
 	/// Record group information from an incoming message.
@@ -2274,18 +2276,20 @@ where
 		&mut self,
 		content: &auxin_protos::Content,
 		remote_address: &AuxinDeviceAddress,
-	) -> std::result::Result<(), HandleEnvelopeError> {
+	) -> std::result::Result<Option<GroupId>, HandleEnvelopeError> {
 		if content.has_senderKeyDistributionMessage() {
 			debug!("Got SenderKeyDistributionMessage from {:?}", remote_address);
 			self.check_sender_key_distribution(content, remote_address)
 				.await?;
 		}
-		if content.has_dataMessage() {
+		let group_id_maybe = if content.has_dataMessage() {
 			let data_message = content.get_dataMessage();
 			self.inner_update_groups_from(data_message, remote_address)
-				.await?;
-		}
-		Ok(())
+				.await?
+		} else { 
+			None
+		};
+		Ok(group_id_maybe)
 	}
 
 	/// Handle a received envelope and decode it into a MessageIn if it represents data meant to be read by the end user.
@@ -2308,7 +2312,7 @@ where
 					"Start of decrypting a standard ciphertext message at {}",
 					generate_timestamp()
 				);
-				let result =
+				let mut result =
 					MessageIn::from_ciphertext_message(envelope, &mut self.context, &mut self.rng)
 						.await?;
 
@@ -2322,15 +2326,19 @@ where
 				}
 
 				//Handle possible sender key distribution message.
-				if let Some(content) = &result.content.source {
+				let group_maybe = if let Some(content) = &result.content.source {
 					self.update_groups_from(content, &result.remote_address)
-						.await?;
+						.await?
 				}
+				else { 
+					None
+				};
 
 				info!(
 					"End of decrypting a standard ciphertext message at {}",
 					generate_timestamp()
 				);
+				result.group_id = group_maybe.map(|val| val.to_base64());
 				//Return
 				result
 			})),
@@ -2427,6 +2435,7 @@ where
 					timestamp: envelope.get_timestamp(),
 					timestamp_received: generate_timestamp(),
 					server_guid: envelope.get_serverGuid().to_string(),
+					group_id: None,
 				};
 
 				self.record_ids_from_message(&result).await.unwrap();
@@ -2465,7 +2474,7 @@ where
 					"Start of decrypting a sealed-sender message at {}",
 					generate_timestamp()
 				);
-				let result = MessageIn::from_sealed_sender(envelope, &mut self.context).await?;
+				let mut result = MessageIn::from_sealed_sender(envelope, &mut self.context).await?;
 
 				self.record_ids_from_message(&result).await.unwrap();
 
@@ -2477,10 +2486,15 @@ where
 				}
 
 				//Handle possible sender key distribution message.
-				if let Some(content) = &result.content.source {
+				let group_maybe = if let Some(content) = &result.content.source {
 					self.update_groups_from(content, &result.remote_address)
-						.await?;
-				}
+						.await?
+				} 
+				else {
+					None
+				};
+
+				result.group_id = group_maybe.map(|val| val.to_base64());
 
 				info!(
 					"End of decrypting a sealed-sender message at {}",
