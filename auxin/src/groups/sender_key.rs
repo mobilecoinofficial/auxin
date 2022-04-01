@@ -44,7 +44,7 @@ pub trait DistributionIdStore {
 			return self.get_distribution(group_id).unwrap();
 		} else {
 			let new_distribution = generate_distribution_id();
-			self.insert(new_distribution, group_id.clone());
+			self.insert(new_distribution, *group_id);
 		}
 		self.get_distribution(group_id).unwrap()
 	}
@@ -62,8 +62,9 @@ impl DistributionIdStore for HashMap<DistributionId, GroupIdV2> {
 		}
 		None
 	}
-	fn insert(&mut self, distribution_id: DistributionId, group_id: GroupIdV2) {
-		self.insert(distribution_id, group_id);
+	// TODO(Diana): Recursive call
+	fn insert(&mut self, _distribution_id: DistributionId, _group_id: GroupIdV2) {
+		self.insert(_distribution_id, _group_id);
 	}
 }
 
@@ -79,20 +80,20 @@ impl Eq for SenderKeyName {}
 
 pub const MAX_SENDER_MESSAGE_KEYS: u64 = 2000;
 
-const SENDER_MESSAGE_KEY_SEED: &'static [u8] = &[0x01];
-const SENDER_CHAIN_KEY_SEED: &'static [u8] = &[0x02];
+const SENDER_MESSAGE_KEY_SEED: &[u8] = &[0x01];
+const SENDER_CHAIN_KEY_SEED: &[u8] = &[0x02];
 
 //Cannot define impl on types from other crates.
 //We can use the usual Rust naming scheme here: {Type}Ext
 pub trait SenderChainKeyExt {
-	fn get_seed<'a>(&'a self) -> &'a [u8];
+	fn get_seed(&self) -> &[u8];
 	fn get_iteration(&self) -> u32;
-	fn make_sender_message_key<'a>(&'a self) -> Result<SenderMessageKey, hkdf::InvalidLength> {
+	fn make_sender_message_key(&self) -> Result<SenderMessageKey, hkdf::InvalidLength> {
 		let derived_seed = chain_key_derivative(SENDER_MESSAGE_KEY_SEED, self.get_seed());
 
 		SenderMessageKey::derive(self.get_iteration(), &derived_seed)
 	}
-	fn make_next_chain<'a>(&'a self) -> SenderChainKey {
+	fn make_next_chain(&self) -> SenderChainKey {
 		let derived_seed = chain_key_derivative(SENDER_CHAIN_KEY_SEED, self.get_seed());
 
 		let mut result = SenderChainKey::default();
@@ -105,8 +106,8 @@ pub trait SenderChainKeyExt {
 }
 
 impl SenderChainKeyExt for SenderChainKey {
-	fn get_seed<'a>(&'a self) -> &'a [u8] {
-		SenderChainKey::get_seed(&self)
+	fn get_seed(&self) -> &[u8] {
+		SenderChainKey::get_seed(self)
 	}
 
 	fn get_iteration(&self) -> u32 {
@@ -131,7 +132,7 @@ impl SenderKeyState {
 		let mut chain_key = SenderChainKey::default();
 		chain_key.set_iteration(iteration);
 		chain_key.set_seed(chain_key_bytes.to_vec());
-		protobuf::Message::compute_size(&mut chain_key);
+		protobuf::Message::compute_size(&chain_key);
 
 		//Set up our signing key
 		let mut signing_key = SenderSigningKey::default();
@@ -140,14 +141,14 @@ impl SenderKeyState {
 		if let Some(private) = signature_key_private {
 			signing_key.set_private(private.serialize().to_vec());
 		}
-		protobuf::Message::compute_size(&mut signing_key);
+		protobuf::Message::compute_size(&signing_key);
 
 		//Wrap this all up.
 		let mut result = SenderKeyStateStructure::default();
 		result.set_sender_key_id(id);
 		result.set_sender_chain_key(chain_key);
 		result.set_sender_signing_key(signing_key);
-		protobuf::Message::compute_size(&mut result);
+		protobuf::Message::compute_size(&result);
 
 		SenderKeyState { structure: result }
 	}
@@ -181,11 +182,11 @@ impl From<&SenderKeyState> for SenderKeyStateStructure {
 }
 
 pub fn chain_key_derivative(seed: &[u8], key: &[u8]) -> Vec<u8> {
-	let digest_key = hmac::Key::new(hmac::HMAC_SHA256, &key);
+	let digest_key = hmac::Key::new(hmac::HMAC_SHA256, key);
 	let mut digest: hmac::Context = hmac::Context::with_key(&digest_key);
 
 	//"Derivative" key is a hash of the seed.
-	digest.update(&seed);
+	digest.update(seed);
 
 	let tag = digest.sign();
 
@@ -254,7 +255,7 @@ pub async fn load_or_new_key<Store: SenderKeyStore>(
 ) -> Result<SenderKeyRecord, SignalProtocolError> {
 	let protocol_address = name.sender.uuid_protocol_address().unwrap();
 	let record_maybe = sender_key_store
-		.load_sender_key(&protocol_address, name.distribution_id.clone(), ctx.get())
+		.load_sender_key(&protocol_address, name.distribution_id, ctx.get())
 		.await?;
 
 	if let Some(record) = record_maybe {
@@ -264,7 +265,7 @@ pub async fn load_or_new_key<Store: SenderKeyStore>(
 		sender_key_store
 			.store_sender_key(
 				&protocol_address,
-				name.distribution_id.clone(),
+				name.distribution_id,
 				&new_record,
 				ctx.get(),
 			)
@@ -290,7 +291,7 @@ pub async fn process_sender_key<Store: SenderKeyStore>(
 		distribution_message.chain_id()?,
 		distribution_message.iteration()?,
 		distribution_message.chain_key()?,
-		distribution_message.signing_key()?.clone(),
+		*distribution_message.signing_key()?,
 		None,
 	)?;
 
@@ -298,7 +299,7 @@ pub async fn process_sender_key<Store: SenderKeyStore>(
 	sender_key_store
 		.store_sender_key(
 			&protocol_address,
-			sender_key_name.distribution_id.clone(),
+			sender_key_name.distribution_id,
 			&record,
 			ctx.get(),
 		)
@@ -318,14 +319,14 @@ pub async fn create_distribution_message<R: Rng + CryptoRng, Store: SenderKeySto
 	signal_ctx: &SignalCtx,
 ) -> Result<SenderKeyDistributionMessage, SignalProtocolError> {
 	let _record = load_or_new_key(sender_key_store, sender_key_name, signal_ctx).await?;
-	let protocol_address = sender_key_name.sender.uuid_protocol_address().map_err(|_| { 
+	let protocol_address = sender_key_name.sender.uuid_protocol_address().map_err(|_| {
         SignalProtocolError::InvalidArgument(
             format!( "Could not creeate a sender key distribution message because this sender address cannot be used as a protocol address: {:?}", sender_key_name.sender )
         )
     })?;
 	let distrib = libsignal_protocol::create_sender_key_distribution_message(
 		&protocol_address,
-		sender_key_name.distribution_id.clone(),
+		sender_key_name.distribution_id,
 		sender_key_store,
 		csprng,
 		signal_ctx.get(),
@@ -352,7 +353,7 @@ impl AuxinSenderKeyStore {
 	pub fn adjust_address_for_keystore(address: &AuxinDeviceAddress) -> AuxinDeviceAddress {
 		if let Ok(uuid) = address.get_uuid() {
 			AuxinDeviceAddress {
-				address: AuxinAddress::Uuid(uuid.clone()),
+				address: AuxinAddress::Uuid(*uuid),
 				device_id: address.device_id,
 			}
 		} else {
@@ -366,6 +367,12 @@ impl AuxinSenderKeyStore {
 			distribution_id: sender_key_name.distribution_id,
 		};
 		self.sender_keys.insert(new_name, record);
+	}
+}
+
+impl Default for AuxinSenderKeyStore {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 /// The type signatures here are so odd entirely so that we can implement this without relying on the async_trait crate.
@@ -445,8 +452,7 @@ impl libsignal_protocol::SenderKeyStore for AuxinSenderKeyStore {
 					sender.name()
 				))
 			});
-		let result = sender_key_name_maybe
-			.map(|name| self.sender_keys.get(&name).map(|value| value.clone()));
+		let result = sender_key_name_maybe.map(|name| self.sender_keys.get(&name).cloned());
 		// Trick Libsignal_protocol into thinking this is async code and not sync code
 		Box::pin(futures::future::ready(result))
 	}

@@ -88,7 +88,7 @@ impl From<GroupMemberInfo> for GroupMemberStorage {
 	}
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct GroupInfo {
 	pub revision: u32,
 	pub master_key: [u8; GROUP_MASTER_KEY_LEN],
@@ -106,6 +106,11 @@ impl PartialOrd for GroupInfo {
 impl std::hash::Hash for GroupInfo {
 	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
 		self.master_key.hash(state);
+	}
+}
+impl PartialEq for GroupInfo {
+	fn eq(&self, other: &Self) -> bool {
+		self.master_key == other.master_key
 	}
 }
 impl Eq for GroupInfo {}

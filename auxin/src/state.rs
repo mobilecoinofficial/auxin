@@ -63,9 +63,9 @@ impl LocalAccounts {
 		match address {
 			AuxinAddress::Phone(number) => self.get_by_number(number),
 			AuxinAddress::Uuid(uuid) => self.get_by_uuid(uuid),
-			AuxinAddress::Both(number, uuid) => {
-				self.get_by_uuid(uuid).or(self.get_by_number(number))
-			}
+			AuxinAddress::Both(number, uuid) => self
+				.get_by_uuid(uuid)
+				.or_else(|| self.get_by_number(number)),
 		}
 	}
 }
@@ -241,16 +241,14 @@ impl PeerRecord {
 	pub fn get_address(&self) -> AuxinAddress {
 		if let Some(uuid) = &self.uuid {
 			if let Some(phone) = &self.number {
-				AuxinAddress::Both(phone.clone(), uuid.clone())
+				AuxinAddress::Both(phone.clone(), *uuid)
 			} else {
-				AuxinAddress::Uuid(uuid.clone())
+				AuxinAddress::Uuid(*uuid)
 			}
+		} else if let Some(phone) = &self.number {
+			AuxinAddress::Phone(phone.clone())
 		} else {
-			if let Some(phone) = &self.number {
-				AuxinAddress::Phone(phone.clone())
-			} else {
-				panic!("Peer record with no ID - neither a phone number nor a UUID. This should not be possible.")
-			}
+			panic!("Peer record with no ID - neither a phone number nor a UUID. This should not be possible.")
 		}
 	}
 }

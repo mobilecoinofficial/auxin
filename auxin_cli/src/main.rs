@@ -22,9 +22,12 @@ use auxin::{
 //External dependencies
 
 use auxin_protos::WebSocketMessage;
+use base64::STANDARD_NO_PAD;
 use futures::executor::block_on;
-use log::{debug, error, trace, warn};
+use libsignal_protocol::PublicKey;
+use log::{debug, error, trace};
 use rand::rngs::OsRng;
+use reqwest::{header, StatusCode};
 use std::convert::TryFrom;
 use structopt::StructOpt;
 use tokio::{
@@ -35,7 +38,7 @@ use tokio::{
 	task::JoinHandle,
 	time::{interval_at, Duration, Instant},
 };
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
 
@@ -56,6 +59,109 @@ use net::{load_root_tls_cert, AuxinTungsteniteConnection};
 pub type Context = auxin::AuxinContext;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
+
+/// Response from the Signal servers when registering an account
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignalRegistrationResponse {
+	uuid: String,
+	number: String,
+	pni: String,
+	username: Option<String>,
+	storage_capable: bool,
+}
+
+/// Prekey record sent to the Signal servers
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrekeyRecord {
+	/// Key ID
+	key_id: u32,
+
+	/// Special Signal encoding
+	///
+	/// See
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PreKeyEntity.java#L31-L34
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/push/SignedPreKeyEntity.java#L25-L35
+	public_key: String,
+}
+
+impl PrekeyRecord {
+	fn new(record: (&u32, &auxin::account::AuxinKeyPair)) -> Self {
+		Self {
+			key_id: *record.0,
+			// public_key: base64::encode_config(record.1.public(), STANDARD_NO_PAD),
+			public_key: base64::encode_config(
+				PublicKey::from_djb_public_key_bytes(record.1.public())
+					.unwrap()
+					.serialize(),
+				STANDARD_NO_PAD,
+			),
+		}
+	}
+}
+
+/// Signed prekey record sent to the Signal servers
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedPrekeyRecord {
+	/// Key ID
+	key_id: u32,
+
+	/// Special Signal encoding
+	///
+	/// See
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/internal/push/PreKeyEntity.java#L31-L34
+	/// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/push/SignedPreKeyEntity.java#L25-L35
+	public_key: String,
+
+	/// Base64 of signature
+	signature: String,
+}
+
+impl SignedPrekeyRecord {
+	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
+		Self {
+			key_id: identity.signed_id(),
+			// public_key: base64::encode_config(identity.signed_prekey().public(), STANDARD_NO_PAD),
+			public_key: base64::encode_config(
+				PublicKey::from_djb_public_key_bytes(identity.signed_prekey().public())
+					.unwrap()
+					.serialize(),
+				STANDARD_NO_PAD,
+			),
+			signature: base64::encode_config(identity.signature(), STANDARD_NO_PAD),
+		}
+	}
+}
+
+/// Prekey data sent to the Signal servers on registration
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignalPrekeyData {
+	/// base64 of Identity public key
+	identity_key: String,
+
+	pre_keys: Vec<PrekeyRecord>,
+
+	signed_pre_key: SignedPrekeyRecord,
+}
+
+impl SignalPrekeyData {
+	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
+		Self {
+			// identity_key: base64::encode_config(identity.identity().public(), STANDARD_NO_PAD),
+			identity_key: base64::encode_config(
+				PublicKey::from_djb_public_key_bytes(identity.identity().public())
+					.unwrap()
+					.serialize(),
+				STANDARD_NO_PAD,
+			),
+			pre_keys: identity.prekeys().map(PrekeyRecord::new).collect(),
+			signed_pre_key: SignedPrekeyRecord::new(identity),
+		}
+	}
+}
 
 pub fn main() {
 	// used to send the exit code from async_main to the main task
@@ -102,7 +208,6 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 
 	env_logger::init();
 
-
 	#[cfg(not(git_untracked))]
 	warn!("Could not determine if this build has been modified from the source repository. Please ensure build.rs is being run correctly.");
 
@@ -124,11 +229,196 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	let state = crate::state::StateManager::new(&arguments.config);
 
 	config.enable_read_receipts = !arguments.no_read_receipt;
+
+	{
+		use auxin::account::*;
+
+		let mut account = SignalAccount::new(&arguments.user, rand::thread_rng());
+
+		let mut headers = header::HeaderMap::new();
+		headers.insert(
+			"X-Signal-Agent",
+			header::HeaderValue::from_static(auxin::net::USER_AGENT),
+		);
+		headers.insert(
+			"Authorization",
+			header::HeaderValue::from_str(&format!(
+				"Basic {}",
+				base64::encode(format!("{}:{}", account.phone(), account.password()))
+			))?,
+		);
+		let cert = reqwest::Certificate::from_pem(auxin::SIGNAL_TLS_CERT.as_bytes())?;
+		let client = reqwest::ClientBuilder::new()
+			.add_root_certificate(cert)
+			.tls_built_in_root_certs(false)
+			.default_headers(headers)
+			.user_agent(auxin::net::USER_AGENT)
+			.build()?;
+		match &arguments.command {
+			AuxinCommand::Register { captcha } => {
+				let captcha = captcha
+					.as_ref()
+					.map(|s| s.strip_prefix("signalcaptcha://").unwrap_or(s));
+				let url = match captcha {
+					Some(c) => format!(
+						"https://chat.signal.org/v1/accounts/sms/code/{}?client=android&captcha={c}",
+						arguments.user,
+					),
+					None => format!(
+						"https://chat.signal.org/v1/accounts/sms/code/{}?client=android",
+						arguments.user,
+					),
+				};
+				let res = client.get(url).send().await?;
+				let status = res.status();
+				let body = res.bytes().await?;
+				match status {
+					StatusCode::BAD_REQUEST => {
+						if body.is_empty() {
+							error!("Impossible phone number?");
+							return Err("Impossible phone number".into());
+						}
+					}
+					// Captcha Required
+					StatusCode::PAYMENT_REQUIRED => {
+						error!("Captcha required. Re-run auxin-cli with a captcha from https://signalcaptchas.org/challenge/generate.html");
+						return Err("Captcha Required".into());
+					}
+					StatusCode::OK => (),
+					c => warn!("Received unknown response from signal servers: {c}"),
+				}
+				return Ok(());
+			}
+			AuxinCommand::Verify { code } => {
+				let url = format!("https://chat.signal.org/v1/accounts/code/{}", code);
+				// TODO(Diana): registration lock code 423
+
+				let unidentified_access = account.unidentified_access();
+
+				let json = serde_json::json! {{
+					// Next few are hard-coded to null
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/SignalServiceAccountManager.java#L285
+					"signalingKey": null,
+					"pin": null,
+					"name": null,
+					// Only for new registrations
+					// TODO(Diana): Support registration lock
+					"registrationLock": null,
+
+					// Hard-coded to true
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/account/AccountAttributes.java#L63
+					"voice": true,
+					"video": true,
+
+					// This is true if FCM(Firebase Cloud Messaging) is *not* being used.
+					// For us that probably means this should always be true.
+					"fetchesMessages": true,
+
+					// Access key? base64-encoded
+					"unidentifiedAccessKey": base64::encode(&unidentified_access),
+
+					// Hard-coded/defaults to false?
+					"unrestrictedUnidentifiedAccess": false,
+
+					// Currently soft-coded to true by feature flags
+					// Presumably will change at some point
+					//
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.5/app/src/main/java/org/thoughtcrime/securesms/registration/VerifyAccountRepository.kt#L73
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/keyvalue/PhoneNumberPrivacyValues.java#L47-L50
+					"discoverableByPhoneNumber": true,
+
+					// Hard coded
+					// https://github.com/signalapp/Signal-Android/blob/v5.33.3/app/src/main/java/org/thoughtcrime/securesms/AppCapabilities.java
+					"capabilities": {
+						"uuid": true,
+						"storage": false,
+						"senderKey": true,
+						"announcementGroup": true,
+						"changeNumber": true,
+						"gv2-3": true,
+						"gv1-migration": true
+					},
+
+					// Random 14-bit?? number unique to this signal install
+					// "Should" remain consistent across registrations
+					"registrationId": account.registration_id()
+				}};
+				// let json = serde_json::to_string(&json)?;
+				let req = client.put(url).json(&json).build()?;
+				let res = client.execute(req).await?;
+				let status = res.status();
+				match status {
+					StatusCode::OK => {
+						// Returns our UUID/ACI and UUID/PNI from the server
+						let json: SignalRegistrationResponse = res.json().await?;
+
+						let aci = json.uuid;
+						account.set_aci(aci);
+
+						let pni = json.pni;
+						account.set_pni(pni);
+
+						account.to_signal_cli(&arguments.config)?;
+
+						let json = SignalPrekeyData::new(account.aci());
+
+						let url = "https://chat.signal.org/v2/keys/?identity=aci";
+						let res = client
+							.put(url)
+							.basic_auth(account.aci().uuid(), Some(account.password()))
+							.json(&json)
+							.send()
+							.await?;
+						let status = res.status();
+
+						match status {
+							StatusCode::OK | StatusCode::NO_CONTENT => {
+								info!("Account successfully registered");
+								return Ok(());
+								// TODO(Diana): This seems to basically just be AuxinApp::retrieve_profile but on ourselves
+								// Do we need to do this? Don't think so
+								// Might need to do this to create recipients-store?
+								// Per the log ilia gave for registration, something weird happens next.
+								// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/services/ProfileService.java#L84
+								// This seems to be what signal does after registering.
+								// Do we even need to do it?
+								// Maybe future stuff, to get some of our own profile settings from the server
+								// I *think* Signal returns some feature flags here? like whether stories are enabled
+
+								// let uuid = account.aci().uuid();
+								// let version = account.profile_key().version(uuid);
+								// let url =
+								// 	format!("https://chat.signal.org/v1/profile/{uuid}/{version}",);
+								// let res = client
+								// 	.put(url)
+								// 	.basic_auth(account.aci().uuid(), Some(account.password()))
+								// 	.json(&json)
+								// 	.send()
+								// 	.await?;
+							}
+							c => {
+								error!("Received unknown response from signal servers. Status {c}\nBody: {}",res.text().await?);
+							}
+						}
+					}
+					StatusCode::INTERNAL_SERVER_ERROR
+					| StatusCode::FORBIDDEN
+					| StatusCode::UNAUTHORIZED => {
+						error!("Invalid SMS code, cannot verify");
+						return Err("Invalid SMS code, cannot verify".into());
+					}
+					c => error!("Received unknown response from signal servers: {c}"),
+				}
+				return Ok(());
+			}
+			_ => (),
+		}
+	}
+
 	// Get it to all come together.
 	let mut app = AuxinApp::new(arguments.user.clone(), config, net, state, OsRng::default())
 		.instrument(tracing::info_span!("AuxinApp"))
-		.await
-		.unwrap();
+		.await?;
 
 	/*-----------------------------------------------\\
 	||--------------- COMMAND DISPATCH --------------||
@@ -510,6 +800,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				}
 			}
 		}
+		_ => unreachable!(),
 	}
 	app.state_manager.save_entire_context(&app.context).unwrap();
 	println!("finished syncing context");

@@ -105,6 +105,19 @@ pub enum AuxinCommand {
 
 	/// Retrieve a UUID corresponding to the provided phone number.
 	GetUuid(GetUuidCommand),
+
+	/// Register a signal account. See https://github.com/AsamK/signal-cli/wiki/Registration-with-captcha for details.
+	Register {
+		/// Captcha code.
+		#[structopt(long)]
+		captcha: Option<String>,
+	},
+
+	/// SMS verify a signal account
+	Verify {
+		#[structopt(long)]
+		code: String,
+	},
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -845,11 +858,9 @@ pub async fn handle_send_command(
 	//Set up our address
 	let destination = match GroupId::from_base64(&cmd.destination) {
 		Ok(group_id) => MessageDest::Group(group_id),
-		Err(_e) => MessageDest::User(
-			AuxinAddress::try_from(cmd.destination.as_str()).map_err(|e| {
-				SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e))
-			})?,
-		)
+		Err(_e) => MessageDest::User(AuxinAddress::try_from(cmd.destination.as_str()).map_err(
+			|e| SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e)),
+		)?),
 	};
 
 	//MessageContent
@@ -1063,17 +1074,16 @@ pub async fn handle_set_profile_command(
 		None
 	};
 	//TODO: Service configuration to select base URL.
-	app
-		.upload_profile(
-			"https://textsecure-service.whispersystems.org",
-			auxin::net::api_paths::SIGNAL_CDN,
-			params,
-			avatar_buf,
-		)
-		.await
-		.map(|res| SetProfileResponse {
-			status: res.status().as_u16(),
-		})
+	app.upload_profile(
+		"https://textsecure-service.whispersystems.org",
+		auxin::net::api_paths::SIGNAL_CDN,
+		params,
+		avatar_buf,
+	)
+	.await
+	.map(|res| SetProfileResponse {
+		status: res.status().as_u16(),
+	})
 }
 
 pub async fn handle_get_profile_command(
@@ -1142,7 +1152,7 @@ pub async fn handle_get_uuid_command(
 		.peer_cache
 		.get(&address)
 		.ok_or(GetUuidError::NoUuid)?;
-	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?.clone();
+	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?;
 	Ok(resulting_uuid)
 }
 

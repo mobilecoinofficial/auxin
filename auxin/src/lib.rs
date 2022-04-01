@@ -66,6 +66,8 @@ pub mod utils;
 pub use context::*;
 pub use message::Timestamp;
 
+pub mod account;
+
 /// Self-signing root cert for TLS connections to Signal's web API..
 pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
 /// Trust anchor for IAS - required to validate certificate chains for remote SGX attestation.
@@ -761,7 +763,7 @@ where
 					.device_ids_used
 					.insert(*missing);
 			}
-			if mismatch_list.missing_devices.len() > 0 {
+			if !mismatch_list.missing_devices.is_empty() {
 				//And then delete the thing we just copied. Clear it out so we only get new state.
 				self.context
 					.peer_cache
@@ -813,11 +815,11 @@ where
 
 	/// Send a Signal GroupsV2 message, looking up the sender key distribution ID and generating
 	/// a new one if necessary, and broadcasting a sender key distribution message if necessary.
-	/// 
+	///
 	/// # Arguments
 	///
-	/// * `group_id` - ID of a group to generate a distribution ID for. 
-	/// * `message` - Message to send. 
+	/// * `group_id` - ID of a group to generate a distribution ID for.
+	/// * `message` - Message to send.
 	pub async fn send_group_message(
 		&mut self,
 		group_id: &GroupId,
@@ -827,7 +829,7 @@ where
 			.context
 			.groups
 			.get(group_id)
-			.ok_or(GroupsError::NoGroupInfo(group_id.clone()))?
+			.ok_or(GroupsError::NoGroupInfo(*group_id))?
 			.clone();
 
 		let current_time = generate_timestamp();
@@ -835,7 +837,6 @@ where
 			|| ((current_time - group_info.last_distribution_timestamp)
 				>= self.context.config.sender_key_distribution_lifespan)
 		{
-
 			debug!("Generating and sending sender key distribution message.");
 			let distribution_message = self.broadcast_sender_key_distribution(group_id).await?;
 			distribution_message.distribution_id()?
@@ -849,7 +850,7 @@ where
 			GroupId::V1(_) => todo!("Only groups V2 is supported at present, legacy support for GroupsV1 is not yet implemented."),
 			GroupId::V2(_id) => {
 				GroupSendContext::V2(GroupSendContextV2 {
-					master_key: group_info.master_key.clone(),
+					master_key: group_info.master_key,
 					distribution_id,
 					revision: group_info.revision,
 				})
@@ -863,11 +864,11 @@ where
 		let group_members: Vec<&GroupMemberInfo> = group_info.members.iter().collect();
 		let group_member_addresses: Vec<AuxinAddress> = group_members
 			.iter()
-			.map(|m| AuxinAddress::Uuid(m.id.clone()))
+			.map(|m| AuxinAddress::Uuid(m.id))
 			.collect();
 
 		for member in group_members.iter() {
-			let uuid = member.id.clone();
+			let uuid = member.id;
 			let peer_addr = AuxinAddress::Uuid(uuid);
 			self.ensure_peer_loaded(&peer_addr)
 				.await
@@ -895,7 +896,7 @@ where
 		//joined_unidentified_access.truncate(16);
 		//XOR each byte
 		let mut joined_unidentified_access: Vec<u8> = Vec::default();
-		fn join_keys(v1: &Vec<u8>, v2: &Vec<u8>) -> Vec<u8> {
+		fn join_keys(v1: &[u8], v2: &[u8]) -> Vec<u8> {
 			assert_eq!(v1.len(), v2.len());
 			v1.iter().zip(v2.iter()).map(|(&x1, &x2)| x1 ^ x2).collect()
 		}
@@ -906,7 +907,7 @@ where
 				.get_unidentified_access_for(member)
 				.map_err(|e| SendGroupError::NoUnidentifiedAccess(format!("{:?}", e)))?;
 			ua.truncate(16);
-			if joined_unidentified_access.len() == 0 {
+			if joined_unidentified_access.is_empty() {
 				joined_unidentified_access.append(&mut ua);
 			} else {
 				joined_unidentified_access = join_keys(&ua, &joined_unidentified_access);
@@ -1947,18 +1948,18 @@ where
 		}
 	}
 
-	/// Look up our group-messaging sender-key distribution ID. 
-	/// Generate it if it doesn't exist, or if it's out of date. 
-	/// 
+	/// Look up our group-messaging sender-key distribution ID.
+	/// Generate it if it doesn't exist, or if it's out of date.
+	///
 	/// # Arguments
 	///
-	/// * `group_id` - ID of a group to generate a distribution ID for. 
+	/// * `group_id` - ID of a group to generate a distribution ID for.
 	fn get_or_create_distribution_id(
 		&mut self,
 		group_id: &GroupId,
 	) -> std::result::Result<DistributionId, GroupsError> {
 		if self.context.groups.get(group_id).is_none() {
-			return Err(GroupsError::NoGroupInfo(group_id.clone()));
+			return Err(GroupsError::NoGroupInfo(*group_id));
 		}
 		let needs_generate = self
 			.context
@@ -1974,11 +1975,12 @@ where
 			.unwrap()
 			.last_distribution_timestamp;
 		let current_time = generate_timestamp();
-		
+
 		// Mark that we need to generate a new sender key distribution message if it has
 		// been too long since we generated the last one.
-		let needs_generate = needs_generate | ((current_time - last_distribution_time)
-			>= self.context.config.sender_key_distribution_lifespan);
+		let needs_generate = needs_generate
+			| ((current_time - last_distribution_time)
+				>= self.context.config.sender_key_distribution_lifespan);
 
 		let new_id = match needs_generate {
 			true => Uuid::new_v4(),
@@ -1988,23 +1990,19 @@ where
 				.get(group_id)
 				.unwrap()
 				.local_distribution_id
-				.unwrap()
-				.clone(),
+				.unwrap(),
 		};
 
-		let group = self.context
-			.groups
-			.get_mut(group_id)
-			.unwrap();
+		let group = self.context.groups.get_mut(group_id).unwrap();
 		group.local_distribution_id = Some(new_id);
-		if needs_generate { 
+		if needs_generate {
 			group.last_distribution_timestamp = generate_timestamp();
 		}
 
 		Ok(new_id)
 	}
 
-	/// Generate a sender key distribution message when it's already been determined that we need one. 
+	/// Generate a sender key distribution message when it's already been determined that we need one.
 	/// This is called in broadcast_sender_key_distribution()
 	async fn produce_sender_key_distribution(
 		&mut self,
@@ -2030,15 +2028,14 @@ where
 		)
 		.await?;
 		self.state_manager
-			.save_all_sender_keys(&mut self.context)
+			.save_all_sender_keys(&self.context)
 			.map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
 		Ok(sender_key_distribution_message)
 	}
 
-
 	/// Send a Signal GroupsV2 "sender key distribution" message,
 	/// ensuring all of our peers know the sender key alias (uuid) we use for this group.
-	/// 
+	///
 	/// # Arguments
 	///
 	/// * `group_id` - ID of a group to generate a distribution ID for.
@@ -2267,7 +2264,7 @@ where
 		Ok(())
 	}
 
-	/// Record group information from an incoming message. 
+	/// Record group information from an incoming message.
 	///
 	/// # Arguments
 	///
