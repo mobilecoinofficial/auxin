@@ -852,15 +852,16 @@ enum MessageDest {
 }
 
 /// merge two jsons
-fn merge(a: &mut Value, b: &Value) {
-    match (a, b) {
-        (&mut Value::Object(ref mut a), &Value::Object(ref b)) => {
-            for (k, v) in b {
-                merge(a.entry(k.clone()).or_insert(Value::Null), v);
+/// might be nicer if this returned instead of mutating
+fn merge(base: &mut Value, mask: &Value) {
+    match (base, mask) {
+        (&mut Value::Object(ref mut base), &Value::Object(ref mask)) => {
+            for (k, v) in mask {
+                merge(base.entry(k.clone()).or_insert(Value::Null), v);
             }
         }
-        (a, b) => {
-            *a = b.clone();
+        (base, mask) => {
+            *base = mask.clone();
         }
     }
 }
@@ -900,7 +901,7 @@ pub async fn handle_send_command(
 		..MessageContent::default()
 	};
 
-	//our content as json.
+	// get default message content 
 	let built_content = MessageContent::default()
 		.build_signal_content(
 			&base64::encode(&app.context.identity.profile_key),
@@ -908,16 +909,17 @@ pub async fn handle_send_command(
 			generate_timestamp(),
 		)
 		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
-
-	let mut base_content_json = serde_json::to_value(built_content).map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
-	//Did the user pass in a "Content" protocol buffer serialized as json?
+	// turn it into json
+	let mut base_content_json = serde_json::to_value(built_content)
+		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
+	// if the user passed in a "Content" protocol buffer, mask the default with what was passed 
+	// and turn it back into a Content
 	let mut premade_content: Option<auxin_protos::Content> = cmd
 		.content
 		.map(|s| {
 			merge(&mut base_content_json, & s);
-			serde_json::from_value(base_content_json).unwrap()
+			serde_json::from_value(base_content_json).unwrap() // should this be an error type?
 		}
-//			serde_json::from_str(s.as_ref()).unwrap()
 	);
 	
 
@@ -954,7 +956,6 @@ pub async fn handle_send_command(
 				c.mut_dataMessage().attachments.push(attachment_pointer);
 			} else {
 				//Otherwise, we are constructing content regularly.
-
 				//Add it to our list!
 				message_content.attachments.push(attachment_pointer);
 			}
