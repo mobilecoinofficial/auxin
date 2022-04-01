@@ -78,6 +78,9 @@ pub enum AuxinCommand {
 	/// Sends a message to the given address.
 	Send(SendCommand),
 
+    /// Send a reaction
+	SendReaction(SendReactionCommand),
+
 	/// Uploads an attachment to Signal's CDN, and then prints the generated attachment pointer serialized to json.
 	/// This can be used with Send --prepared-attachments later.
 	Upload(UploadCommand),
@@ -162,6 +165,21 @@ pub struct SendCommand {
 	#[serde(default)]
 	pub end_session: bool,
 }
+
+#[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
+pub struct SendCommand {
+	/// Sets the destination for our emoji (as E164-format phone number, user UUID, or group ID encoded as base-64).
+	pub target_author: String,
+	pub target_timestamp: String,
+
+
+	/// Adds a text message to the SignalProtocol message we are sending..
+	#[structopt(short, long)]
+	pub emoji: Option<String>,
+	#[structopt(short, long)]
+	pub group: Option<String>,
+}
+
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
 pub struct GetUuidCommand {
@@ -552,6 +570,42 @@ pub async fn process_jsonrpc_input(
 		let response = match method_str {
 			"send" => {
 				match serde_json::from_value::<SendCommand>(req.params) {
+					// Is this a valid parameter?
+					Ok(val) => {
+						// Actually do send behavior.
+						let send_result = handle_send_command(val, app).await;
+						match send_result {
+							Ok(send_output) => JsonRpcResponse::Ok(JsonRpcGoodResponse {
+								jsonrpc: JSONRPC_VER.to_string(),
+								// send_output shouldn't be possible to error while encoding to json.
+								result: serde_json::to_value(send_output).unwrap(),
+								id: req.id.clone(),
+							}),
+							Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
+								jsonrpc: JSONRPC_VER.to_string(),
+								error: JsonRpcError {
+									code: -32000,
+									message: String::from("Error encountered while sending message."),
+									data: Some(serde_json::Value::String(format!("{:?}", e))),
+								},
+								id: req.id.clone(),
+							}),
+						}
+					},
+					// Could not decode params
+					Err(e) => JsonRpcResponse::Err(JsonRpcErrorResponse {
+						jsonrpc: JSONRPC_VER.to_string(),
+						error: JsonRpcError {
+							code: -32602,
+							message: String::from("Invalid method parameter(s) for \"send\"."),
+							data: Some(serde_json::Value::String(format!("{:?}", e))),
+						},
+						id: req.id.clone(),
+					}),
+				}
+			},
+			"send_reaction" => {
+				match serde_json::from_value::<SendReaction>(req.params) {
 					// Is this a valid parameter?
 					Ok(val) => {
 						// Actually do send behavior.
@@ -990,6 +1044,64 @@ pub async fn handle_send_command(
 		}
 	})
 }
+
+
+pub async fn handle_send_command(
+	mut cmd: SendReactionCommand,
+	app: &mut crate::app::App,
+) -> std::result::Result<SendReactionOutput, SendReactionCommandError> {
+	//Set up our address
+	let destination = match GroupId::from_base64(&cmd.destination) {
+		Ok(group_id) => MessageDest::Group(group_id),
+		Err(_e) => MessageDest::User(AuxinAddress::try_from(cmd.destination.as_str()).map_err(
+			|e| SendCommandError::BadDestination(cmd.destination.clone(), format!("{:?}", e)),
+		)?),
+	};
+
+	//MessageContent
+	let mut message_content = MessageContent {
+		//Do we have a regular text message?
+		text_message: cmd.message,
+
+		..MessageContent::default()
+	};
+
+	//Did the user pass in a "Content" protocol buffer serialized as json?
+	let mut premade_content: Option<auxin_protos::Content> = cmd
+		.content
+		.map(|s| serde_json::from_str(s.as_ref()).unwrap());
+
+
+
+	//Wrap our message content in one of these.
+	let mut message = MessageOut {
+		content: message_content,
+	};
+
+	if premade_content.is_some() {
+		debug!("Using premade content {:?}", premade_content);
+	}
+	//If there was no premade content there is no other reason for a MessageOut to have a "source" other than None.
+	message.content.source = premade_content;
+
+	Ok(match destination {
+		MessageDest::Group(group_id) => {
+			app.send_group_message(&group_id, message).await?;
+			SendOutput {
+				timestamp: generate_timestamp(),
+				simulate_output: None,
+			}
+		}
+		MessageDest::User(recipient_addr) => {
+			let timestamp = app.send_message(&recipient_addr, message).await?;
+			SendOutput {
+				timestamp,
+				simulate_output: None,
+			}
+		}
+	})
+}
+
 
 pub async fn handle_upload_command(
 	cmd: UploadCommand,
