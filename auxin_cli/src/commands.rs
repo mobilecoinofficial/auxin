@@ -105,6 +105,19 @@ pub enum AuxinCommand {
 
 	/// Retrieve a UUID corresponding to the provided phone number.
 	GetUuid(GetUuidCommand),
+
+	/// Register a signal account. See https://github.com/AsamK/signal-cli/wiki/Registration-with-captcha for details.
+	Register {
+		/// Captcha code.
+		#[structopt(long)]
+		captcha: Option<String>,
+	},
+
+	/// SMS verify a signal account
+	Verify {
+		#[structopt(long)]
+		code: String,
+	},
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
@@ -1072,17 +1085,16 @@ pub async fn handle_set_profile_command(
 		None
 	};
 	//TODO: Service configuration to select base URL.
-	app
-		.upload_profile(
-			"https://textsecure-service.whispersystems.org",
-			auxin::net::api_paths::SIGNAL_CDN,
-			params,
-			avatar_buf,
-		)
-		.await
-		.map(|res| SetProfileResponse {
-			status: res.status().as_u16(),
-		})
+	app.upload_profile(
+		"https://textsecure-service.whispersystems.org",
+		auxin::net::api_paths::SIGNAL_CDN,
+		params,
+		avatar_buf,
+	)
+	.await
+	.map(|res| SetProfileResponse {
+		status: res.status().as_u16(),
+	})
 }
 
 pub async fn handle_get_profile_command(
@@ -1151,7 +1163,7 @@ pub async fn handle_get_uuid_command(
 		.peer_cache
 		.get(&address)
 		.ok_or(GetUuidError::NoUuid)?;
-	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?.clone();
+	let resulting_uuid = peer.uuid.ok_or(GetUuidError::NoUuid)?;
 	Ok(resulting_uuid)
 }
 

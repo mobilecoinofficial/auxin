@@ -4,15 +4,13 @@ version = "0.1.10"
 edition = "2018"
 
 [dependencies]
-protobuf = { version = "2.23.0", features = ["with-serde"] }
+protobuf = "2.23.0"
 
-serde = { version = "1.0.126", features = ["derive"], optional = true }
-serde-protobuf = { version = "0.8.2", optional = true }
-base64-serde  = { version = "0.6.1" }
+serde = { version = "1.0.126", optional = true }
 
 [features]
 default = ["with-serde"]
-with-serde = ["serde", "serde-protobuf", "serde/derive", "protobuf/with-serde"]
+with-serde = ["serde", "serde/derive", "protobuf/with-serde"]
 
 [build-dependencies]
 protobuf-codegen-pure = "2.23.0"

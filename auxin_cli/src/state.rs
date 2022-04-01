@@ -608,7 +608,7 @@ pub fn load_sender_keys(
 										// Local sender key. It will be {device id}_{distribution id}.self
 										assert_eq!(name_parts.len(), 2);
 										let address = local_identity.address.address.clone();
-										let device_id = u32::from_str_radix(name_parts[0], 10)?;
+										let device_id = name_parts[0].parse::<u32>()?;
 										if local_identity.address.device_id != device_id {
 											warn!("Found a stored local sender key with a device ID that does not match our own. \
 										One Auxin protocol state directory should correspond to one device ID. \
@@ -641,7 +641,7 @@ pub fn load_sender_keys(
 										// Unknown peer sender key. It will be {user UUID}_{device id}_{distribution id}.unknown
 										assert_eq!(name_parts.len(), 3);
 										let user_id = Uuid::from_str(name_parts[0])?;
-										let device_id = u32::from_str_radix(name_parts[1], 10)?;
+										let device_id = name_parts[1].parse::<u32>()?;
 
 										let sender = AuxinDeviceAddress {
 											address: AuxinAddress::Uuid(user_id),
@@ -671,8 +671,8 @@ pub fn load_sender_keys(
 									}
 									None => {
 										// Normal sender key. It will be {peer id}_{device id}_{distribution id}
-										let user_id = u64::from_str_radix(name_parts[0], 10)?;
-										let device_id = u32::from_str_radix(name_parts[1], 10)?;
+										let user_id = name_parts[0].parse::<u64>()?;
+										let device_id = name_parts[1].parse::<u32>()?;
 
 										let address =
 											peers.get_by_peer_id(user_id).unwrap().get_address();
@@ -1219,23 +1219,22 @@ and cannot automatically be repaired.",
 				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
 					format!("{}_{}_{}", peer_id, device_id, distribution_id)
 				} else if address == context.identity.address.address {
-    						//Local key sent elsewhere, save appropriately.
-    						format!(
-    							"{}_{}.self",
-    							context.identity.address.device_id,
-    							distribution_id
-    						)
-    					} else {
-    						let filename = format!(
-    							"{}_{}_{}.unknown",
-    							address.get_uuid().unwrap(),
-    							device_id,
-    							distribution_id
-    						);
-    						warn!("Sender key on record for an unknown peer. Address is {} and device ID is {}. Writing as {}", address, device_id, &filename);
+					//Local key sent elsewhere, save appropriately.
+					format!(
+						"{}_{}.self",
+						context.identity.address.device_id, distribution_id
+					)
+				} else {
+					let filename = format!(
+						"{}_{}_{}.unknown",
+						address.get_uuid().unwrap(),
+						device_id,
+						distribution_id
+					);
+					warn!("Sender key on record for an unknown peer. Address is {} and device ID is {}. Writing as {}", address, device_id, &filename);
 
-    						filename
-    					}
+					filename
+				}
 			};
 			let bytes = sender_key_record_structure.serialize()?;
 

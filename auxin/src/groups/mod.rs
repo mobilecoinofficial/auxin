@@ -46,7 +46,7 @@ use crate::{
 	LocalIdentity,
 };
 
-pub const LIVE_ZKGROUP_SERVER_PUBLIC_PARAMS: &'static str = "AMhf5ywVwITZMsff/eCyudZx9JDmkkkbV6PInzG4p8x3VqVJSFiMvnvlEKWuRob/1eaIetR31IYeAbm0NdOuHH8Qi+Rexi1wLlpzIo1gstHWBfZzy1+qHRV5A4TqPp15YzBPm0WSggW6PbSn+F4lf57VCnHF7p8SvzAA2ZZJPYJURt8X7bbg+H3i+PEjH9DXItNEqs2sNcug37xZQDLm7X36nOoGPs54XsEGzPdEV+itQNGUFEjY6X9Uv+Acuks7NpyGvCoKxGwgKgE5XyJ+nNKlyHHOLb6N1NuHyBrZrgtY/JYJHRooo5CEqYKBqdFnmbTVGEkCvJKxLnjwKWf+fEPoWeQFj5ObDjcKMZf2Jm2Ae69x+ikU5gBXsRmoF94GXQ==";
+pub const LIVE_ZKGROUP_SERVER_PUBLIC_PARAMS: &str = "AMhf5ywVwITZMsff/eCyudZx9JDmkkkbV6PInzG4p8x3VqVJSFiMvnvlEKWuRob/1eaIetR31IYeAbm0NdOuHH8Qi+Rexi1wLlpzIo1gstHWBfZzy1+qHRV5A4TqPp15YzBPm0WSggW6PbSn+F4lf57VCnHF7p8SvzAA2ZZJPYJURt8X7bbg+H3i+PEjH9DXItNEqs2sNcug37xZQDLm7X36nOoGPs54XsEGzPdEV+itQNGUFEjY6X9Uv+Acuks7NpyGvCoKxGwgKgE5XyJ+nNKlyHHOLb6N1NuHyBrZrgtY/JYJHRooo5CEqYKBqdFnmbTVGEkCvJKxLnjwKWf+fEPoWeQFj5ObDjcKMZf2Jm2Ae69x+ikU5gBXsRmoF94GXQ==";
 
 pub fn get_server_public_params() -> ServerPublicParams {
 	let bytes = base64::decode(LIVE_ZKGROUP_SERVER_PUBLIC_PARAMS).unwrap();
@@ -118,7 +118,7 @@ impl GroupOperations {
 		let bytes = self
 			.group_secret_params
 			.decrypt_uuid(bincode::deserialize(uuid)?)
-			.map_err(|e| GroupDecryptionError::ZkGroupError(e))?;
+			.map_err(GroupDecryptionError::ZkGroupError)?;
 		Ok(bytes)
 	}
 
@@ -152,11 +152,13 @@ impl GroupOperations {
 			)?;
 			(uuid, profile_key)
 		};
-		let mut result = DecryptedMember::default();
-		result.uuid = uuid.to_vec();
-		result.role = member.role;
-		result.profileKey = bincode::serialize(&profile_key)?;
-		result.joinedAtRevision = member.joinedAtRevision;
+		let result = DecryptedMember {
+			uuid: uuid.to_vec(),
+			role: member.role,
+			profileKey: bincode::serialize(&profile_key)?,
+			joinedAtRevision: member.joinedAtRevision,
+			..Default::default()
+		};
 		Ok(result)
 	}
 
@@ -172,12 +174,14 @@ impl GroupOperations {
 		let uuid = self.decrypt_uuid(&inner_member.userId).unwrap_or_default();
 		let added_by = self.decrypt_uuid(&member.addedByUserId)?;
 
-		let mut result = DecryptedPendingMember::default();
-		result.uuid = uuid.to_vec();
-		result.role = inner_member.role;
-		result.addedByUuid = added_by.to_vec();
-		result.timestamp = member.timestamp;
-		result.uuidCipherText = inner_member.userId.clone();
+		let result = DecryptedPendingMember {
+			uuid: uuid.to_vec(),
+			role: inner_member.role,
+			addedByUuid: added_by.to_vec(),
+			timestamp: member.timestamp,
+			uuidCipherText: inner_member.userId.clone(),
+			..Default::default()
+		};
 
 		Ok(result)
 	}
@@ -202,10 +206,12 @@ impl GroupOperations {
 			)?;
 			(uuid, profile_key)
 		};
-		let mut result = DecryptedRequestingMember::default();
-		result.profileKey = bincode::serialize(&profile_key)?;
-		result.uuid = uuid.to_vec();
-		result.timestamp = member.timestamp;
+		let result = DecryptedRequestingMember {
+			profileKey: bincode::serialize(&profile_key)?,
+			uuid: uuid.to_vec(),
+			timestamp: member.timestamp,
+			..Default::default()
+		};
 		Ok(result)
 	}
 
@@ -218,7 +224,7 @@ impl GroupOperations {
 		} else {
 			self.group_secret_params
 				.decrypt_blob(bytes)
-				.map_err(|e| GroupDecryptionError::ZkGroupError(e))
+				.map_err(GroupDecryptionError::ZkGroupError)
 				.and_then(|buf| {
 					let out = fix_protobuf_buf(&buf[4..]);
 
@@ -259,9 +265,10 @@ impl GroupOperations {
 	pub fn decrypt_disappearing_message_timer(&self, ciphertext: &[u8]) -> Option<DecryptedTimer> {
 		match self.decrypt_blob(ciphertext).content {
 			Some(GroupAttributeBlob_oneof_content::disappearingMessagesDuration(duration)) => {
-				let mut result = DecryptedTimer::default();
-				result.duration = duration;
-				Some(result)
+				Some(DecryptedTimer {
+					duration,
+					..Default::default()
+				})
 			}
 			_ => None,
 		}
@@ -291,17 +298,19 @@ impl GroupOperations {
 			.map(|m| self.decrypt_requesting_member(m))
 			.collect::<Result<_, _>>()?;
 
-		let mut result = DecryptedGroup::default();
-		result.title = title;
-		result.avatar = group.avatar;
-		result.disappearingMessagesTimer = disappearing_messages_timer.into();
-		result.accessControl = group.accessControl;
-		result.revision = group.revision;
-		result.members = members;
-		result.pendingMembers = pending_members;
-		result.requestingMembers = requesting_members;
-		result.inviteLinkPassword = group.inviteLinkPassword;
-		result.description = description;
+		let result = DecryptedGroup {
+			title,
+			avatar: group.avatar,
+			disappearingMessagesTimer: disappearing_messages_timer.into(),
+			accessControl: group.accessControl,
+			revision: group.revision,
+			members,
+			pendingMembers: pending_members,
+			requestingMembers: requesting_members,
+			inviteLinkPassword: group.inviteLinkPassword,
+			description,
+			..Default::default()
+		};
 		Ok(result)
 	}
 }
@@ -482,7 +491,7 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 	) -> Result<GroupsHttpAuth, GroupApiError> {
 		let today = Self::current_time_days();
 		let auth_credential_response =
-			if let Some(auth_credential_response) = self.credentials.get(&today)?.clone() {
+			if let Some(auth_credential_response) = self.credentials.get(&today)? {
 				auth_credential_response
 			} else {
 				let credentials_map = self
@@ -535,8 +544,7 @@ impl<'a, N: AuxinHttpsConnection, C: CredentialsCache> GroupsManager<'a, N, C> {
 		}
 
 		let body = response.body();
-		Ok(serde_json::from_slice(body)
-			.map_err(|e| GroupApiError::ParsingError(format!("{:?}", e)))?)
+		serde_json::from_slice(body).map_err(|e| GroupApiError::ParsingError(format!("{:?}", e)))
 	}
 
 	fn current_time_days() -> i64 {
@@ -701,7 +709,7 @@ impl GroupId {
 	}
 	pub fn from_base64(b64: &str) -> Result<Self, GroupIdError> {
 		let buf = base64::decode(b64)?;
-		Ok(Self::from_bytes(&buf)?)
+		Self::from_bytes(&buf)
 	}
 	pub fn to_base64(&self) -> String {
 		match &self {
@@ -780,7 +788,7 @@ pub fn validate_group_member(
 		buffer.copy_from_slice(&pk_bytes[0..32]);
 		let pk = ProfileKey::create(buffer);
 		Some(pk)
-	} else if pk_bytes.len() != 0 {
+	} else if !pk_bytes.is_empty() {
 		// If it's not 32 bytes and not 0 bytes, this is invalid.
 		return Err(GroupUtilsError::InvalidSizedProfileKey(
 			member_uuid,
@@ -814,9 +822,9 @@ pub fn get_group_members_without(
 	group: &DecryptedGroup,
 	elide: &Uuid,
 ) -> Vec<Result<GroupMemberInfo, GroupUtilsError>> {
-	let mut result = get_group_members(&group);
+	let mut result = get_group_members(group);
 	result.retain(|value| {
-		let elide_inner = elide.clone();
+		let elide_inner = *elide;
 		match value {
 			Err(_) => true,
 			Ok(elem) => elem.id != elide_inner,

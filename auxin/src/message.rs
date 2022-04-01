@@ -845,7 +845,7 @@ impl MessageOut {
 
 		info!("Encrypting as a group message.");
 		let (_envelope_type, ciphertext_bytes) = group
-			.group_encrypt(&address_to, &our_message_bytes, context, rng)
+			.group_encrypt(address_to, &our_message_bytes, context, rng)
 			.await?;
 		Ok(ciphertext_bytes)
 	}
@@ -1374,9 +1374,9 @@ async fn decrypt_ciphertext<R: RngCore + CryptoRng>(
 		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 
 	let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
-	Ok(reader
+	reader
 		.read_message()
-		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?)
+		.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))
 }
 
 /// A list of messages to send. This is processed into an OutgoingPushMessageList
