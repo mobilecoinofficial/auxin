@@ -851,21 +851,26 @@ enum MessageDest {
 	User(AuxinAddress),
 }
 
-/// merge two jsons
-/// might be nicer if this returned instead of mutating
-fn merge(base: &mut Value, mask: &Value) {
+/// Merge two json object trees into one, preferentially using the values from `mask`
+pub(crate) fn merge(base: &Value, mask: &Value) -> Value {
     match (base, mask) {
-        (&mut Value::Object(ref mut base), &Value::Object(ref mask)) => {
+        (&Value::Object(ref base), &Value::Object(ref mask)) => {
+			let mut result_map = base.clone();
             for (k, v) in mask {
-                merge(base.entry(k.clone()).or_insert(Value::Null), v);
+				if base.contains_key(k) { 
+					result_map.insert(k.clone(), merge(base.get(k).unwrap_or(&Value::Null), v ) ); 
+				}
+				else { 
+					result_map.insert(k.clone(), v.clone() ); 
+				}
             }
+			Value::Object(result_map)
         }
-        (base, mask) => {
-            *base = mask.clone();
+        (_, mask) => {
+            mask.clone()
         }
     }
 }
-
 
 pub async fn handle_send_command(
 	mut cmd: SendCommand,
@@ -910,20 +915,17 @@ pub async fn handle_send_command(
 		)
 		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
 	// turn it into json
-	let mut base_content_json = serde_json::to_value(built_content)
+	let base_content_json = serde_json::to_value(built_content)
 		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
 	// if the user passed in a "Content" protocol buffer, mask the default with what was passed 
 	// and turn it back into a Content
 	let mut premade_content: Option<auxin_protos::Content> = cmd
 		.content
 		.map(|s| {
-			merge(&mut base_content_json, & s);
-			serde_json::from_value(base_content_json).unwrap() // should this be an error type?
+			let value = merge(&base_content_json, &s);
+			serde_json::from_value(value).unwrap() // should this be an error type?
 		}
 	);
-	
-
-	// TODO: PARALLELIZE ATTACHMENT UPLOADS
 
 	//Do we have one or more attachments?
 	//Note the use of values_of rather than value_of because there may be more than one of these.
