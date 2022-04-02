@@ -921,11 +921,7 @@ pub async fn handle_send_command(
 	// and turn it back into a Content
 	let mut premade_content: Option<auxin_protos::Content> = cmd
 		.content
-		.map(|s| {
-			let value = merge(&base_content_json, &s);
-			serde_json::from_value(value).unwrap() // should this be an error type?
-		}
-	);
+		.map(|s| serde_json::from_value(merge(&base_content_json, &s)).unwrap()); // should this be an error type?
 
 	//Do we have one or more attachments?
 	//Note the use of values_of rather than value_of because there may be more than one of these.
