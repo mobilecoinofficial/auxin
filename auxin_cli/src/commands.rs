@@ -907,13 +907,19 @@ pub async fn handle_send_command(
 	};
 
 	// get default message content 
-	let built_content = MessageContent::default()
+	let built_content = MessageContent {
+    		// we need to populate the stuff inside the datamessage
+    		// otherwise you get e.g. Error("missing field `attachments`", ...) in the from_value step
+			text_message: Some(String::new()), 	
+			..MessageContent::default()
+		}
 		.build_signal_content(
 			&base64::encode(&app.context.identity.profile_key),
 			None,
 			generate_timestamp(),
 		)
 		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
+	// if cmd.content.is_some() {debug!("Base content {:?}", serde_json::to_string(&built_content));}	// get default message content 
 	// turn it into json
 	let base_content_json = serde_json::to_value(built_content)
 		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
