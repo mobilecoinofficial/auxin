@@ -1,3 +1,11 @@
+## 0.1.17
+
+ * groups bugfixes (#62)
+
+## 0.1.16
+
+ * prepared attachments bugfix (#63), registration (#59)
+
 ## 0.1.15
 
  * Bugfixes, version command, support sending typing.

@@ -182,10 +182,9 @@ pub fn main() {
 		Ok(code) => {
 			std::process::exit(code);
 		}
-		Err(x) => {
-			println!("Error: {}", x);
-			std::process::exit(1)
-		}
+		// Only possible error is "channel closed"
+		// this indicates the oneshot was dropped without anything being sent
+		Err(_) => std::process::exit(1),
 	}
 }
 
