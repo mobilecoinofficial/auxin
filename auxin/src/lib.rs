@@ -4,6 +4,7 @@
 #![feature(string_remove_matches)]
 #![feature(associated_type_bounds)]
 #![feature(result_flattening)]
+#![feature(hash_drain_filter)]
 #![deny(bare_trait_objects)]
 
 //! Developer (and bot) friendly wrapper around the Signal protocol.
@@ -20,11 +21,11 @@ use attachment::{
 		PreparedAttachment,
 	},
 };
-use auxin_protos::{AttachmentPointer, Envelope};
+use auxin_protos::{AttachmentPointer, Envelope, DecryptedGroupChange, GroupChange};
 
 use custom_error::custom_error;
 use futures::TryFutureExt;
-use groups::{group_message::GroupEncryptionError, sender_key::DistributionId, GroupApiError};
+use groups::{group_message::GroupEncryptionError, sender_key::DistributionId, GroupApiError, GroupDecryptionError, validate_group_member, GroupUtilsError};
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SenderKeyDistributionMessage, SessionRecord,
@@ -49,7 +50,7 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
-use zkgroup::groups::{GroupMasterKey, GroupSecretParams};
+use zkgroup::{groups::{GroupMasterKey, GroupSecretParams}, ZkGroupError};
 
 pub mod address;
 pub mod attachment;
@@ -87,7 +88,7 @@ use crate::{
 		group_message::{GroupSendContext, GroupSendContextV2},
 		group_storage::GroupInfo,
 		sender_key::{process_sender_key, SenderKeyName},
-		GroupId, GroupIdV2, GroupMemberInfo, GroupsManager,
+		GroupId, GroupIdV2, GroupMemberInfo, GroupsManager, GroupOperations,
 	},
 	message::{
 		address_from_envelope, fix_protobuf_buf, generate_group_v2_message, remove_message_padding,
@@ -282,8 +283,11 @@ pub enum GroupsError {
 	CannotSave(String),
 	NoGroupInfo(GroupId),
 	ProtocolError(SignalProtocolError),
+	ZkError(ZkGroupError),
+	DecryptionError(GroupDecryptionError),
+	ModifyMissingGroup(GroupId),
+	UtilError(GroupUtilsError),
 }
-
 impl std::fmt::Display for GroupsError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match &self {
@@ -293,6 +297,10 @@ impl std::fmt::Display for GroupsError {
 			GroupsError::CannotSave(e) => write!(f, "Unable to save group info: {:?}.", e),
 			GroupsError::NoGroupInfo(id) => write!(f, "No group info on file for group {}, implying we have not joined that group or not recevied any messsages inside it.", id.to_base64()),
 			GroupsError::ProtocolError(e) => write!(f, "Signal Protocol error in group operations: {:?}.", e),
+			GroupsError::ZkError(e) => write!(f, "Error in Signal ZkGroups library: {:?}.", e),
+			GroupsError::DecryptionError(e) => write!(f, "Failed to decrypt group properties: {:?}.", e),
+			GroupsError::ModifyMissingGroup(id) => write!(f, "Attempted to modify our cache for group {}, but we have no cache for that group!", id.to_base64()),
+			GroupsError::UtilError(e) => write!(f, "Group util error (most likely converting protobufs into usable structures): {:?}", e),
 		}
 	}
 }
@@ -305,6 +313,21 @@ impl From<GroupApiError> for GroupsError {
 impl From<SignalProtocolError> for GroupsError {
 	fn from(val: SignalProtocolError) -> Self {
 		GroupsError::ProtocolError(val)
+	}
+}
+impl From<ZkGroupError> for GroupsError {
+	fn from(val: ZkGroupError) -> Self {
+		GroupsError::ZkError(val)
+	}
+}
+impl From<GroupDecryptionError> for GroupsError {
+	fn from(val: GroupDecryptionError) -> Self {
+		GroupsError::DecryptionError(val)
+	}
+}
+impl From<GroupUtilsError> for GroupsError {
+	fn from(val: GroupUtilsError) -> Self {
+		GroupsError::UtilError(val)
 	}
 }
 
@@ -2114,6 +2137,35 @@ where
 		Ok(())
 	}
 
+	/// Ingest a list of group change actions, applying them to our internal cached representation of 
+	/// the group's state.
+	fn apply_group_changes(&mut self, group: &GroupId, change: DecryptedGroupChange)-> std::result::Result<(), GroupsError> {
+		let group_info = self.context.groups.get_mut(group)
+			.ok_or(GroupsError::ModifyMissingGroup(group.clone()))?;
+		
+		debug!("Before applying group changes: {:?}", group_info);
+		for add_member in change.get_newMembers() {
+			debug!("Processing new member addition to group {:?}", add_member);
+			group_info.members.insert(
+				validate_group_member(add_member)?	
+			);
+		}
+	
+		for delete_member in change.get_deleteMembers() {
+			let mut bytes = [0u8;16];
+			bytes.copy_from_slice(&delete_member[0..16]);
+			let uuid = Uuid::from_bytes(bytes);
+			debug!("Processing group member deletion {:?}", &uuid);
+
+			let removed : HashSet<GroupMemberInfo> = group_info.members.drain_filter(|m| (&m.id) == (&uuid)).collect();
+
+			debug!("Removed members {:?}", removed);
+		}
+				
+		debug!("After applying group changes: {:?}", group_info);
+		Ok(())
+	}
+
 	/// Examine a Signal Service "DataMessage", checking to see if it has groups or Groupsv2 metadata.
 	/// Note: This one doesn't check Sender Keys. Try check_sender_key_distribution() or the wrapper
 	/// for this function and that one, update_groups_from()
@@ -2126,9 +2178,10 @@ where
 		if data_message.has_group() {
 			let group_context = data_message.get_group();
 			debug!(
-				"Got GroupContext from {:?}, containing: {:?}",
+				"Got a GroupsV1 GroupContext from {:?}, containing: {:?}",
 				remote_address, group_context
 			);
+			warn!("GroupsV1 support is not yet implemented.");
 		}
 		// GroupsV2
 		if data_message.has_groupV2() {
@@ -2143,11 +2196,8 @@ where
 				master_key_bytes.copy_from_slice(&group_context.get_masterKey()[0..32]);
 				let master_key = GroupMasterKey::new(master_key_bytes.clone());
 				let group_secret_params = GroupSecretParams::derive_from_master_key(master_key);
-				//let group_public_params = secret_params.get_public_params();
-				// In zkgroup::constants.rs: pub const GROUP_IDENTIFIER_LEN: usize = 32;
 
 				let group_id: GroupIdV2 = group_secret_params.get_group_identifier();
-				//let group_ops = GroupOperations::new(group_secret_params);
 
 				let mut group_manager = GroupsManager::new(
 					&mut self.http_client,
@@ -2219,42 +2269,54 @@ where
 					.groups
 					.insert(group_id_qualified.clone(), group_info);
 
-			/*
-			// "Import new peers" step.
-			for group_member in group_members.iter() {
-				let peer_address = AuxinAddress::Uuid(group_member.id.clone());
-				if !self.context.peer_cache.has_peer(&peer_address) {
-					let new_id = self.context.peer_cache.last_id + 1;
-					self.context.peer_cache.last_id = new_id;
-					let record = PeerRecord {
-						id: new_id,
-						number: None,
-						uuid: Some(group_member.id.clone()),
-						profile_key: group_member.profile_key.map(|pk| base64::encode(&pk.get_bytes())),
-						profile_key_credential: None,
-						contact: None,
-						profile: None,
-						device_ids_used: HashSet::default(),
-						registration_ids: HashMap::default(),
-						identity: None,
-					};
-					self.context.peer_cache.push(record);
-					self.fill_peer_info(&peer_address).await
-						.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
-				}
-			}
-
-			// "Make sure we know their names now that we probably have a profile key" step
-			for group_member in group_members.iter() {
-				let peer_address = AuxinAddress::Uuid(group_member.id.clone());
-				if let Some(_pk) = group_member.profile_key {
-					let profile_response = self.get_and_decrypt_profile(&peer_address).await
-						.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
-					if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) {
-						peer.profile = Some(profile_response);
+				// "Import new peers" step.
+				for group_member in group_members.iter() {
+					let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+					if !self.context.peer_cache.has_peer(&peer_address) {
+						let new_id = self.context.peer_cache.last_id + 1;
+						self.context.peer_cache.last_id = new_id;
+						let record = PeerRecord {
+							id: new_id,
+							number: None,
+							uuid: Some(group_member.id.clone()),
+							profile_key: group_member.profile_key.map(|pk| base64::encode(&pk.get_bytes())),
+							profile_key_credential: None,
+							contact: None,
+							profile: None,
+							device_ids_used: HashSet::default(),
+							registration_ids: HashMap::default(),
+							identity: None,
+						};
+						self.context.peer_cache.push(record);
+						self.fill_peer_info(&peer_address).await
+							.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
 					}
 				}
-			}*/
+
+				// "Make sure we know their names now that we probably have a profile key" step
+				for group_member in group_members.iter() {
+					let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+					if let Some(_pk) = group_member.profile_key {
+						let profile_response = self.get_and_decrypt_profile(&peer_address).await
+							.map_err(|e| GroupsError::FillPeerInfoError(format!("{:?}", e)))?;
+						if let Some(peer) = self.context.peer_cache.get_by_uuid_mut(&group_member.id) {
+							peer.profile = Some(profile_response);
+						}
+					}
+				}
+
+				//Does this GroupContext contain a GroupChange?
+				if group_context.has_groupChange() { 
+					//let decrypted_change_bytes = group_secret_params.decrypt_blob(encrypted_change)?;
+					let change_bytes = group_context.get_groupChange();
+					let change_bytes = fix_protobuf_buf(&change_bytes).unwrap();
+					let mut stream = CodedInputStream::from_bytes(&change_bytes);
+					let change: GroupChange = stream.read_message().unwrap();
+
+					let operations = GroupOperations::new(group_secret_params.clone());
+					let decrypted_change = operations.decrypt_change(change)?;
+					self.apply_group_changes(&group_id_qualified, decrypted_change)?;
+				}
 
 				return Ok(Some(GroupId::V2(group_id)));
 			} else {
@@ -2505,7 +2567,7 @@ where
 			})),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
 			auxin_protos::Envelope_Type::SENDER_KEY => {
-				todo!("GroupsV2 support is a work in progress. Received a SenderKey message, but we cannot use it yet.")
+				todo!("Sender key envelope decryption not yet implemented. Normally this would be inside of sealed sender.")
 			}
 		}
 	}

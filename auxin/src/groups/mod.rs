@@ -8,7 +8,7 @@ pub mod group_storage;
 pub mod sender_key;
 
 use libsignal_protocol::error::SignalProtocolError;
-use log::debug;
+use log::{debug, warn};
 use protobuf::{CodedInputStream, ProtobufError};
 use zkgroup::{groups::GroupMasterKey, GROUP_MASTER_KEY_LEN, PROFILE_KEY_LEN};
 
@@ -17,13 +17,13 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 
-use auxin_protos::protos::{
+use auxin_protos::{protos::{
 	decrypted_groups::{
 		DecryptedGroup, DecryptedMember, DecryptedPendingMember, DecryptedRequestingMember,
 		DecryptedTimer,
 	},
 	groups::GroupAttributeBlob_oneof_content,
-};
+}, GroupChange, DecryptedGroupChange, GroupChange_Actions};
 
 use auxin_protos::protos::groups::{
 	Group as EncryptedGroup, GroupAttributeBlob, Member as EncryptedMember,
@@ -313,7 +313,39 @@ impl GroupOperations {
 		};
 		Ok(result)
 	}
+
+	pub fn decrypt_change(&self, change: GroupChange) -> Result<DecryptedGroupChange, GroupDecryptionError> { 
+		// Decode the actions, which are (at first) represented as an opaque byte blob on the GroupChange message. 
+		let actions_bytes = change.get_actions();
+		let actions_bytes = fix_protobuf_buf(&actions_bytes).unwrap();
+		let mut stream = CodedInputStream::from_bytes(&actions_bytes);
+		let actions: GroupChange_Actions = stream.read_message().unwrap();
+		let actions_json = serde_json::to_string_pretty(&actions).unwrap();
+		debug!("Actions: {}", actions_json);
+
+		let mut output = DecryptedGroupChange::default();
+		
+		for add_member in actions.get_addMembers().iter() { 
+			let decrypted_member = self.decrypt_member(add_member.get_added().clone())?;
+			debug!("New member add action for {:?}", decrypted_member);
+			output.mut_newMembers().push(decrypted_member);
+		}
+		
+		for delete_member in actions.get_deleteMembers().iter() { 
+			let decrypted_id = self.decrypt_uuid(delete_member.get_deletedUserId())?;
+			debug!("Group member removal action for {:?}", Uuid::from_bytes(decrypted_id));
+			output.mut_deleteMembers().push(decrypted_id.to_vec());
+		}
+		debug!("Decrypted changes {:?}", &output);
+
+		//TODO: The rest of the fields in here.
+
+		warn!("Group change decryption is incomplete. Member-add and member-delete actions will be propagated but all other actions will be discarded.");
+
+		Ok(output)
+	}
 }
+
 /// Given a 16-byte GroupV1 ID, derive the migration key.
 ///
 /// Panics if the group_id is not 16 bytes long.

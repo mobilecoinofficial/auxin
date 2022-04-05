@@ -88,7 +88,7 @@ impl From<GroupMemberInfo> for GroupMemberStorage {
 	}
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GroupInfo {
 	pub revision: u32,
 	pub master_key: [u8; GROUP_MASTER_KEY_LEN],
