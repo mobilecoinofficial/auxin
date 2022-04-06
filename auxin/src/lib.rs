@@ -1441,7 +1441,7 @@ where
 				.map_err(|e| {
 					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 				})?;
-				debug!("Requesting profile key credential with {:?}", req);
+				trace!("Requesting profile key credential with {:?}", req);
 				let response = self.http_client.request(req).await.map_err(|e| {
 					ProfileRetrievalError::EncodingError(recipient.clone(), format!("{:?}", e))
 				})?;
@@ -1450,7 +1450,7 @@ where
 					ProfileRetrievalError::DecodingError(recipient.clone(), format!("{:?}", e))
 				})?;
 
-				debug!("Provided profile response string was: {}", &response_str);
+				trace!("Provided profile response string was: {}", &response_str);
 
 				let profile_response = serde_json::from_str(&response_str).map_err(|e| {
 					ProfileRetrievalError::DecodingError(recipient.clone(), format!("{:?}", e))
@@ -2078,18 +2078,21 @@ where
 
 		let mut messages: Vec<(AuxinAddress, MessageOut)> = Vec::new();
 		for group_member in group_info.members.iter() {
-			let peer_address = AuxinAddress::Uuid(group_member.id.clone());
-			let message_out = MessageOut {
-				content: crate::message::MessageContent {
-					text_message: None,
-					receipt_message: None,
-					quote: None,
-					source: Some(content.clone()),
-					attachments: Vec::default(),
-					end_session: false,
-				},
-			};
-			messages.push((peer_address, message_out));
+			// Prevent self-send in a group context.
+			if &group_member.id != self.context.identity.address.get_uuid().unwrap() { 
+				let peer_address = AuxinAddress::Uuid(group_member.id.clone());
+				let message_out = MessageOut {
+					content: crate::message::MessageContent {
+						text_message: None,
+						receipt_message: None,
+						quote: None,
+						source: Some(content.clone()),
+						attachments: Vec::default(),
+						end_session: false,
+					},
+				};
+				messages.push((peer_address, message_out));
+			}
 		}
 		for (peer_address, message_out) in messages {
 			let _ = self.send_message(&peer_address, message_out).await;
