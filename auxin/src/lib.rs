@@ -29,7 +29,7 @@ use groups::{group_message::GroupEncryptionError, sender_key::DistributionId, Gr
 use libsignal_protocol::{
 	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
 	PreKeySignalMessage, ProtocolAddress, PublicKey, SenderKeyDistributionMessage, SessionRecord,
-	SessionStore, SignalProtocolError,
+	SessionStore, SignalProtocolError, group_decrypt,
 };
 use log::{debug, error, info, trace, warn};
 
@@ -2567,7 +2567,48 @@ where
 			})),
 			auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => todo!(),
 			auxin_protos::Envelope_Type::SENDER_KEY => {
-				todo!("Sender key envelope decryption not yet implemented. Normally this would be inside of sealed sender.")
+				let ctx = self.context.get_signal_ctx().get();
+				// Determine peer address
+				let remote_address = address_from_envelope(&envelope);
+				let remote_address = remote_address.map(|a| {
+					let mut new_addr = a.clone();
+					new_addr.address = self
+						.context
+						.peer_cache
+						.complete_address(&a.address)
+						.unwrap_or_else(|| a.address.clone());
+					new_addr
+				}).unwrap();
+
+				let protocol_address = remote_address.uuid_protocol_address().unwrap();
+
+				//Decrypt our message
+				let decrypted_bytes = group_decrypt(envelope.get_content(), &mut self.context.sender_key_store, &protocol_address, ctx).await?;
+				debug!("Decrypted a sealed-sender message with length {}", decrypted_bytes.len()); 
+				let unpadded_message = remove_message_padding(&decrypted_bytes).map_err(MessageInError::PaddingIssue)?;
+				debug!("After removing padding, the buffer is {} bytes in length.", unpadded_message.len()); 
+
+				//Decode to a Signal Service protobuf. 
+				let fixed_buf = fix_protobuf_buf(&unpadded_message)
+					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
+				let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
+				let message_content: auxin_protos::Content = reader
+					.read_message()
+					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
+
+				// Get Group context information off of the message.
+				let group_maybe = self.update_groups_from(&message_content, &remote_address).await?;
+				// Structure as an Auxin MessageIn.
+				let result = MessageIn {
+					content: MessageContent::try_from(message_content)?,
+					remote_address,
+					timestamp: envelope.get_timestamp(),
+					timestamp_received: generate_timestamp(),
+					server_guid: envelope.get_serverGuid().to_string(),
+					group_id: group_maybe.as_ref().map(|g| g.to_base64()),
+				};
+
+				Ok(Some(result))
 			}
 		}
 	}
