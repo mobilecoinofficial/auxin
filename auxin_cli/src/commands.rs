@@ -608,7 +608,7 @@ pub async fn process_jsonrpc_input(
 						let upload_output = handle_upload_command(val, app).await;
 						match upload_output {
 							Ok(attachment_pointers) => { 
-								let result = if attachment_pointers.len() == 0 {
+								let result = if attachment_pointers.is_empty() {
 									serde_json::Value::Null
 								} 
 								else if attachment_pointers.len() == 1 { 
