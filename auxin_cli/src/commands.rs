@@ -25,7 +25,7 @@ use crate::{initiate_attachment_downloads, AttachmentPipelineError, ATTACHMENT_T
 use log::debug;
 
 use rand::rngs::OsRng;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use std::{convert::TryFrom, path::PathBuf};
 use structopt::StructOpt;
@@ -149,7 +149,7 @@ pub struct SendCommand {
 	/// Used to pass a \"Content\" protocol buffer struct from signalservice.proto, serialized as a json string.
 	#[structopt(short, long)]
 	#[serde(default)]
-	pub content: Option<String>,
+	pub content: Option<serde_json::Value>,
 
 	/// Generate a Signal Service \"Content\" structure without actually sending it.
 	/// Useful for testing the -c / --content option.
@@ -851,6 +851,27 @@ enum MessageDest {
 	User(AuxinAddress),
 }
 
+/// Merge two json object trees into one, preferentially using the values from `mask`
+pub(crate) fn merge(base: &Value, mask: &Value) -> Value {
+    match (base, mask) {
+        (&Value::Object(ref base), &Value::Object(ref mask)) => {
+			let mut result_map = base.clone();
+            for (k, v) in mask {
+				if base.contains_key(k) { 
+					result_map.insert(k.clone(), merge(base.get(k).unwrap_or(&Value::Null), v ) ); 
+				}
+				else { 
+					result_map.insert(k.clone(), v.clone() ); 
+				}
+            }
+			Value::Object(result_map)
+        }
+        (_, mask) => {
+            mask.clone()
+        }
+    }
+}
+
 pub async fn handle_send_command(
 	mut cmd: SendCommand,
 	app: &mut crate::app::App,
@@ -885,12 +906,28 @@ pub async fn handle_send_command(
 		..MessageContent::default()
 	};
 
-	//Did the user pass in a "Content" protocol buffer serialized as json?
+	// get default message content 
+	let built_content = MessageContent {
+    		// we need to populate the stuff inside the datamessage
+    		// otherwise you get e.g. Error("missing field `attachments`", ...) in the from_value step
+			text_message: Some(String::new()), 	
+			..MessageContent::default()
+		}
+		.build_signal_content(
+			&base64::encode(&app.context.identity.profile_key),
+			None,
+			generate_timestamp(),
+		)
+		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
+	// if cmd.content.is_some() {debug!("Base content {:?}", serde_json::to_string(&built_content));}	// get default message content 
+	// turn it into json
+	let base_content_json = serde_json::to_value(built_content)
+		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
+	// if the user passed in a "Content" protocol buffer, mask the default with what was passed 
+	// and turn it back into a Content
 	let mut premade_content: Option<auxin_protos::Content> = cmd
 		.content
-		.map(|s| serde_json::from_str(s.as_ref()).unwrap());
-
-	// TODO: PARALLELIZE ATTACHMENT UPLOADS
+		.map(|s| serde_json::from_value(merge(&base_content_json, &s)).unwrap()); // should this be an error type?
 
 	//Do we have one or more attachments?
 	//Note the use of values_of rather than value_of because there may be more than one of these.
@@ -923,7 +960,6 @@ pub async fn handle_send_command(
 				c.mut_dataMessage().attachments.push(attachment_pointer);
 			} else {
 				//Otherwise, we are constructing content regularly.
-
 				//Add it to our list!
 				message_content.attachments.push(attachment_pointer);
 			}
@@ -1204,7 +1240,6 @@ impl From<GetUuidError> for JsonRpcErrorResponse {
 
 #[allow(unused_assignments)]
 pub fn clean_json(val: &serde_json::Value) -> crate::Result<Option<serde_json::Value>> {
-	use serde_json::Value;
 	let mut output = None;
 	match val {
 		// Silence nulls
