@@ -238,13 +238,11 @@ pub async fn load_known_peers(
 			for i in recip.device_ids_used.iter() {
 				if let Some(uuid) = &recip.uuid {
 					let addr = ProtocolAddress::new(uuid.to_string(), *i);
-					// TODO(Diana): Why are we ignoring these errors?
-					let _ = identity_store.save_identity(&addr, &id_key, ctx);
+					identity_store.save_identity(&addr, &id_key, ctx).await?;
 				}
 				if let Some(number) = &recip.number {
 					let addr = ProtocolAddress::new(number.clone(), *i);
-					// TODO(Diana): Why are we ignoring these errors?
-					let _ = identity_store.save_identity(&addr, &id_key, ctx);
+					identity_store.save_identity(&addr, &id_key, ctx).await?;
 				}
 			}
 			recip.identity = Some(peer_identity);
@@ -585,6 +583,8 @@ pub fn load_sender_keys(
 
 	if sender_key_path.exists() {
 		let directory_contents = sender_key_path.read_dir()?;
+
+		debug!("Sender key directory contains: {:?}", directory_contents);
 		for item in directory_contents {
 			match item {
 				Ok(inner) => {
@@ -627,11 +627,13 @@ pub fn load_sender_keys(
 											.read(true)
 											.write(false)
 											.create(false)
-											.open(file_path)?;
+											.open(&file_path)?;
 
 										let mut buf = Vec::new();
 										let sz = file.read_to_end(&mut buf)?;
 										assert!(sz == buf.len());
+
+										debug!("Loading self-sender-key {:?} from path {:?}", &sender_key_name, file_path);
 
 										let skr =
 											libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
@@ -659,11 +661,13 @@ pub fn load_sender_keys(
 											.read(true)
 											.write(false)
 											.create(false)
-											.open(file_path)?;
+											.open(&file_path)?;
 
 										let mut buf = Vec::new();
 										let sz = file.read_to_end(&mut buf)?;
 										assert!(sz == buf.len());
+
+										debug!("Loading .unknown sender-key {:?} from path {:?}", &sender_key_name, file_path);
 
 										let skr =
 											libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
@@ -690,11 +694,13 @@ pub fn load_sender_keys(
 											.read(true)
 											.write(false)
 											.create(false)
-											.open(file_path)?;
+											.open(&file_path)?;
 
 										let mut buf = Vec::new();
 										let sz = file.read_to_end(&mut buf)?;
 										assert!(sz == buf.len());
+
+										debug!("Loading ordinary (no extension) sender-key {:?} from path {:?}", &sender_key_name, file_path);
 
 										let skr =
 											libsignal_protocol::SenderKeyRecord::deserialize(&buf)?;
@@ -1222,7 +1228,7 @@ and cannot automatically be repaired.",
 			let filename = {
 				if let Some(peer_id) = context.peer_cache.get(&address).map(|peer| peer.id) {
 					format!("{}_{}_{}", peer_id, device_id, distribution_id)
-				} else if address == context.identity.address.address {
+				} else if address.get_uuid().unwrap() == context.identity.address.address.get_uuid().unwrap() {
 					//Local key sent elsewhere, save appropriately.
 					format!(
 						"{}_{}.self",
@@ -1327,12 +1333,12 @@ and cannot automatically be repaired.",
 		let device_id = sender_key_name.sender.device_id;
 		let distribution_id = sender_key_name.distribution_id;
 
-		let is_local = sender_key_name.sender == context.identity.address;
+		let is_local = sender_key_name.sender.get_uuid().unwrap() == context.identity.address.get_uuid().unwrap();
 
 		let our_path = self.get_protocol_store_path(context);
 		let sender_key_path = our_path.join("sender-keys");
 
-		if !sender_key_path.exists() { 
+		if !sender_key_path.exists() {
 			std::fs::create_dir_all(&sender_key_path)?;
 		}
 		//Filename {peer id}_{device id}_{distribution id} for peer keys.

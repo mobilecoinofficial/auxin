@@ -284,7 +284,7 @@ pub async fn process_sender_key<Store: SenderKeyStore>(
 	sender_key_name: SenderKeyName,
 	distribution_message: SenderKeyDistributionMessage,
 	ctx: &SignalCtx,
-) -> Result<(), SignalProtocolError> {
+) -> Result<SenderKeyRecord, SignalProtocolError> {
 	let mut record = load_or_new_key(sender_key_store, &sender_key_name, ctx).await?;
 	record.add_sender_key_state(
 		CIPHERTEXT_MESSAGE_VERSION,
@@ -304,7 +304,7 @@ pub async fn process_sender_key<Store: SenderKeyStore>(
 			ctx.get(),
 		)
 		.await?;
-	Ok(())
+	Ok(record)
 }
 
 /// Construct a group session for sending messages.

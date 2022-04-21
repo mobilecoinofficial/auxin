@@ -46,6 +46,8 @@ use crate::{
 	LocalIdentity,
 };
 
+use self::group_storage::LocalDistributionRecord;
+
 pub const LIVE_ZKGROUP_SERVER_PUBLIC_PARAMS: &str = "AMhf5ywVwITZMsff/eCyudZx9JDmkkkbV6PInzG4p8x3VqVJSFiMvnvlEKWuRob/1eaIetR31IYeAbm0NdOuHH8Qi+Rexi1wLlpzIo1gstHWBfZzy1+qHRV5A4TqPp15YzBPm0WSggW6PbSn+F4lf57VCnHF7p8SvzAA2ZZJPYJURt8X7bbg+H3i+PEjH9DXItNEqs2sNcug37xZQDLm7X36nOoGPs54XsEGzPdEV+itQNGUFEjY6X9Uv+Acuks7NpyGvCoKxGwgKgE5XyJ+nNKlyHHOLb6N1NuHyBrZrgtY/JYJHRooo5CEqYKBqdFnmbTVGEkCvJKxLnjwKWf+fEPoWeQFj5ObDjcKMZf2Jm2Ae69x+ikU5gBXsRmoF94GXQ==";
 
 pub fn get_server_public_params() -> ServerPublicParams {
@@ -771,6 +773,7 @@ pub struct GroupMemberInfo {
 	pub profile_key: Option<zkgroup::profiles::ProfileKey>,
 	pub member_role: auxin_protos::protos::groups::Member_Role,
 	pub joined_at_revision: u32,
+	pub last_distribution: Option<LocalDistributionRecord>,
 }
 impl PartialEq for GroupMemberInfo {
 	fn eq(&self, other: &Self) -> bool {
@@ -835,6 +838,8 @@ pub fn validate_group_member(
 		profile_key,
 		member_role: group_member.get_role(),
 		joined_at_revision: group_member.get_joinedAtRevision(),
+		//Start assuming we haven't sent one yet. 
+    	last_distribution: None,
 	})
 }
 

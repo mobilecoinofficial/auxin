@@ -1,19 +1,18 @@
 // Copyright (c) 2022 MobileCoin Inc.
 // Copyright (c) 2022 Emily Cultip
 
-use std::collections::HashSet;
-
 use auxin_protos::{Member_Role, SenderKeyRecordStructure};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zkgroup::{profiles::ProfileKey, GROUP_MASTER_KEY_LEN, PROFILE_KEY_LEN};
 
 use crate::{
 	utils::{serde_base64, serde_optional_base64},
-	Timestamp,
+	Timestamp, generate_timestamp, state::{PeerStore, PeerRecordStructure},
 };
 
-use super::GroupMemberInfo;
+use super::{GroupMemberInfo, sender_key::DistributionId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GroupSerializationError {
@@ -31,6 +30,15 @@ pub enum GroupSerializationError {
 	Base64Decode(#[from] base64::DecodeError),
 }
 
+/// Holds per-member information about the last time we sent a peer a distribution message.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Hash)]
+pub struct LocalDistributionRecord { 
+	pub distribution_id: DistributionId,
+	pub distribution_time: Timestamp,
+	/// Which of this peer's devices have we sent this to?
+	pub devices_included: Vec<u32>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Hash)]
 pub struct GroupMemberStorage {
 	pub id: Uuid,
@@ -38,6 +46,7 @@ pub struct GroupMemberStorage {
 	pub profile_key: Option<Vec<u8>>,
 	pub member_role: String,
 	pub joined_at_revision: u32,
+	pub last_distribution: Option<LocalDistributionRecord>,
 }
 
 impl TryFrom<GroupMemberStorage> for GroupMemberInfo {
@@ -68,6 +77,7 @@ impl TryFrom<GroupMemberStorage> for GroupMemberInfo {
 			profile_key,
 			member_role: role,
 			joined_at_revision: value.joined_at_revision,
+			last_distribution: value.last_distribution,
 		})
 	}
 }
@@ -84,6 +94,7 @@ impl From<GroupMemberInfo> for GroupMemberStorage {
 			}
 			.to_string(),
 			joined_at_revision: value.joined_at_revision,
+			last_distribution: value.last_distribution,
 		}
 	}
 }
@@ -92,10 +103,52 @@ impl From<GroupMemberInfo> for GroupMemberStorage {
 pub struct GroupInfo {
 	pub revision: u32,
 	pub master_key: [u8; GROUP_MASTER_KEY_LEN],
-	pub members: HashSet<GroupMemberInfo>,
-	/// What is the most recent distribution ID we made for this group?
+	pub members: Vec<GroupMemberInfo>,
 	pub local_distribution_id: Option<Uuid>,
 	pub last_distribution_timestamp: Timestamp,
+}
+
+impl GroupInfo { 
+	/// Do we need to generate a sender-key distribution message to send sender-key messages to this group? 
+	pub fn needs_new_distribution(&self, distribution_lifespan: u64) -> bool { 
+		let now = generate_timestamp(); 
+		//Has the group-global one expired?
+		if (now - self.last_distribution_timestamp) > distribution_lifespan { 
+			return true;
+		} else if self.local_distribution_id.is_none() { 
+			return true;
+		}
+
+		for member in self.members.iter() { 
+			if let Some(distrib) = member.last_distribution.as_ref() { 
+				// Check for expiration.
+				if (now - distrib.distribution_time) > distribution_lifespan { 
+					debug!("A sender key distribution ID has expired. Regenerating..."); 
+					return true;
+				}
+			}
+			else { 
+				//We haven't sent one, make a new distribution.
+				return true;
+			}
+		}
+		false
+	}
+	/// Used to record a sender key distribution message sent to every group member.
+	pub fn set_distribution_all(&mut self, distribution_id: &DistributionId, distribution_timestamp: Timestamp, peers: &PeerRecordStructure){
+		self.local_distribution_id = Some(distribution_id.clone());
+		self.last_distribution_timestamp = distribution_timestamp;
+		for member in self.members.iter_mut() { 
+			let member_uuid = member.id.clone();
+			member.last_distribution = Some( 
+				LocalDistributionRecord {
+					distribution_id: distribution_id.clone(),
+					distribution_time: distribution_timestamp,
+					devices_included: peers.get_by_uuid(&member_uuid).unwrap().device_ids_used.iter().cloned().collect(),
+				}
+			);
+		}
+	}
 }
 
 impl PartialOrd for GroupInfo {
@@ -121,12 +174,10 @@ pub struct GroupInfoStorage {
 	/// Group master key. Length will be validated to ensure this is a [u8; zkgroup::GROUP_MASTER_KEY_LEN]
 	#[serde(with = "serde_base64")]
 	master_key: Vec<u8>,
-	members: HashSet<GroupMemberStorage>,
-	/// What is the most recent distribution ID we made for this group?
+	members: Vec<GroupMemberStorage>,
 	pub local_distribution_id: Option<Uuid>,
 	pub last_distribution_timestamp: Option<Timestamp>,
 }
-
 impl TryFrom<GroupInfoStorage> for GroupInfo {
 	type Error = GroupSerializationError;
 
@@ -140,9 +191,9 @@ impl TryFrom<GroupInfoStorage> for GroupInfo {
 				value.master_key.len(),
 			));
 		};
-		let mut members = HashSet::new();
+		let mut members = Vec::new();
 		for member in value.members.iter() {
-			members.insert(member.clone().try_into()?);
+			members.push(member.clone().try_into()?);
 		}
 
 		Ok(GroupInfo {
@@ -157,9 +208,9 @@ impl TryFrom<GroupInfoStorage> for GroupInfo {
 
 impl From<&GroupInfo> for GroupInfoStorage {
 	fn from(value: &GroupInfo) -> Self {
-		let mut members = HashSet::new();
+		let mut members = Vec::new();
 		for member in value.members.iter() {
-			members.insert(member.clone().into());
+			members.push(member.clone().into());
 		}
 
 		GroupInfoStorage {

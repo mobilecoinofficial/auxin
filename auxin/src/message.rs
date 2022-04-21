@@ -1010,6 +1010,7 @@ pub async fn decrypt_unidentified_sender(
 		CiphertextMessageType::Plaintext => { 
 			let bytes = unidentified_message_content.contents().unwrap();
 			debug!("Received \"Plaintext\" message which is {} bytes long.", bytes.len());
+			debug!("Contents were: {}", String::from_utf8_lossy(bytes));
 
 			bytes.to_vec()
 		}
