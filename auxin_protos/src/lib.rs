@@ -1,11 +1,6 @@
-pub use prost;
-pub use prost_types;
+mod generated;
 
-pub mod groups;
-pub mod sealed_sender;
-pub mod signal_service;
-pub mod storage;
-pub mod websocket;
+pub use self::generated::*;
 
 /*
 pub use protos::{

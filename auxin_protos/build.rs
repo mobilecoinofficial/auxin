@@ -1,7 +1,10 @@
 fn main() {
-	std::env::set_var("OUT_DIR", "src/");
 	println!("cargo:rerun-if-changed=protos");
-	prost_build::compile_protos(&["protos/websocket.proto",
+
+	let mut config = prost_build::Config::new();
+	config.out_dir("src/generated/");
+
+	config.compile_protos(&["protos/websocket.proto",
 		"protos/signal_service.proto",
 		"protos/sealed_sender.proto",
 		"protos/storage.proto",

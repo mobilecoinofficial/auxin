@@ -9,8 +9,8 @@ use crate::{
 	state::PeerStore,
 	AuxinContext, ProfileKey, Result,
 };
-use auxin_protos::{signalservice::AttachmentPointer, signalservice::data_message::Quote, signalservice::Envelope};
-use auxin_protos::signalservice::envelope::Type as EnvelopeType;
+use auxin_protos::{signal_service::AttachmentPointer, signal_service::data_message::Quote, signal_service::Envelope};
+use auxin_protos::signal_service::envelope;
 use libsignal_protocol::{
 	group_decrypt, group_encrypt, message_decrypt, message_decrypt_prekey, message_decrypt_signal,
 	message_encrypt, sealed_sender_decrypt_to_usmc, sealed_sender_encrypt,
@@ -34,9 +34,13 @@ pub type Timestamp = u64;
 // CiphertextMessageType.Whisper goes to Envelope.Type.CIPHERTEXT
 
 pub mod envelope_types {
-	pub enum EnvelopeTypeError
-		InvalidTypeId{attempted_value:i128} = "Attempted to decode {attempted_value} as an Envelope Type. Valid envelope types are 0 through 6.",
+
+	#[derive(thiserror::Error, Debug)]
+	pub enum EnvelopeTypeError {
+		#[error("Attempted to decode {0} as an Envelope Type. Valid envelope types are 0 through 8.")]
+		InvalidTypeId(i128),
 	}
+
 	use num_enum::IntoPrimitive;
 	use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 	use std::convert::TryFrom;
@@ -366,10 +370,10 @@ pub fn read_wsmessage_from_bin(buf: &[u8]) -> Result<auxin_protos::WebSocketMess
 ||--- INTERMEDIARY MESSAGE TYPES (USED TO GENERATE SIGNAL-COMPATIBLE JSON) ---||
 \\----------------------------------------------------------------------------*/
 
-//This is actually just a subset of protos::signalservice::Envelope! The more you know.
+//This is actually just a subset of protos::signal_service::Envelope! The more you know.
 /// A single message put in a correct form to send to the server.
 /// Needs to be put into a OutgoingPushMessageList to be useful.
-/// This is a restricted subset of an auxin_proto::signalservice::Envelope.
+/// This is a restricted subset of an auxin_proto::signal_service::Envelope.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OutgoingPushMessage {
 	/// Corresponds to envelope_types::EnvelopeType as well as an auxin_protos::EnvelopeType
