@@ -1,7 +1,10 @@
-pub use protobuf;
+pub use prost;
+pub use prost_types;
 
 pub mod protos;
 
+pub use protos::*;
+/*
 pub use protos::{
 	decrypted_groups::*, groups::*, sealed_sender::*, signalservice::*, storage::*, websocket::*,
 };
@@ -13,3 +16,4 @@ pub use SenderKeyStateStructure_SenderSigningKey as SenderSigningKey;
 unsafe impl Send for WebSocketMessage {}
 unsafe impl Send for WebSocketRequestMessage {}
 unsafe impl Send for WebSocketResponseMessage {}
+*/

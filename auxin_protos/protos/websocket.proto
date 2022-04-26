@@ -3,7 +3,7 @@
  */
 syntax = "proto2";
 
-package signalservice;
+package websocket;
 
 message WebSocketRequestMessage {
     optional string verb    = 1;

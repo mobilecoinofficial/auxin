@@ -4,13 +4,10 @@ version = "0.1.10"
 edition = "2018"
 
 [dependencies]
-protobuf = "2.23.0"
+prost = "0.10.1"
+prost-types = "0.10"
 
-serde = { version = "1.0.126", optional = true }
-
-[features]
-default = ["with-serde"]
-with-serde = ["serde", "serde/derive", "protobuf/with-serde"]
+serde = { version = "1.0.126" }
 
 [build-dependencies]
-protobuf-codegen-pure = "2.23.0"
+prost-build = "0.10.1"
