@@ -12,7 +12,7 @@ use std::{
 	str::FromStr,
 };
 
-use auxin::{
+use auxin_core::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
 	groups::{
@@ -1045,7 +1045,7 @@ and cannot automatically be repaired.",
 		Ok(())
 	}
 
-	fn end_session(&mut self, _peer: &AuxinAddress, _context: &AuxinContext) -> auxin::Result<()> {
+	fn end_session(&mut self, _peer: &AuxinAddress, _context: &AuxinContext) -> auxin_core::Result<()> {
 		/*
 		// DELETING FILES MAY BE COUNTERPRODUCTIVE, pending further testing.
 
@@ -1079,8 +1079,8 @@ and cannot automatically be repaired.",
 	fn load_group_protobuf(
 		&mut self,
 		context: &AuxinContext,
-		group_id: &auxin::groups::GroupId,
-	) -> auxin::Result<auxin_protos::DecryptedGroup> {
+		group_id: &auxin_core::groups::GroupId,
+	) -> auxin_core::Result<auxin_protos::DecryptedGroup> {
 		let group_file_name = group_id.to_base64();
 		let group_file_path = self
 			.get_protocol_store_path(context)
@@ -1097,8 +1097,8 @@ and cannot automatically be repaired.",
 	fn load_group_info(
 		&mut self,
 		context: &AuxinContext,
-		group_id: &auxin::groups::GroupId,
-	) -> auxin::Result<auxin::groups::group_storage::GroupInfoStorage> {
+		group_id: &auxin_core::groups::GroupId,
+	) -> auxin_core::Result<auxin_core::groups::group_storage::GroupInfoStorage> {
 		let group_id_b64 = filename_friendly_base_64(&group_id.to_base64());
 
 		let our_path = self.get_protocol_store_path(context);
@@ -1135,7 +1135,7 @@ and cannot automatically be repaired.",
 			.open(&file_path)?;
 
 		let buf = BufReader::new(&mut file);
-		let group_info: auxin::groups::group_storage::GroupInfoStorage =
+		let group_info: auxin_core::groups::group_storage::GroupInfoStorage =
 			serde_json::from_reader(buf)?;
 
 		Ok(group_info)
@@ -1144,9 +1144,9 @@ and cannot automatically be repaired.",
 	fn save_group_info(
 		&mut self,
 		context: &AuxinContext,
-		group_id: &auxin::groups::GroupId,
-		group_info: auxin::groups::group_storage::GroupInfoStorage,
-	) -> auxin::Result<()> {
+		group_id: &auxin_core::groups::GroupId,
+		group_info: auxin_core::groups::group_storage::GroupInfoStorage,
+	) -> auxin_core::Result<()> {
 		let group_id_b64 = filename_friendly_base_64(&group_id.to_base64());
 
 		let our_path = self.get_protocol_store_path(context);
@@ -1198,7 +1198,7 @@ and cannot automatically be repaired.",
 		Ok(())
 	}
 
-	fn save_all_group_info(&mut self, context: &AuxinContext) -> auxin::Result<()> {
+	fn save_all_group_info(&mut self, context: &AuxinContext) -> auxin_core::Result<()> {
 		for (id, group_info) in context.groups.iter() {
 			self.save_group_info(context, id, group_info.into())?;
 		}
@@ -1207,7 +1207,7 @@ and cannot automatically be repaired.",
 
 	//So, the files in {your_phone_number}.d/sender-keys will have names following {peer id}_{device id}_{distribution id} and they will be SenderKeyRecordStructure protobuf binaries
 
-	fn save_all_sender_keys(&mut self, context: &AuxinContext) -> auxin::Result<()> {
+	fn save_all_sender_keys(&mut self, context: &AuxinContext) -> auxin_core::Result<()> {
 		//Filename {peer id}_{device id}_{distribution id}
 
 		let our_path = self.get_protocol_store_path(context);
@@ -1278,7 +1278,7 @@ and cannot automatically be repaired.",
 		&mut self,
 		context: &AuxinContext,
 		sender_key_name: &SenderKeyName,
-	) -> auxin::Result<libsignal_protocol::SenderKeyRecord> {
+	) -> auxin_core::Result<libsignal_protocol::SenderKeyRecord> {
 		let address = &sender_key_name.sender.address;
 		let device_id = sender_key_name.sender.device_id;
 		let distribution_id = sender_key_name.distribution_id;
@@ -1328,7 +1328,7 @@ and cannot automatically be repaired.",
 		context: &AuxinContext,
 		sender_key_name: &SenderKeyName,
 		record: &libsignal_protocol::SenderKeyRecord,
-	) -> auxin::Result<()> {
+	) -> auxin_core::Result<()> {
 		let address = &sender_key_name.sender.address;
 		let device_id = sender_key_name.sender.device_id;
 		let distribution_id = sender_key_name.distribution_id;

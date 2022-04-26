@@ -2,6 +2,6 @@
 
 members = [
     "auxin_protos",
-    "auxin",
+    "auxin_core",
     "auxin_cli",
 ]

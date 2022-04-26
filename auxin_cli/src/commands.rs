@@ -3,7 +3,7 @@
 
 //Internal dependencies
 
-use auxin::{
+use auxin_core::{
 	address::{AuxinAddress, E164},
 	generate_timestamp,
 	groups::GroupId,
@@ -222,10 +222,10 @@ pub struct DownloadAttachmentCommand {
 // Errors received when attempting to send a Signal message to another user.
 pub enum SendCommandError {
 	//Propagated through from app,send_message()
-	SendError(auxin::SendMessageError),
-	SendGroupError(auxin::SendGroupError),
-	AttachmentUploadError(auxin::attachment::upload::AttachmentUploadError),
-	AttachmentEncryptError(auxin::attachment::upload::AttachmentEncryptError),
+	SendError(auxin_core::SendMessageError),
+	SendGroupError(auxin_core::SendGroupError),
+	AttachmentUploadError(auxin_core::attachment::upload::AttachmentUploadError),
+	AttachmentEncryptError(auxin_core::attachment::upload::AttachmentEncryptError),
 	AttachmentFileReadError(std::io::Error),
 	PreparedAttachmentError(String),
 	SimulateErr(String),
@@ -250,23 +250,23 @@ impl std::fmt::Display for SendCommandError {
 }
 impl std::error::Error for SendCommandError {}
 // Just a bit of boilerplate
-impl From<auxin::SendMessageError> for SendCommandError {
-	fn from(val: auxin::SendMessageError) -> Self {
+impl From<auxin_core::SendMessageError> for SendCommandError {
+	fn from(val: auxin_core::SendMessageError) -> Self {
 		SendCommandError::SendError(val)
 	}
 }
-impl From<auxin::attachment::upload::AttachmentUploadError> for SendCommandError {
-	fn from(val: auxin::attachment::upload::AttachmentUploadError) -> Self {
+impl From<auxin_core::attachment::upload::AttachmentUploadError> for SendCommandError {
+	fn from(val: auxin_core::attachment::upload::AttachmentUploadError) -> Self {
 		SendCommandError::AttachmentUploadError(val)
 	}
 }
-impl From<auxin::attachment::upload::AttachmentEncryptError> for SendCommandError {
-	fn from(val: auxin::attachment::upload::AttachmentEncryptError) -> Self {
+impl From<auxin_core::attachment::upload::AttachmentEncryptError> for SendCommandError {
+	fn from(val: auxin_core::attachment::upload::AttachmentEncryptError) -> Self {
 		SendCommandError::AttachmentEncryptError(val)
 	}
 }
-impl From<auxin::SendGroupError> for SendCommandError {
-	fn from(val: auxin::SendGroupError) -> Self {
+impl From<auxin_core::SendGroupError> for SendCommandError {
+	fn from(val: auxin_core::SendGroupError) -> Self {
 		SendCommandError::SendGroupError(val)
 	}
 }
@@ -484,7 +484,7 @@ impl From<ProfileRetrievalError> for JsonRpcErrorResponse {
 // TODO(Diana): download_path should be a &Path, but API.
 pub async fn process_jsonrpc_input(
 	input: &str,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 	download_path: &PathBuf,
 ) -> Vec<JsonRpcResponse> {
 	fn err(e: JsonRpcErrorResponse) -> Vec<JsonRpcResponse> {
@@ -874,7 +874,7 @@ pub(crate) fn merge(base: &Value, mask: &Value) -> Value {
 
 pub async fn handle_send_command(
 	mut cmd: SendCommand,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 ) -> std::result::Result<SendOutput, SendCommandError> {
 	// Ensure we're not trying to send *just* an end-session message with no text,
 	// which is not supported by  Signal's protocol
@@ -945,7 +945,7 @@ pub async fn handle_send_command(
 			//Encrypt our attachment.
 			let mut rng = OsRng::default();
 			let encrypted_attachment =
-				auxin::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
+				auxin_core::attachment::upload::encrypt_attachment(file_name, &data, &mut rng)?;
 
 			//Upload the attachment, generating an attachment pointer in the process.
 			let attachment_pointer = app
@@ -1040,7 +1040,7 @@ pub async fn handle_send_command(
 
 pub async fn handle_upload_command(
 	cmd: UploadCommand,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 ) -> Result<Vec<AttachmentPointer>> {
 	let mut attachments: Vec<AttachmentPointer> = Vec::default();
 	for path in cmd.file_path.iter() {
@@ -1051,7 +1051,7 @@ pub async fn handle_upload_command(
 
 		let file_name = path.file_name().unwrap();
 
-		let encrypted_attachment = auxin::attachment::upload::encrypt_attachment(
+		let encrypted_attachment = auxin_core::attachment::upload::encrypt_attachment(
 			file_name.to_str().unwrap(),
 			&data,
 			&mut rng,
@@ -1071,7 +1071,7 @@ pub async fn handle_upload_command(
 pub async fn handle_receive_command(
 	cmd: ReceiveCommand,
 	download_path: &PathBuf,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 ) -> Result<Vec<MessageIn>> {
 	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
 
@@ -1111,7 +1111,7 @@ pub struct SetProfileResponse {
 
 pub async fn handle_set_profile_command(
 	cmd: SetProfileCommand,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 ) -> Result<SetProfileResponse> {
 	let params: ProfileConfig = serde_json::from_value(cmd.profile_fields)?;
 	// Figure out if we need to do an avatar upload.
@@ -1123,7 +1123,7 @@ pub async fn handle_set_profile_command(
 	//TODO: Service configuration to select base URL.
 	app.upload_profile(
 		"https://textsecure-service.whispersystems.org",
-		auxin::net::api_paths::SIGNAL_CDN,
+		auxin_core::net::api_paths::SIGNAL_CDN,
 		params,
 		avatar_buf,
 	)
@@ -1135,7 +1135,7 @@ pub async fn handle_set_profile_command(
 
 pub async fn handle_get_profile_command(
 	cmd: GetProfileCommand,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 ) -> std::result::Result<PeerProfile, ProfileRetrievalError> {
 	let peer = AuxinAddress::try_from(cmd.peer_name.as_str()).unwrap();
 	let profile = app.get_and_decrypt_profile(&peer).await?;
@@ -1149,7 +1149,7 @@ pub async fn handle_get_profile_command(
 pub async fn handle_download_command(
 	cmd: DownloadAttachmentCommand,
 	download_path: &PathBuf,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 ) -> std::result::Result<(), AttachmentPipelineError> {
 	let mut attachments_to_download: Vec<AttachmentPointer> = Vec::default();
 	for att in cmd.attachments.into_iter() {
@@ -1185,7 +1185,7 @@ pub enum GetUuidError {
 
 pub async fn handle_get_uuid_command(
 	cmd: GetUuidCommand,
-	app: &mut crate::app::App,
+	app: &mut crate::App,
 ) -> std::result::Result<Uuid, GetUuidError> {
 	let address: AuxinAddress = (cmd.peer.as_str())
 		.try_into()

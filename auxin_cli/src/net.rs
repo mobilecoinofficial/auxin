@@ -5,7 +5,7 @@ use core::fmt;
 use std::{convert::TryFrom, pin::Pin};
 
 use async_global_executor::block_on;
-use auxin::{
+use auxin_core::{
 	generate_timestamp, message::fix_protobuf_buf, net::*, LocalIdentity, SIGNAL_TLS_CERT,
 };
 
@@ -29,7 +29,7 @@ use auxin_protos::{
 	WebSocketMessage, WebSocketMessage_Type, WebSocketRequestMessage, WebSocketResponseMessage,
 };
 
-use auxin::{net::AuxinNetManager, ReceiveError};
+use auxin_core::{net::AuxinNetManager, ReceiveError};
 
 pub fn load_root_tls_cert() -> std::result::Result<Certificate, EstablishConnectionError> {
 	trace!("Loading Signal's self-signed certificate.");

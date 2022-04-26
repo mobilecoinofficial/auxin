@@ -1,7 +1,7 @@
 // Copyright (c) 2021 MobileCoin Inc.
 // Copyright (c) 2021 Emily Cultip
 
-use auxin::{
+use auxin_core::{
 	attachment::download::{retrieve_attachment, AttachmentDecryptError, AttachmentDownloadError},
 	net::api_paths::{SIGNAL_CDN, SIGNAL_CDN_2},
 };

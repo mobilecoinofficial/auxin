@@ -12,7 +12,7 @@
 
 //Auxin dependencies
 
-use auxin::{
+use auxin_core::{
 	address::AuxinAddress,
 	message::{MessageContent, MessageOut},
 	state::AuxinStateManager,
@@ -42,7 +42,6 @@ use tracing::{info, warn, Level};
 use tracing_futures::Instrument;
 use tracing_subscriber::FmtSubscriber;
 
-pub mod app;
 pub mod attachment;
 pub mod commands;
 pub mod net;
@@ -56,7 +55,11 @@ pub use crate::{attachment::*, commands::*};
 use auxin_protos::AttachmentPointer;
 use net::{load_root_tls_cert, AuxinTungsteniteConnection};
 
-pub type Context = auxin::AuxinContext;
+use crate::{net::NetManager, state::StateManager};
+
+pub type App = auxin_core::AuxinApp<OsRng, NetManager, StateManager>;
+
+pub type Context = auxin_core::AuxinContext;
 
 pub static ATTACHMENT_TIMEOUT_DURATION: Duration = Duration::from_secs(48);
 
@@ -87,7 +90,7 @@ struct PrekeyRecord {
 }
 
 impl PrekeyRecord {
-	fn new(record: (&u32, &auxin::account::AuxinKeyPair)) -> Self {
+	fn new(record: (&u32, &auxin_core::account::AuxinKeyPair)) -> Self {
 		Self {
 			key_id: *record.0,
 			// public_key: base64::encode_config(record.1.public(), STANDARD_NO_PAD),
@@ -120,7 +123,7 @@ struct SignedPrekeyRecord {
 }
 
 impl SignedPrekeyRecord {
-	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
+	fn new<R>(identity: &auxin_core::account::Identity<R>) -> Self {
 		Self {
 			key_id: identity.signed_id(),
 			// public_key: base64::encode_config(identity.signed_prekey().public(), STANDARD_NO_PAD),
@@ -148,7 +151,7 @@ struct SignalPrekeyData {
 }
 
 impl SignalPrekeyData {
-	fn new<R>(identity: &auxin::account::Identity<R>) -> Self {
+	fn new<R>(identity: &auxin_core::account::Identity<R>) -> Self {
 		Self {
 			// identity_key: base64::encode_config(identity.identity().public(), STANDARD_NO_PAD),
 			identity_key: base64::encode_config(
@@ -230,14 +233,14 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 	config.enable_read_receipts = !arguments.no_read_receipt;
 
 	{
-		use auxin::account::*;
+		use auxin_core::account::*;
 
 		let mut account = SignalAccount::new(&arguments.user, rand::thread_rng());
 
 		let mut headers = header::HeaderMap::new();
 		headers.insert(
 			"X-Signal-Agent",
-			header::HeaderValue::from_static(auxin::net::USER_AGENT),
+			header::HeaderValue::from_static(auxin_core::net::USER_AGENT),
 		);
 		headers.insert(
 			"Authorization",
@@ -246,12 +249,12 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				base64::encode(format!("{}:{}", account.phone(), account.password()))
 			))?,
 		);
-		let cert = reqwest::Certificate::from_pem(auxin::SIGNAL_TLS_CERT.as_bytes())?;
+		let cert = reqwest::Certificate::from_pem(auxin_core::SIGNAL_TLS_CERT.as_bytes())?;
 		let client = reqwest::ClientBuilder::new()
 			.add_root_certificate(cert)
 			.tls_built_in_root_certs(false)
 			.default_headers(headers)
-			.user_agent(auxin::net::USER_AGENT)
+			.user_agent(auxin_core::net::USER_AGENT)
 			.build()?;
 		match &arguments.command {
 			AuxinCommand::Register { captcha } => {

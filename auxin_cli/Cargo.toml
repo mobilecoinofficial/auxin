@@ -1,11 +1,11 @@
 [package]
-name = "auxin-cli"
+name = "auxin_cli"
 version = "0.2.0"
 edition = "2021"
 
 [dependencies]
 auxin_protos = { path = "../auxin_protos" }
-auxin = { path = "../auxin" }
+auxin_core = { path = "../auxin_core" }
 
 aes-gcm = { version = "0.9.2", features = ["std"] }
 async-global-executor = { version = "2.0.2", features = ["tokio"] }

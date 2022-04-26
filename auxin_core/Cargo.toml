@@ -1,5 +1,5 @@
 [package]
-name = "auxin"
+name = "auxin_core"
 version = "0.2.0"
 edition = "2021"
 
