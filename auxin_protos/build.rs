@@ -1,8 +1,8 @@
 fn main() {
-	std::env::set_var("OUT_DIR", "src/protos");
+	std::env::set_var("OUT_DIR", "src/");
 	println!("cargo:rerun-if-changed=protos");
 	prost_build::compile_protos(&["protos/websocket.proto",
-		"protos/signalservice.proto",
+		"protos/signal_service.proto",
 		"protos/sealed_sender.proto",
 		"protos/storage.proto",
 		"protos/groups.proto"], &["protos/"])

@@ -3,7 +3,7 @@
 */
 syntax = "proto2";
 
-package signalservice;
+package signal_service;
 
 message Envelope {
   enum Type {

@@ -9,7 +9,6 @@ use std::{
 
 use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey, SenderKeyRecord};
 use log::warn;
-use protobuf::CodedInputStream;
 use serde::{
 	de::{self, Visitor},
 	Deserialize, Deserializer, Serialize, Serializer,

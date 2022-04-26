@@ -5,7 +5,7 @@ use auxin_core::{
 	attachment::download::{retrieve_attachment, AttachmentDecryptError, AttachmentDownloadError},
 	net::api_paths::{SIGNAL_CDN, SIGNAL_CDN_2},
 };
-use auxin_protos::AttachmentPointer;
+use auxin_protos::signal_service::AttachmentPointer;
 use futures::{Future, FutureExt, TryFutureExt};
 use std::{collections::HashMap, io::Write, pin::Pin};
 use tokio::time::Duration;

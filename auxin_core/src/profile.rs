@@ -4,7 +4,6 @@
 use crate::LocalIdentity;
 use libsignal_protocol::IdentityKeyPair;
 use log::debug;
-use protobuf::{CodedOutputStream, Message};
 use rand::{CryptoRng, Rng};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

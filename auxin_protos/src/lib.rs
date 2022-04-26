@@ -1,9 +1,12 @@
 pub use prost;
 pub use prost_types;
 
-pub mod protos;
+pub mod groups;
+pub mod sealed_sender;
+pub mod signal_service;
+pub mod storage;
+pub mod websocket;
 
-pub use protos::*;
 /*
 pub use protos::{
 	decrypted_groups::*, groups::*, sealed_sender::*, signalservice::*, storage::*, websocket::*,

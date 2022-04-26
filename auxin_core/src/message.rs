@@ -9,7 +9,8 @@ use crate::{
 	state::PeerStore,
 	AuxinContext, ProfileKey, Result,
 };
-use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope, Envelope_Type};
+use auxin_protos::{signalservice::AttachmentPointer, signalservice::data_message::Quote, signalservice::Envelope};
+use auxin_protos::signalservice::envelope::Type as EnvelopeType;
 use libsignal_protocol::{
 	group_decrypt, group_encrypt, message_decrypt, message_decrypt_prekey, message_decrypt_signal,
 	message_encrypt, sealed_sender_decrypt_to_usmc, sealed_sender_encrypt,
@@ -18,7 +19,6 @@ use libsignal_protocol::{
 	SessionStore, SignalMessage, SignalProtocolError, UnidentifiedSenderMessageContent,
 };
 use log::{debug, info};
-use protobuf::{CodedInputStream, CodedOutputStream};
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -34,7 +34,7 @@ pub type Timestamp = u64;
 // CiphertextMessageType.Whisper goes to Envelope.Type.CIPHERTEXT
 
 pub mod envelope_types {
-	custom_error! { pub EnvelopeTypeError
+	pub enum EnvelopeTypeError
 		InvalidTypeId{attempted_value:i128} = "Attempted to decode {attempted_value} as an Envelope Type. Valid envelope types are 0 through 6.",
 	}
 	use num_enum::IntoPrimitive;
@@ -62,7 +62,7 @@ pub mod envelope_types {
 	/// Sender key for Groups
 	pub const SENDER_KEY: u8 = 7;
 
-	//
+	//In practice, usually used for 
 	pub const PLAINTEXT_CONTENT: u8 = 8;
 
 	//
@@ -137,36 +137,36 @@ pub mod envelope_types {
 		}
 	}
 
-	impl From<auxin_protos::Envelope_Type> for EnvelopeType {
-		fn from(value: auxin_protos::Envelope_Type) -> Self {
+	impl From<auxin_protos::EnvelopeType> for EnvelopeType {
+		fn from(value: auxin_protos::EnvelopeType) -> Self {
 			match value {
-				auxin_protos::Envelope_Type::UNKNOWN => EnvelopeType::Unknown,
-				auxin_protos::Envelope_Type::CIPHERTEXT => EnvelopeType::Ciphertext,
-				auxin_protos::Envelope_Type::KEY_EXCHANGE => EnvelopeType::KeyExchange,
-				auxin_protos::Envelope_Type::PREKEY_BUNDLE => EnvelopeType::PreKeyBundle,
-				auxin_protos::Envelope_Type::RECEIPT => EnvelopeType::Recipt,
-				auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER => {
+				auxin_protos::EnvelopeType::UNKNOWN => EnvelopeType::Unknown,
+				auxin_protos::EnvelopeType::CIPHERTEXT => EnvelopeType::Ciphertext,
+				auxin_protos::EnvelopeType::KEY_EXCHANGE => EnvelopeType::KeyExchange,
+				auxin_protos::EnvelopeType::PREKEY_BUNDLE => EnvelopeType::PreKeyBundle,
+				auxin_protos::EnvelopeType::RECEIPT => EnvelopeType::Recipt,
+				auxin_protos::EnvelopeType::UNIDENTIFIED_SENDER => {
 					EnvelopeType::UnidentifiedSender
 				}
-				auxin_protos::Envelope_Type::PLAINTEXT_CONTENT => EnvelopeType::PlaintextContent,
-				auxin_protos::Envelope_Type::SENDER_KEY => EnvelopeType::SenderKey,
+				auxin_protos::EnvelopeType::PLAINTEXT_CONTENT => EnvelopeType::PlaintextContent,
+				auxin_protos::EnvelopeType::SENDER_KEY => EnvelopeType::SenderKey,
 			}
 		}
 	}
 
-	impl From<EnvelopeType> for auxin_protos::Envelope_Type {
+	impl From<EnvelopeType> for auxin_protos::EnvelopeType {
 		fn from(value: EnvelopeType) -> Self {
 			match value {
-				EnvelopeType::Unknown => auxin_protos::Envelope_Type::UNKNOWN,
-				EnvelopeType::Ciphertext => auxin_protos::Envelope_Type::CIPHERTEXT,
-				EnvelopeType::KeyExchange => auxin_protos::Envelope_Type::KEY_EXCHANGE,
-				EnvelopeType::PreKeyBundle => auxin_protos::Envelope_Type::PREKEY_BUNDLE,
-				EnvelopeType::Recipt => auxin_protos::Envelope_Type::RECEIPT,
+				EnvelopeType::Unknown => auxin_protos::EnvelopeType::UNKNOWN,
+				EnvelopeType::Ciphertext => auxin_protos::EnvelopeType::CIPHERTEXT,
+				EnvelopeType::KeyExchange => auxin_protos::EnvelopeType::KEY_EXCHANGE,
+				EnvelopeType::PreKeyBundle => auxin_protos::EnvelopeType::PREKEY_BUNDLE,
+				EnvelopeType::Recipt => auxin_protos::EnvelopeType::RECEIPT,
 				EnvelopeType::UnidentifiedSender => {
-					auxin_protos::Envelope_Type::UNIDENTIFIED_SENDER
+					auxin_protos::EnvelopeType::UNIDENTIFIED_SENDER
 				}
-				EnvelopeType::SenderKey => auxin_protos::Envelope_Type::SENDER_KEY,
-				EnvelopeType::PlaintextContent => auxin_protos::Envelope_Type::PLAINTEXT_CONTENT,
+				EnvelopeType::SenderKey => auxin_protos::EnvelopeType::SENDER_KEY,
+				EnvelopeType::PlaintextContent => auxin_protos::EnvelopeType::PLAINTEXT_CONTENT,
 			}
 		}
 	}
@@ -372,7 +372,7 @@ pub fn read_wsmessage_from_bin(buf: &[u8]) -> Result<auxin_protos::WebSocketMess
 /// This is a restricted subset of an auxin_proto::signalservice::Envelope.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OutgoingPushMessage {
-	/// Corresponds to envelope_types::EnvelopeType as well as an auxin_protos::Envelope_Type
+	/// Corresponds to envelope_types::EnvelopeType as well as an auxin_protos::EnvelopeType
 	#[serde(rename = "type")]
 	pub envelope_type: u8,
 
@@ -1176,7 +1176,7 @@ impl MessageIn {
 		context: &mut AuxinContext,
 		rng: &mut R,
 	) -> std::result::Result<MessageIn, MessageInError> {
-		assert_eq!(envelope.get_field_type(), Envelope_Type::CIPHERTEXT);
+		assert_eq!(envelope.get_field_type(), EnvelopeType::CIPHERTEXT);
 		debug!(
 			"Decoding envelope from source: (E164: {}, UUID: {})",
 			envelope.get_sourceE164(),
@@ -1223,7 +1223,7 @@ impl MessageIn {
 	) -> std::result::Result<MessageIn, MessageInError> {
 		assert_eq!(
 			envelope.get_field_type(),
-			Envelope_Type::UNIDENTIFIED_SENDER
+			EnvelopeType::UNIDENTIFIED_SENDER
 		);
 
 		// Decrypt the sealed sender message and also unpad its data
@@ -1249,7 +1249,7 @@ impl MessageIn {
 		envelope: Envelope,
 		context: &mut AuxinContext,
 	) -> std::result::Result<MessageIn, MessageInError> {
-		assert_eq!(envelope.get_field_type(), Envelope_Type::RECEIPT);
+		assert_eq!(envelope.get_field_type(), EnvelopeType::RECEIPT);
 		debug!(
 			"Decoding envelope from source: (E164: {}, UUID: {})",
 			envelope.get_sourceE164(),
