@@ -7,7 +7,7 @@ use std::{
 	collections::{HashMap, HashSet},
 };
 
-use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey, SenderKeyRecord};
+use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey};
 use log::warn;
 use serde::{
 	de::{self, Visitor},
@@ -19,9 +19,6 @@ use uuid::Uuid;
 use crate::{
 	address::{AuxinAddress, AuxinDeviceAddress, E164},
 	generate_timestamp,
-	groups::{group_storage::GroupInfoStorage, sender_key::SenderKeyName, GroupId},
-	message::fix_protobuf_buf,
-	AuxinConfig, AuxinContext, LocalIdentity,
 };
 
 /// Keeps track of a local identity, used by signal-cli in accounts.json
@@ -566,145 +563,4 @@ impl PeerInfoReply {
 		}
 		Ok(out_vec)
 	}
-}
-
-pub trait AuxinStateManager {
-	/// Load the local identity for this node, for the user account Auxin will operate as.
-	fn load_local_identity(&mut self, phone_number: &E164) -> crate::Result<LocalIdentity>;
-
-	/// Load the context for the local identity, holds critical protocol information
-	fn load_context(
-		&mut self,
-		credentials: &LocalIdentity,
-		config: AuxinConfig,
-	) -> crate::Result<AuxinContext>;
-
-	/// Save the entire InMemSessionStore from this AuxinContext to wherever state is held
-	fn save_all_sessions(&mut self, context: &AuxinContext) -> crate::Result<()> {
-		for peer in context.peer_cache.peers.iter() {
-			let address = AuxinAddress::from(peer);
-			self.save_peer_sessions(&address, context)?;
-		}
-		Ok(())
-	}
-
-	/// Save the sessions (may save multiple sessions - one per each of the peer's devices) from a specific peer
-	fn save_peer_sessions(
-		&mut self,
-		peer: &AuxinAddress,
-		context: &AuxinContext,
-	) -> crate::Result<()>;
-
-	/// Delete or otherwise mark-dead a stored session for a peer.
-	/// Called when receiving a message with the END_SESSION flag enabled.
-	fn end_session(&mut self, peer: &AuxinAddress, context: &AuxinContext) -> crate::Result<()>;
-
-	/// Save peer record info from all peers.
-	fn save_all_peer_records(&mut self, context: &AuxinContext) -> crate::Result<()>;
-
-	/// Save peer record info from a specific peer.
-	fn save_peer_record(
-		&mut self,
-		peer: &AuxinAddress,
-		context: &AuxinContext,
-	) -> crate::Result<()>;
-
-	/// Saves both pre_key_store AND signed_pre_key_store from the context.
-	fn save_pre_keys(&mut self, context: &AuxinContext) -> crate::Result<()>;
-
-	/// Saves our identity - this is unlikely to change often,
-	/// but sometimes we may need to change things like, for example, our profile key.
-	fn save_our_identity(&mut self, context: &AuxinContext) -> crate::Result<()>;
-
-	/// Ensure all changes are fully saved, not just queued.
-	fn flush(&mut self, context: &AuxinContext) -> crate::Result<()>;
-
-	/// Saves absolutely every relevant scrap of data we have loaded
-	fn save_entire_context(&mut self, context: &AuxinContext) -> crate::Result<()> {
-		self.save_our_identity(context)?;
-		self.save_all_peer_records(context)?;
-		self.save_pre_keys(context)?;
-		self.save_all_sessions(context)?;
-		self.save_all_group_info(context)?;
-		self.save_all_sender_keys(context)?;
-		self.flush(context)?;
-		Ok(())
-	}
-	// An implementation of the signal_cli-compatible group data store for the DecryptedGroup protobuf.
-	fn load_group_protobuf(
-		&mut self,
-		context: &AuxinContext,
-		group_id: &GroupId,
-	) -> crate::Result<auxin_protos::DecryptedGroup>;
-	fn load_group_info(
-		&mut self,
-		context: &AuxinContext,
-		group_id: &GroupId,
-	) -> crate::Result<GroupInfoStorage>;
-	fn save_group_info(
-		&mut self,
-		context: &AuxinContext,
-		group_id: &GroupId,
-		group_info: GroupInfoStorage,
-	) -> crate::Result<()>;
-	fn save_all_group_info(&mut self, context: &AuxinContext) -> crate::Result<()>;
-
-	// Save a sender key we received. Use the local address and device ID in sender_key_name to save a sent / local sender key.
-	fn load_sender_key(
-		&mut self,
-		context: &AuxinContext,
-		sender_key_name: &SenderKeyName,
-	) -> crate::Result<SenderKeyRecord>;
-	fn save_sender_key(
-		&mut self,
-		context: &AuxinContext,
-		sender_key_name: &SenderKeyName,
-		record: &SenderKeyRecord,
-	) -> crate::Result<()>;
-	// Save all sender keys we sent or received.
-	fn save_all_sender_keys(&mut self, context: &AuxinContext) -> crate::Result<()>;
-}
-
-/// Attempt to get a registration ID from the previous-session records.
-///
-/// Please note that this might result in cache inconsistency if a peer
-/// reset a session specifically because they re-registered.
-///
-/// However, re-registering is a much rarer case than other reasons
-/// one can need to reset a session, such as corrupt key state, for
-/// testing purposes, or for privacy concerns.
-///
-/// Returns Ok(None) if no previous registration ID has been found, meaning
-/// you probably need to make a GET request to /v2/keys/
-///
-/// # Arguments
-///
-/// * `current_record` - The peer's session record as retrieved by session_store.load_session()
-pub fn try_excavate_registration_id(
-	current_record: &libsignal_protocol::SessionRecord,
-) -> crate::Result<Option<u32>> {
-	// Obvious fast path in case we invoked this function but didn't need to.
-	if let Ok(reg_id) = current_record.remote_registration_id() {
-		return Ok(Some(reg_id));
-	}
-	let bytes = current_record.serialize()?;
-
-	let fixed_bytes = fix_protobuf_buf(&bytes)?;
-
-	let mut decoder: CodedInputStream = CodedInputStream::from_bytes(&fixed_bytes);
-	let structure: auxin_protos::protos::storage::RecordStructure = decoder.read_message()?;
-
-	if structure.previous_sessions.len() > 0 {
-		// Libsignal protocol's record of previous states is FIFO.
-		// For reference, please see archive_current_state() in session.rs.
-		// This means the first one we encounter iterating through this list will be the most recent registration ID.
-		for prev in structure.previous_sessions.iter() {
-			// 0 appears to be Protobuf's default "we don't have this field" for unsigned integers.
-			if prev.remote_registration_id != 0 {
-				return Ok(Some(prev.get_remote_registration_id()));
-			}
-		}
-	}
-	// We haven't found anything.
-	Ok(None)
 }

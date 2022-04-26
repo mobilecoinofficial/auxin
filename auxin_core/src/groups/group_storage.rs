@@ -1,7 +1,8 @@
 // Copyright (c) 2022 MobileCoin Inc.
 // Copyright (c) 2022 Emily Cultip
 
-use auxin_protos::{Member_Role, SenderKeyRecordStructure};
+use auxin_protos::groups::member::Role as MemberRole;
+use auxin_protos::storage::SenderKeyRecordStructure;
 use log::debug;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -65,9 +66,9 @@ impl TryFrom<GroupMemberStorage> for GroupMemberInfo {
 			None
 		};
 		let role = match value.member_role.to_ascii_uppercase().as_str() {
-			"UNKNOWN" => Member_Role::UNKNOWN,
-			"DEFAULT" => Member_Role::DEFAULT,
-			"ADMINISTRATOR" => Member_Role::ADMINISTRATOR,
+			"UNKNOWN" => MemberRole::UNKNOWN,
+			"DEFAULT" => MemberRole::DEFAULT,
+			"ADMINISTRATOR" => MemberRole::ADMINISTRATOR,
 			not_role => {
 				return Err(GroupSerializationError::NotARole(not_role.to_string()));
 			}
@@ -88,9 +89,9 @@ impl From<GroupMemberInfo> for GroupMemberStorage {
 			id: value.id,
 			profile_key: value.profile_key.map(|pk| pk.bytes.to_vec()),
 			member_role: match value.member_role {
-				Member_Role::UNKNOWN => "UNKNOWN",
-				Member_Role::DEFAULT => "DEFAULT",
-				Member_Role::ADMINISTRATOR => "ADMINISTRATOR",
+				MemberRole::UNKNOWN => "UNKNOWN",
+				MemberRole::DEFAULT => "DEFAULT",
+				MemberRole::ADMINISTRATOR => "ADMINISTRATOR",
 			}
 			.to_string(),
 			joined_at_revision: value.joined_at_revision,

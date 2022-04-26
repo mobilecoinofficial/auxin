@@ -175,11 +175,17 @@ pub fn get_unidentified_access_for_key(profile_key: &String) -> crate::Result<Ve
 	Ok(cipher.encrypt(nonce, payload)?)
 }
 
-custom_error! { pub UnidentifiedAccessError
-	NoProfileKey{uuid: Uuid} = "Cannot generate an unidentified access key for user {uuid}: We do not know their profile key! This would not matter for a user with UnidentifiedAccessMode::UNRESTRICTED.",
-	PeerDisallowsSealedSender{uuid: Uuid} = "Tried to generate an unidentified access key for peer {uuid}, but this user has disabled unidentified access!",
-	UnrecognizedUser{address: AuxinAddress} = "Cannot generate an unidentified access key for address {address} as that is not a recognized peer.",
-	NoProfile{uuid: Uuid} = "Attempted to generate an unidentified access key for peer {uuid}, but this user has no profile field whatsoever on record with this Auxin instance. We cannot retrieve their profile key.",
+
+#[derive(thiserror::Error, Debug)]
+pub enum UnidentifiedAccessError {
+	#[error("Cannot generate an unidentified access key for user {0:?}: We do not know their profile key! This would not matter for a user with UnidentifiedAccessMode::UNRESTRICTED.")]
+	NoProfileKey(Uuid),
+	#[error("Tried to generate an unidentified access key for peer {0:?}, but this user has disabled unidentified access!")]
+	PeerDisallowsSealedSender(Uuid),
+	#[error("Cannot generate an unidentified access key for address {0:?} as that is not a recognized peer.")]
+	UnrecognizedUser(AuxinAddress),
+	#[error("Attempted to generate an unidentified access key for peer {0:?}, but this user has no profile field whatsoever on record with this Auxin instance. We cannot retrieve their profile key.",)]
+	NoProfile(Uuid),
 }
 
 impl AuxinContext {
@@ -201,9 +207,9 @@ impl AuxinContext {
 	) -> crate::Result<Vec<u8>> {
 		let peer = self.peer_cache.get(peer_address);
 		if peer.is_none() {
-			return Err(Box::new(UnidentifiedAccessError::UnrecognizedUser {
-				address: peer_address.clone(),
-			}));
+			return Err(Box::new(UnidentifiedAccessError::UnrecognizedUser (
+				peer_address.clone(),
+			)));
 		}
 		let peer = peer.unwrap();
 
@@ -222,14 +228,14 @@ impl AuxinContext {
 					debug!("User {} accepts unidentified sender messages, generating an unidentified access key from their profile key.", uuid.to_string());
 					match &peer.profile_key {
 						Some(pk) => Ok(get_unidentified_access_for_key(pk)?),
-						None => Err(Box::new(UnidentifiedAccessError::NoProfileKey { uuid })),
+						None => Err(Box::new(UnidentifiedAccessError::NoProfileKey(uuid))),
 					}
 				}
 				UnidentifiedAccessMode::DISABLED => Err(Box::new(
-					UnidentifiedAccessError::PeerDisallowsSealedSender { uuid },
+					UnidentifiedAccessError::PeerDisallowsSealedSender(uuid),
 				)),
 			},
-			None => Err(Box::new(UnidentifiedAccessError::NoProfile { uuid })),
+			None => Err(Box::new(UnidentifiedAccessError::NoProfile(uuid))),
 		}
 	}
 	/// Retrieve the Signal Context - a C-style pointer to a placeholder data type.

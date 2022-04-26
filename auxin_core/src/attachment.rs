@@ -25,7 +25,7 @@ pub mod download {
 
 	use std::{collections::HashMap, convert::TryFrom};
 
-	use auxin_protos::protos::signalservice::AttachmentPointer;
+	use auxin_protos::signal_service::AttachmentPointer;
 	use log::{debug, info, warn};
 	use serde::{Deserialize, Serialize};
 
@@ -421,7 +421,7 @@ pub mod download {
 pub mod upload {
 	use std::path::Path;
 
-	use auxin_protos::{AttachmentPointer, AttachmentPointer_oneof_attachment_identifier};
+	use auxin_protos::signal_service::{AttachmentPointer, attachment_pointer::AttachmentIdentifier};
 	use block_modes::BlockMode;
 	use log::{debug, info};
 	use rand::{CryptoRng, Rng, RngCore};
@@ -790,7 +790,7 @@ pub mod upload {
 			.map_err(|e| AttachmentUploadError::CouldNotUpload(format!("{:?}", e)))
 	}
 
-	pub type AttachmentId = AttachmentPointer_oneof_attachment_identifier;
+	pub type AttachmentId = AttachmentIdentifier;
 
 	/// Generates an attachment pointer from an attachment.
 	///
@@ -813,13 +813,13 @@ pub mod upload {
 		let mut attachment_pointer = AttachmentPointer::default();
 
 		match attachment_identifier {
-			AttachmentId::cdnId(id) => attachment_pointer.set_cdnId(*id),
-			AttachmentId::cdnKey(key) => attachment_pointer.set_cdnKey(key.clone()),
+			AttachmentId::CdnId(id) => todo!("used to be attachment_pointer.set_cdnId(*id)"),
+			AttachmentId::CdnKey(key) => todo!("used to be attachment_pointer.set_cdnKey(key.clone())"),
 		}
 
 		//TODO: Figure out if alternative CDN numbers are ever needed. SignalServiceMessageSender hard-codes 0, though, so it's probably fine.
 		//See https://github.com/signalapp/Signal-Android/blob/6e00920c95499cc214609a29c96c4f0b6919076a/libsignal/service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java#L594
-		attachment_pointer.set_cdnNumber(0);
+		attachment_pointer.cdn_number = 0;
 
 		let mut attachment_keys: [u8; 64] = [0; 64];
 
@@ -898,7 +898,7 @@ pub mod upload {
 			&attachment.filename, response_converted
 		);
 
-		let attachment_identifier = AttachmentId::cdnId(upload_attributes.attachment_id);
+		let attachment_identifier = AttachmentId::CdnId(upload_attributes.attachment_id);
 		let attachment_pointer =
 			make_attachment_pointer(&attachment_identifier, attachment).await?;
 

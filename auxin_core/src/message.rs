@@ -9,8 +9,8 @@ use crate::{
 	state::PeerStore,
 	AuxinContext, ProfileKey, Result,
 };
-use auxin_protos::{signal_service::AttachmentPointer, signal_service::data_message::Quote, signal_service::Envelope};
-use auxin_protos::signal_service::envelope;
+use auxin_protos::{signal_service::AttachmentPointer, signal_service, signal_service::data_message::Quote, signal_service::Envelope};
+use auxin_protos::signal_service::envelope as envelope;
 use libsignal_protocol::{
 	group_decrypt, group_encrypt, message_decrypt, message_decrypt_prekey, message_decrypt_signal,
 	message_encrypt, sealed_sender_decrypt_to_usmc, sealed_sender_encrypt,
@@ -41,7 +41,8 @@ pub mod envelope_types {
 		InvalidTypeId(i128),
 	}
 
-	use num_enum::IntoPrimitive;
+	use auxin_protos::signal_service::envelope;
+use num_enum::IntoPrimitive;
 	use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 	use std::convert::TryFrom;
 
@@ -109,9 +110,9 @@ pub mod envelope_types {
 				UNIDENTIFIED_SENDER => Ok(EnvelopeType::UnidentifiedSender),
 				SENDER_KEY => Ok(EnvelopeType::SenderKey),
 				PLAINTEXT_CONTENT => Ok(EnvelopeType::PlaintextContent),
-				_ => Err(EnvelopeTypeError::InvalidTypeId {
-					attempted_value: value as i128,
-				}),
+				_ => Err(EnvelopeTypeError::InvalidTypeId(
+					value as i128
+				)),
 			}
 		}
 	}
@@ -120,9 +121,9 @@ pub mod envelope_types {
 		type Error = EnvelopeTypeError;
 		fn try_from(value: u16) -> Result<Self, Self::Error> {
 			if value as u8 > HIGHEST_VALUE {
-				Err(EnvelopeTypeError::InvalidTypeId {
-					attempted_value: value as i128,
-				})
+				Err(EnvelopeTypeError::InvalidTypeId (
+					value as i128
+				))
 			} else {
 				Ok(EnvelopeType::try_from(value as u8)?)
 			}
@@ -132,45 +133,41 @@ pub mod envelope_types {
 		type Error = EnvelopeTypeError;
 		fn try_from(value: u32) -> Result<Self, Self::Error> {
 			if value as u8 > HIGHEST_VALUE {
-				Err(EnvelopeTypeError::InvalidTypeId {
-					attempted_value: value as i128,
-				})
+				Err(EnvelopeTypeError::InvalidTypeId (
+					value as i128
+				))
 			} else {
 				Ok(EnvelopeType::try_from(value as u8)?)
 			}
 		}
 	}
 
-	impl From<auxin_protos::EnvelopeType> for EnvelopeType {
-		fn from(value: auxin_protos::EnvelopeType) -> Self {
+	impl From<envelope::Type> for EnvelopeType {
+		fn from(value: envelope::Type) -> Self {
 			match value {
-				auxin_protos::EnvelopeType::UNKNOWN => EnvelopeType::Unknown,
-				auxin_protos::EnvelopeType::CIPHERTEXT => EnvelopeType::Ciphertext,
-				auxin_protos::EnvelopeType::KEY_EXCHANGE => EnvelopeType::KeyExchange,
-				auxin_protos::EnvelopeType::PREKEY_BUNDLE => EnvelopeType::PreKeyBundle,
-				auxin_protos::EnvelopeType::RECEIPT => EnvelopeType::Recipt,
-				auxin_protos::EnvelopeType::UNIDENTIFIED_SENDER => {
-					EnvelopeType::UnidentifiedSender
-				}
-				auxin_protos::EnvelopeType::PLAINTEXT_CONTENT => EnvelopeType::PlaintextContent,
-				auxin_protos::EnvelopeType::SENDER_KEY => EnvelopeType::SenderKey,
+				envelope::Type::Unknown => EnvelopeType::Unknown,
+				envelope::Type::Ciphertext => EnvelopeType::Ciphertext,
+				envelope::Type::KeyExchange => EnvelopeType::KeyExchange,
+				envelope::Type::PrekeyBundle => EnvelopeType::PreKeyBundle,
+				envelope::Type::Receipt => EnvelopeType::Recipt,
+				envelope::Type::UnidentifiedSender => EnvelopeType::UnidentifiedSender,
+				envelope::Type::PlaintextContent => EnvelopeType::PlaintextContent,
+				envelope::Type::SenderKey => EnvelopeType::SenderKey,
 			}
 		}
 	}
 
-	impl From<EnvelopeType> for auxin_protos::EnvelopeType {
+	impl From<EnvelopeType> for envelope::Type  {
 		fn from(value: EnvelopeType) -> Self {
 			match value {
-				EnvelopeType::Unknown => auxin_protos::EnvelopeType::UNKNOWN,
-				EnvelopeType::Ciphertext => auxin_protos::EnvelopeType::CIPHERTEXT,
-				EnvelopeType::KeyExchange => auxin_protos::EnvelopeType::KEY_EXCHANGE,
-				EnvelopeType::PreKeyBundle => auxin_protos::EnvelopeType::PREKEY_BUNDLE,
-				EnvelopeType::Recipt => auxin_protos::EnvelopeType::RECEIPT,
-				EnvelopeType::UnidentifiedSender => {
-					auxin_protos::EnvelopeType::UNIDENTIFIED_SENDER
-				}
-				EnvelopeType::SenderKey => auxin_protos::EnvelopeType::SENDER_KEY,
-				EnvelopeType::PlaintextContent => auxin_protos::EnvelopeType::PLAINTEXT_CONTENT,
+				EnvelopeType::Unknown => envelope::Type::Unknown,
+				EnvelopeType::Ciphertext => envelope::Type::Ciphertext,
+				EnvelopeType::KeyExchange => envelope::Type::KeyExchange,
+				EnvelopeType::PreKeyBundle => envelope::Type::PrekeyBundle,
+				EnvelopeType::Recipt => envelope::Type::Receipt,
+				EnvelopeType::UnidentifiedSender => envelope::Type::UnidentifiedSender,
+				EnvelopeType::SenderKey => envelope::Type::SenderKey,
+				EnvelopeType::PlaintextContent => envelope::Type::PlaintextContent,
 			}
 		}
 	}
@@ -179,9 +176,9 @@ pub mod envelope_types {
 		type Error = EnvelopeTypeError;
 		fn try_from(value: u64) -> Result<Self, Self::Error> {
 			if value as u8 > HIGHEST_VALUE {
-				Err(EnvelopeTypeError::InvalidTypeId {
-					attempted_value: value as i128,
-				})
+				Err(EnvelopeTypeError::InvalidTypeId (
+					value as i128
+				))
 			} else {
 				Ok(EnvelopeType::try_from(value as u8)?)
 			}
@@ -278,8 +275,11 @@ pub mod envelope_types {
 // "inside regular message text"?
 const PADDING_START_CHAR: u8 = 0x80;
 
-custom_error! { pub PaddingError
-	PaddingStartNotFound = "Could not find the padding start character 0x80 in a buffer we attempted to un-pad.",
+
+#[derive(thiserror::Error, Debug)]
+pub enum PaddingError {
+	#[error("Could not find the padding start character 0x80 in a buffer we attempted to un-pad.")]
+	PaddingStartNotFound,
 }
 
 /// Used to pad the body of a message to 160 characters total (159 before encryption).
@@ -337,33 +337,6 @@ pub fn remove_message_padding(message: &Vec<u8>) -> std::result::Result<Vec<u8>,
 		}
 	}
 	Err(PaddingError::PaddingStartNotFound)
-}
-
-/// Makes the protocol buffers sent by Signal's web API compatible with the Rust "protobuf" library.
-/// The messages Signal sends us just start with raw data right away (binary blob). However, the rust implementation of
-/// "Protobuf" expects each "Message" type to start with a Varint64 specifying the length of the message.
-/// So, this function uses buf.len() to add a proper length varint so protobuf can deserialize this message.
-///
-/// # Arguments
-///
-/// * `buf` - A buffer containing a protocol buffer message sent to us from Signal's Web API.
-#[allow(clippy::ptr_arg)]
-// TODO(Diana): buf
-pub fn fix_protobuf_buf(buf: &[u8]) -> std::result::Result<Vec<u8>, protobuf::ProtobufError> {
-	let mut new_buf: Vec<u8> = Vec::new();
-	// It is expecting this to start with "Len".
-	let mut writer = protobuf::CodedOutputStream::vec(&mut new_buf);
-	writer.write_raw_varint64(buf.len() as u64)?;
-	writer.flush()?;
-	new_buf.append(&mut buf.to_vec());
-	Ok(new_buf)
-}
-
-/// (Try to) read a raw byte buffer as a Signal WebSocketMessage protobuf.
-pub fn read_wsmessage_from_bin(buf: &[u8]) -> Result<auxin_protos::WebSocketMessage> {
-	let new_buf = fix_protobuf_buf(&Vec::from(buf))?;
-	let mut reader = protobuf::CodedInputStream::from_bytes(new_buf.as_slice());
-	Ok(reader.read_message()?)
 }
 
 /*----------------------------------------------------------------------------\\
@@ -471,7 +444,7 @@ impl OutgoingPushMessageList {
 
 /// Does this receipt represent a DELIVERY (on a technical level, the endpoint has gotten the message),
 /// or a READ (a user or program has seen this message)?
-pub type ReceiptMode = auxin_protos::ReceiptMessage_Type;
+pub type ReceiptMode = auxin_protos::signal_service::receipt_message::Type;
 
 /// A simple indicator of whether the message is being sent by us, or received by us.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
@@ -552,7 +525,7 @@ impl MessageContent {
 		our_profile_key: &String,
 		group: Option<&GroupSendContext>,
 		timestamp: Timestamp,
-	) -> Result<auxin_protos::Content> {
+	) -> Result<signal_service::Content> {
 		// Did we create this message using a content message directly?
 		if let Some(content) = &self.source {
 			let mut new_content = content.clone();
