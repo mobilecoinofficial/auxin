@@ -7,7 +7,6 @@ use aes_gcm::{
 	aead::{Aead, NewAead, Payload},
 	Nonce,
 };
-use custom_error::custom_error;
 use libsignal_protocol::{
 	IdentityKeyPair, InMemIdentityKeyStore, InMemPreKeyStore, InMemSessionStore,
 	InMemSignedPreKeyStore, SenderCertificate,

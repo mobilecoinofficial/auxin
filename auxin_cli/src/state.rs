@@ -24,7 +24,6 @@ use auxin_core::{
 	AuxinConfig, AuxinContext, LocalIdentity, Result, SignalCtx, PROFILE_KEY_LEN,
 };
 
-use custom_error::custom_error;
 use futures::executor::block_on;
 use libsignal_protocol::{
 	IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore, InMemPreKeyStore,

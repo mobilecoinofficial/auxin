@@ -10,7 +10,6 @@ use crate::{
 	AuxinContext, ProfileKey, Result,
 };
 use auxin_protos::{AttachmentPointer, DataMessage_Quote, Envelope, Envelope_Type};
-use custom_error::custom_error;
 use libsignal_protocol::{
 	group_decrypt, group_encrypt, message_decrypt, message_decrypt_prekey, message_decrypt_signal,
 	message_encrypt, sealed_sender_decrypt_to_usmc, sealed_sender_encrypt,
@@ -38,7 +37,6 @@ pub mod envelope_types {
 	custom_error! { pub EnvelopeTypeError
 		InvalidTypeId{attempted_value:i128} = "Attempted to decode {attempted_value} as an Envelope Type. Valid envelope types are 0 through 6.",
 	}
-	use custom_error::custom_error;
 	use num_enum::IntoPrimitive;
 	use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 	use std::convert::TryFrom;

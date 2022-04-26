@@ -24,7 +24,6 @@ use attachment::{
 };
 use auxin_protos::{AttachmentPointer, Envelope, DecryptedGroupChange, GroupChange};
 
-use custom_error::custom_error;
 use futures::TryFutureExt;
 use groups::{group_message::GroupEncryptionError, sender_key::DistributionId, GroupApiError, GroupDecryptionError, validate_group_member, GroupUtilsError};
 use libsignal_protocol::{

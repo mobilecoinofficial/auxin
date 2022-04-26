@@ -4,7 +4,6 @@
 use std::{convert::TryFrom, error::Error, str::FromStr};
 
 use crate::Result;
-use custom_error::custom_error;
 use libsignal_protocol::ProtocolAddress;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

@@ -1,24 +1,17 @@
 [package]
 name = "auxin_core"
-version = "0.2.0"
+version = "0.2-DEV"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[features]
-default = ["std-mutex"]
-# Are we able to use rust standard library's Mutex type? (i.e. are we not inside wasm)
-std-mutex = []
 
 [lib]
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-
 #Internal dependency - protocol buffers for our application.
 auxin_protos = { path = "../auxin_protos" }
 
 #Signal protocol & zero knowledge proof stuff.
-libsignal-protocol = { git = "https://github.com/signalapp/libsignal-client", tag = "v0.14.0"}
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal-client", tag = "v0.16.0"}
 zkgroup = { git = "https://github.com/signalapp/zkgroup", tag = "v0.9.0" }
 
 hkdf = "0.11"
@@ -31,7 +24,7 @@ rand = "0.7.3"
 
 base64 = "0.13.0"
 
-uuid = { version = "0.8.2", features = ["serde"] }
+uuid = { version = "1.0", features = ["serde"] }
 
 aes-gcm = { version = "0.9.2", features = ["std"] }
 block-modes = "0.8.1"
@@ -43,12 +36,8 @@ serde = { version = "1.0.126", features = ["derive"] }
 serde_json = "1.0.64"
 num_enum = "0.5.1"
 
-# Default-features disabled to ensure runtime-asyncstd is turned off.
-# async-native-tls = { version = "0.3.3", default-features = false, features = ["runtime-tokio"]}
+prost = "0.10.1"
 
-protobuf = "2.23.0"
-
-custom_error = "1.9.2"
 http = "0.2.4"
 
 x509-certificate = "0.2.0"
@@ -63,4 +52,4 @@ thiserror = "1.0"
 serde_arrays = "0.1.0"
 
 [dev-dependencies]
-uuid = { version = "0.8.2", features = ["v4"] }
+uuid = { version = "1.0", features = ["v4"] }
