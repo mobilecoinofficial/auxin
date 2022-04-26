@@ -13,7 +13,9 @@
 //Auxin dependencies
 
 use auxin::{
+	account::SignalAccount,
 	address::AuxinAddress,
+	generate_timestamp,
 	message::{MessageContent, MessageOut},
 	state::AuxinStateManager,
 	AuxinApp, AuxinConfig, ReceiveError, Result,
@@ -163,6 +165,91 @@ impl SignalPrekeyData {
 	}
 }
 
+/// Does last steps to fully register a signal account
+async fn fix_accounts<R>(client: &reqwest::Client, account: &SignalAccount<R>) -> Result<()> {
+	// TODO(Diana): This seems to basically just be
+	// AuxinApp::retrieve_profile but on ourselves
+	// But we can't use AuxinApp here
+	let uuid = account.aci().uuid();
+	let version = account.profile_key().version(uuid);
+	let url = format!("https://chat.signal.org/v1/profile/{uuid}/{version}",);
+	let res = client
+		.get(url)
+		.basic_auth(account.aci().uuid(), Some(account.password()))
+		.send()
+		.await?;
+	// TODO(Diana): We don't currently care about the response
+	let _profile: auxin::profile::ProfileResponse = res.json().await?;
+
+	// Construct a default profile for our new user.
+	let profile = auxin::profile::ProfileConfig {
+		about: None,
+		mobilecoin_address: None,
+		mood_emoji: None,
+		name: auxin::profile_cipher::ProfileName {
+			given_name: String::from(account.phone()),
+			family_name: None,
+		},
+		avatar_file: None,
+	};
+	// Terrible hack to build the profile request without duplicating all the code.
+	let profile = auxin::profile::build_set_profile_request(
+		profile,
+		&auxin::LocalIdentity {
+			address: auxin::address::AuxinDeviceAddress {
+				address: AuxinAddress::Both(
+					account.phone().into(),
+					uuid::Uuid::parse_str(account.aci().uuid())?,
+				),
+				device_id: 1,
+			},
+			password: account.password().into(),
+			profile_key: *account.profile_key().as_bytes(),
+			identity_keys: libsignal_protocol::IdentityKeyPair::new(
+				libsignal_protocol::IdentityKey::new(PublicKey::from_djb_public_key_bytes(
+					account.aci().identity().public(),
+				)?),
+				libsignal_protocol::PrivateKey::deserialize(account.aci().identity().private())?,
+			),
+			reg_id: account.registration_id() as u32,
+		},
+		&mut rand::thread_rng(),
+	)?;
+	client
+		.put("https://chat.signal.org/v1/profile")
+		.basic_auth(account.aci().uuid(), Some(account.password()))
+		.json(&profile)
+		.send()
+		.await?;
+
+	// TODO(Diana): This endpoint seems to be hit,
+	// but I don't think signal-cli saves its result?
+	let _res = client
+		.get("https://chat.signal.org/v1/certificate/delivery")
+		.basic_auth(account.aci().uuid(), Some(account.password()))
+		.send()
+		.await?;
+
+	client
+		.put(format!(
+			"https://chat.signal.org/v1/messages/{}",
+			account.aci().uuid()
+		))
+		.basic_auth(account.aci().uuid(), Some(account.password()))
+		.json(&serde_json::json! {
+			{
+				"destination": account.aci().uuid(),
+				"timestamp": generate_timestamp(),
+				"messages": [],
+				"online": false
+			}
+
+		})
+		.send()
+		.await?;
+	Ok(())
+}
+
 pub fn main() {
 	// used to send the exit code from async_main to the main task
 	let (tx, rx) = tokio::sync::oneshot::channel::<i32>();
@@ -270,13 +357,10 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 				};
 				let res = client.get(url).send().await?;
 				let status = res.status();
-				let body = res.bytes().await?;
 				match status {
 					StatusCode::BAD_REQUEST => {
-						if body.is_empty() {
-							error!("Impossible phone number?");
-							return Err("Impossible phone number".into());
-						}
+						error!("Impossible phone number?");
+						return Err("Impossible phone number".into());
 					}
 					// Captcha Required
 					StatusCode::PAYMENT_REQUIRED => {
@@ -286,6 +370,15 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					StatusCode::OK => (),
 					c => warn!("Received unknown response from signal servers: {c}"),
 				}
+				return Ok(());
+			}
+			AuxinCommand::Fix => {
+				let account = SignalAccount::from_signal_cli(
+					&arguments.config,
+					&arguments.user,
+					rand::thread_rng(),
+				)?;
+				fix_accounts(&client, &account).await?;
 				return Ok(());
 			}
 			AuxinCommand::Verify { code } => {
@@ -369,31 +462,12 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 							.send()
 							.await?;
 						let status = res.status();
+						fix_accounts(&client, &account).await?;
 
 						match status {
 							StatusCode::OK | StatusCode::NO_CONTENT => {
 								info!("Account successfully registered");
 								return Ok(());
-								// TODO(Diana): This seems to basically just be AuxinApp::retrieve_profile but on ourselves
-								// Do we need to do this? Don't think so
-								// Might need to do this to create recipients-store?
-								// Per the log ilia gave for registration, something weird happens next.
-								// https://github.com/signalapp/Signal-Android/blob/v5.33.3/libsignal/service/src/main/java/org/whispersystems/signalservice/api/services/ProfileService.java#L84
-								// This seems to be what signal does after registering.
-								// Do we even need to do it?
-								// Maybe future stuff, to get some of our own profile settings from the server
-								// I *think* Signal returns some feature flags here? like whether stories are enabled
-
-								// let uuid = account.aci().uuid();
-								// let version = account.profile_key().version(uuid);
-								// let url =
-								// 	format!("https://chat.signal.org/v1/profile/{uuid}/{version}",);
-								// let res = client
-								// 	.put(url)
-								// 	.basic_auth(account.aci().uuid(), Some(account.password()))
-								// 	.json(&json)
-								// 	.send()
-								// 	.await?;
 							}
 							c => {
 								error!("Received unknown response from signal servers. Status {c}\nBody: {}",res.text().await?);
@@ -408,6 +482,26 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 					}
 					c => error!("Received unknown response from signal servers: {c}"),
 				}
+				return Ok(());
+			}
+			AuxinCommand::Captcha { captcha, token } => {
+				let account = SignalAccount::from_signal_cli(
+					&arguments.config,
+					&arguments.user,
+					rand::thread_rng(),
+				)?;
+				let captcha = captcha.strip_prefix("signalcaptcha://").unwrap_or(captcha);
+				client
+					.put("https://chat.signal.org/v1/challenge")
+					.basic_auth(account.aci().uuid(), Some(account.password()))
+					.json(&serde_json::json! {{
+						"type": "recaptcha",
+						"token": token,
+						"captcha": captcha,
+					}})
+					.send()
+					.await?
+					.error_for_status()?;
 				return Ok(());
 			}
 			_ => (),
@@ -439,7 +533,7 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			let SendOutput {
 				timestamp,
 				simulate_output,
-			} = handle_send_command(send_command, &mut app).await.unwrap();
+			} = handle_send_command(send_command, &mut app).await?;
 
 			if let Some(json_out) = &simulate_output {
 				println!("Simulated generating a message with timestamp {} and generated json structure: {}", timestamp, json_out);
@@ -456,16 +550,14 @@ pub async fn async_main(exit_oneshot: tokio::sync::oneshot::Sender<i32>) -> Resu
 			let start_time = Instant::now();
 			let attachments = handle_upload_command(upload_command, &mut app).await?;
 
-			let json_attachment_pointer = if attachments.len() == 1 { 
+			let json_attachment_pointer = if attachments.len() == 1 {
 				serde_json::to_string(&attachments[0])?
-			}
-			else if attachments.len() > 1 {
+			} else if attachments.len() > 1 {
 				serde_json::to_string(&attachments)?
-			}
-			else { 
+			} else {
 				String::default()
 			};
-			
+
 			println!("{}", json_attachment_pointer);
 
 			info!(

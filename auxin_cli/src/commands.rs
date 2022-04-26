@@ -118,6 +118,24 @@ pub enum AuxinCommand {
 		#[structopt(long)]
 		code: String,
 	},
+
+	/// Fix an incorrectly registered signal account. Only use this if you need it.
+	// TODO(Diana): Remove this at some point? Never even add it?
+	// We *did* do an auxin release with broken registration
+	Fix,
+
+	/// Resolve an anti-spam/rate limit captcha
+	Captcha {
+		/// Captcha code.
+		#[structopt(long)]
+		captcha: String,
+
+		/// Challenge token from error error
+		// TODO(Diana): This should be nicer, but would require integration
+		// with the other commands
+		#[structopt(long)]
+		token: String,
+	},
 }
 
 #[derive(StructOpt, Serialize, Deserialize, Debug, Clone)]
