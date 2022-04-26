@@ -8,7 +8,7 @@ pub mod group_storage;
 pub mod sender_key;
 
 use libsignal_protocol::error::SignalProtocolError;
-use log::debug;
+use log::{debug, warn};
 use protobuf::{CodedInputStream, ProtobufError};
 use zkgroup::{groups::GroupMasterKey, GROUP_MASTER_KEY_LEN, PROFILE_KEY_LEN};
 
@@ -17,13 +17,13 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 
-use auxin_protos::protos::{
+use auxin_protos::{protos::{
 	decrypted_groups::{
 		DecryptedGroup, DecryptedMember, DecryptedPendingMember, DecryptedRequestingMember,
 		DecryptedTimer,
 	},
 	groups::GroupAttributeBlob_oneof_content,
-};
+}, GroupChange, DecryptedGroupChange, GroupChange_Actions};
 
 use auxin_protos::protos::groups::{
 	Group as EncryptedGroup, GroupAttributeBlob, Member as EncryptedMember,
@@ -45,6 +45,8 @@ use crate::{
 	net::{common_http_headers, AuxinHttpsConnection},
 	LocalIdentity,
 };
+
+use self::group_storage::LocalDistributionRecord;
 
 pub const LIVE_ZKGROUP_SERVER_PUBLIC_PARAMS: &str = "AMhf5ywVwITZMsff/eCyudZx9JDmkkkbV6PInzG4p8x3VqVJSFiMvnvlEKWuRob/1eaIetR31IYeAbm0NdOuHH8Qi+Rexi1wLlpzIo1gstHWBfZzy1+qHRV5A4TqPp15YzBPm0WSggW6PbSn+F4lf57VCnHF7p8SvzAA2ZZJPYJURt8X7bbg+H3i+PEjH9DXItNEqs2sNcug37xZQDLm7X36nOoGPs54XsEGzPdEV+itQNGUFEjY6X9Uv+Acuks7NpyGvCoKxGwgKgE5XyJ+nNKlyHHOLb6N1NuHyBrZrgtY/JYJHRooo5CEqYKBqdFnmbTVGEkCvJKxLnjwKWf+fEPoWeQFj5ObDjcKMZf2Jm2Ae69x+ikU5gBXsRmoF94GXQ==";
 
@@ -313,7 +315,39 @@ impl GroupOperations {
 		};
 		Ok(result)
 	}
+
+	pub fn decrypt_change(&self, change: GroupChange) -> Result<DecryptedGroupChange, GroupDecryptionError> { 
+		// Decode the actions, which are (at first) represented as an opaque byte blob on the GroupChange message. 
+		let actions_bytes = change.get_actions();
+		let actions_bytes = fix_protobuf_buf(&actions_bytes).unwrap();
+		let mut stream = CodedInputStream::from_bytes(&actions_bytes);
+		let actions: GroupChange_Actions = stream.read_message().unwrap();
+		let actions_json = serde_json::to_string_pretty(&actions).unwrap();
+		debug!("Actions: {}", actions_json);
+
+		let mut output = DecryptedGroupChange::default();
+		
+		for add_member in actions.get_addMembers().iter() { 
+			let decrypted_member = self.decrypt_member(add_member.get_added().clone())?;
+			debug!("New member add action for {:?}", decrypted_member);
+			output.mut_newMembers().push(decrypted_member);
+		}
+		
+		for delete_member in actions.get_deleteMembers().iter() { 
+			let decrypted_id = self.decrypt_uuid(delete_member.get_deletedUserId())?;
+			debug!("Group member removal action for {:?}", Uuid::from_bytes(decrypted_id));
+			output.mut_deleteMembers().push(decrypted_id.to_vec());
+		}
+		debug!("Decrypted changes {:?}", &output);
+
+		//TODO: The rest of the fields in here.
+
+		warn!("Group change decryption is incomplete. Member-add and member-delete actions will be propagated but all other actions will be discarded.");
+
+		Ok(output)
+	}
 }
+
 /// Given a 16-byte GroupV1 ID, derive the migration key.
 ///
 /// Panics if the group_id is not 16 bytes long.
@@ -739,6 +773,7 @@ pub struct GroupMemberInfo {
 	pub profile_key: Option<zkgroup::profiles::ProfileKey>,
 	pub member_role: auxin_protos::protos::groups::Member_Role,
 	pub joined_at_revision: u32,
+	pub last_distribution: Option<LocalDistributionRecord>,
 }
 impl PartialEq for GroupMemberInfo {
 	fn eq(&self, other: &Self) -> bool {
@@ -803,6 +838,8 @@ pub fn validate_group_member(
 		profile_key,
 		member_role: group_member.get_role(),
 		joined_at_revision: group_member.get_joinedAtRevision(),
+		//Start assuming we haven't sent one yet. 
+    	last_distribution: None,
 	})
 }
 

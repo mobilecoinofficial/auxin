@@ -21,11 +21,30 @@ custom_error! {pub AddressError
 }
 
 //NOTE: UUID changes when phone number is re-registered.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialOrd, Serialize, Deserialize, Hash)]
 pub enum AuxinAddress {
 	Phone(E164),
 	Uuid(Uuid),
 	Both(E164, Uuid),
+}
+
+impl PartialEq for AuxinAddress {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Phone(l0), Self::Phone(r0)) => l0 == r0,
+            (Self::Uuid(l0), Self::Uuid(r0)) => l0 == r0,
+            (Self::Both(l0, l1), Self::Both(r0, r1)) => l0 == r0 || l1 == r1,
+
+            (Self::Uuid(l), Self::Both(_, r1)) => l == r1,
+            (Self::Phone(l), Self::Both(r0, _)) => l == r0,
+
+            (Self::Both(_, l1), Self::Uuid(r)) => l1 == r,
+            (Self::Both(l0, _), Self::Phone(r)) => l0 == r,
+
+            (Self::Phone(_), Self::Uuid(_)) => false,
+            (Self::Uuid(_), Self::Phone(_)) => false,
+        }
+    }
 }
 
 impl std::fmt::Display for AuxinAddress {
