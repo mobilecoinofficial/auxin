@@ -642,26 +642,26 @@ type E164 = String;
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Profile {
-	lastUpdateTimestamp: u64,
-	givenName: Option<String>,
-	familyName: Option<String>,
+	last_update_timestamp: u64,
+	given_name: Option<String>,
+	family_name: Option<String>,
 	about: Option<String>,
-	aboutEmoji: Option<String>,
-	avatarUrlPath: Option<String>,
-	unidentifiedAccessMode: String,
+	about_emoji: Option<String>,
+	avatar_url_path: Option<String>,
+	unidentified_access_mode: String,
 	capabilities: Vec<String>,
 }
 
 impl Profile {
 	fn new<R>(account: &SignalAccount<R>) -> Self {
 		Self {
-			lastUpdateTimestamp: generate_timestamp(),
-			givenName: Some(account.phone().into()),
-			familyName: None,
+			last_update_timestamp: generate_timestamp(),
+			given_name: Some(account.phone().into()),
+			family_name: None,
 			about: None,
-			aboutEmoji: None,
-			avatarUrlPath: None,
-			unidentifiedAccessMode: String::from("DISABLED"),
+			about_emoji: None,
+			avatar_url_path: None,
+			unidentified_access_mode: String::from("DISABLED"),
 			capabilities: vec!["senderKey", "gv2", "gv1Migration", "announcementGroup"]
 				.into_iter()
 				.map(Into::into)
