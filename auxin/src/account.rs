@@ -1,4 +1,4 @@
-//! Holds and manages data for a Signal account
+///! Holds and manages data for a Signal account
 use libsignal_protocol::{KeyPair, PreKeyRecord, PrivateKey, SignedPreKeyRecord};
 use rand::{CryptoRng, Rng};
 use serde::{Deserialize, Serialize};
@@ -566,7 +566,7 @@ impl<R> SignalAccount<R> {
 					}
 				}
 			}
-			Err(e) => match dbg!(&e).classify() {
+			Err(e) => match &e.classify() {
 				serde_json::error::Category::Data
 				| serde_json::error::Category::Syntax
 				| serde_json::error::Category::Eof => RecipientsStore::new(self),
@@ -577,7 +577,7 @@ impl<R> SignalAccount<R> {
 		f.set_len(0)?;
 		f.seek(SeekFrom::Start(0))?;
 		f.flush()?;
-		dbg!(&store);
+		
 
 		serde_json::to_writer_pretty(BufWriter::new(&mut f), &store)?;
 		Ok(())
