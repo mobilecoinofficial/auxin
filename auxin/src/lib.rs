@@ -614,7 +614,7 @@ where
 					// No public key / identity key.
 					missing_session = true;
 				}
-				else if let Ok(None) = ident { 
+				else if let Ok(None) = ident {
 					// No public key / identity key.
 					missing_session = true;
 				}
@@ -899,21 +899,21 @@ where
 		// TODO: optimize this later.
 		// Should be possible to send the old distribution ID to one device rather than
 		// rebuilding the entire sender key distribution from scratch.
-		if !needs_new_distribution { 
-			for member in group_info.members.iter() { 
+		if !needs_new_distribution {
+			for member in group_info.members.iter() {
 				// Avoid including ourselves in this.
-				if member.id != our_uuid { 
-					if let Some(distrib) = member.last_distribution.as_ref() { 
+				if member.id != our_uuid {
+					if let Some(distrib) = member.last_distribution.as_ref() {
 						//Find out what device IDs they're supposed to have.
 						let member_record = self.context.peer_cache.get_by_uuid(&member.id).unwrap();
-						for device_id in member_record.device_ids_used.iter() { 
-							if !distrib.devices_included.contains(device_id) { 
+						for device_id in member_record.device_ids_used.iter() {
+							if !distrib.devices_included.contains(device_id) {
 								needs_new_distribution = true;
 							}
 						}
 					}
-					else { 
-						//If we don't have one of these, we need to make one. 
+					else {
+						//If we don't have one of these, we need to make one.
 						//Duplicates work from needs_new_distribution(), which is good! Sanity checks are nice.
 						needs_new_distribution = true;
 					}
@@ -928,7 +928,7 @@ where
 			let new_distribution = DistributionId::new_v4();
 			let (sender_key_name, distribution_message) = self.produce_sender_key_distribution(&new_distribution).await?;
 			self.broadcast_sender_key_distribution(group_id, &distribution_message).await?;
-			//Record that we sent this. 
+			//Record that we sent this.
 			group_info.set_distribution_all(&new_distribution, generate_timestamp(), &self.context.peer_cache);
 			sender_key_name.distribution_id
 		} else {
@@ -2024,7 +2024,7 @@ where
 	) -> std::result::Result<(SenderKeyName, SenderKeyDistributionMessage), GroupsError> {
 		let sender_key_name = SenderKeyName {
 			distribution_id: distribution_id.clone(),
-			sender: AuxinDeviceAddress { 
+			sender: AuxinDeviceAddress {
 				address: AuxinAddress::Uuid(self.context.identity.address.get_uuid().cloned().unwrap()),
 				device_id: self.context.identity.address.device_id,
 			},
@@ -2050,7 +2050,7 @@ where
 		self.state_manager
 			.save_all_sender_keys(&self.context)
 			.map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
-		
+
 		Ok((sender_key_name, sender_key_distribution_message))
 	}
 
@@ -2077,7 +2077,7 @@ where
 		let mut messages: Vec<(AuxinAddress, MessageOut)> = Vec::new();
 		for group_member in group_info.members.iter() {
 			// Prevent self-send in a group context.
-			if &group_member.id != self.context.identity.address.get_uuid().unwrap() { 
+			if &group_member.id != self.context.identity.address.get_uuid().unwrap() {
 				let peer_address = AuxinAddress::Uuid(group_member.id.clone());
 				let message_out = MessageOut {
 					content: crate::message::MessageContent {
@@ -2097,7 +2097,7 @@ where
 			let _ = self.send_message(&peer_address, message_out).await;
 		}
 
-		//Make sure we save the key we just sent! 
+		//Make sure we save the key we just sent!
 		self.state_manager.save_all_sender_keys(&self.context).map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
 		self.state_manager.save_group_info(&self.context, group_id, (&group_info_to_save).into()).map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
 
@@ -2148,12 +2148,12 @@ where
 		Ok(())
 	}
 
-	/// Ingest a list of group change actions, applying them to our internal cached representation of 
+	/// Ingest a list of group change actions, applying them to our internal cached representation of
 	/// the group's state.
 	fn apply_group_changes(&mut self, group: &GroupId, change: DecryptedGroupChange)-> std::result::Result<(), GroupsError> {
 		let group_info = self.context.groups.get_mut(group)
 			.ok_or(GroupsError::ModifyMissingGroup(group.clone()))?;
-		
+
 		debug!("Before applying group changes: {:?}", group_info);
 		for add_member in change.get_newMembers() {
 			debug!("Processing new member addition to group {:?}", add_member);
@@ -2166,7 +2166,7 @@ where
 				new_member
 			);
 		}
-	
+
 		for delete_member in change.get_deleteMembers() {
 			let mut bytes = [0u8;16];
 			bytes.copy_from_slice(&delete_member[0..16]);
@@ -2179,7 +2179,7 @@ where
 		}
 
 		let group_info_to_save = group_info.clone();
-				
+
 		debug!("After applying group changes: {:?}", group_info);
 		self.state_manager.save_group_info(&self.context, group, (&group_info_to_save).into()).map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
 
@@ -2270,8 +2270,8 @@ where
 							for new_member in group_members.iter() {
 								let mut new_member_copy = new_member.clone();
 								let old_members: Vec<GroupMemberInfo> = new_group.members.drain_filter(|old_member| old_member.id == new_member.id ).collect();
-								if let Some(old_member) = old_members.first() { 
-									//Don't lose this. 
+								if let Some(old_member) = old_members.first() {
+									//Don't lose this.
 									new_member_copy.last_distribution = old_member.last_distribution.clone();
 								}
 								new_group.members.push(new_member_copy);
@@ -2282,7 +2282,7 @@ where
 					}
 					// New group, no prior group information on file.
 					None => {
-						let mut members = group_members.clone(); 
+						let mut members = group_members.clone();
 						members.dedup_by_key(|member| member.id);
 						GroupInfo {
 							revision: group_context.get_revision(),
@@ -2338,7 +2338,7 @@ where
 				}
 
 				//Does this GroupContext contain a GroupChange?
-				if group_context.has_groupChange() { 
+				if group_context.has_groupChange() {
 					//let decrypted_change_bytes = group_secret_params.decrypt_blob(encrypted_change)?;
 					let change_bytes = group_context.get_groupChange();
 					let change_bytes = fix_protobuf_buf(&change_bytes).unwrap();
@@ -2380,7 +2380,7 @@ where
 			let data_message = content.get_dataMessage();
 			self.inner_update_groups_from(data_message, remote_address)
 				.await?
-		} else { 
+		} else {
 			None
 		};
 		Ok(group_id_maybe)
@@ -2425,8 +2425,7 @@ where
 					debug!("Message included group context.");
 					self.update_groups_from(content, &result.remote_address)
 						.await?
-				}
-				else { 
+				} else {
 					None
 				};
 
@@ -2553,7 +2552,7 @@ where
 					self.update_groups_from(content, &result.remote_address)
 						.await?
 				}
-				else { 
+				else {
 					None
 				};
 				result.group_id = group_maybe.map(|a| a.to_base64());
@@ -2610,8 +2609,7 @@ where
 					debug!("This message included a group context.");
 					self.update_groups_from(content, &result.remote_address)
 						.await?
-				} 
-				else {
+				} else {
 					None
 				};
 
@@ -2622,7 +2620,7 @@ where
 					generate_timestamp()
 				);
 
-				//Processing this *may* alter sender key. Let's save, just in case. 
+				//Processing this *may* alter sender key. Let's save, just in case.
 				self.state_manager.save_all_sender_keys(&self.context)
 					.map_err(|e| HandleEnvelopeError::CouldntSaveSenderKey(format!("{:?}", e)))?;
 
@@ -2653,11 +2651,11 @@ where
 
 				//Decrypt our message
 				let decrypted_bytes = group_decrypt(envelope.get_content(), &mut self.context.sender_key_store, &protocol_address, ctx).await?;
-				debug!("Decrypted a sealed-sender message with length {}", decrypted_bytes.len()); 
+				debug!("Decrypted a sealed-sender message with length {}", decrypted_bytes.len());
 				let unpadded_message = remove_message_padding(&decrypted_bytes).map_err(MessageInError::PaddingIssue)?;
-				debug!("After removing padding, the buffer is {} bytes in length.", unpadded_message.len()); 
+				debug!("After removing padding, the buffer is {} bytes in length.", unpadded_message.len());
 
-				//Decode to a Signal Service protobuf. 
+				//Decode to a Signal Service protobuf.
 				let fixed_buf = fix_protobuf_buf(&unpadded_message)
 					.map_err(|e| MessageInError::DecodingProblem(format!("{:?}", e)))?;
 				let mut reader: CodedInputStream = CodedInputStream::from_bytes(fixed_buf.as_slice());
@@ -2677,7 +2675,7 @@ where
 					group_id: group_maybe.as_ref().map(|g| g.to_base64()),
 				};
 
-				//Processing this *may* alter sender key. Let's save, just in case. 
+				//Processing this *may* alter sender key. Let's save, just in case.
 				self.state_manager.save_all_sender_keys(&self.context)
 					.map_err(|e| HandleEnvelopeError::CouldntSaveSenderKey(format!("{:?}", e)))?;
 

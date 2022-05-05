@@ -34,10 +34,10 @@ use serde::{Deserialize, Serialize};
 
 pub const AUTHOR_STR: &str = "Forest Contact team";
 
-#[cfg(git_untracked="true")]
-pub const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"),"-",env!("GIT_HASH"), "*");
-#[cfg(git_untracked="false")]
-pub const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"),"-",env!("GIT_HASH"));
+#[cfg(git_untracked = "true")]
+pub const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"), "-", env!("GIT_HASH"), "*");
+#[cfg(git_untracked = "false")]
+pub const VERSION_STR: &str = concat!(env!("CARGO_PKG_VERSION"), "-", env!("GIT_HASH"));
 
 pub const JSONRPC_VER: &str = "2.0";
 
@@ -117,6 +117,24 @@ pub enum AuxinCommand {
 	Verify {
 		#[structopt(long)]
 		code: String,
+	},
+
+	/// Fix an incorrectly registered signal account. Only use this if you need it.
+	// TODO(Diana): Remove this at some point? Never even add it?
+	// We *did* do an auxin release with broken registration
+	Fix,
+
+	/// Resolve an anti-spam/rate limit captcha
+	Captcha {
+		/// Captcha code.
+		#[structopt(long)]
+		captcha: String,
+
+		/// Challenge token from error error
+		// TODO(Diana): This should be nicer, but would require integration
+		// with the other commands
+		#[structopt(long)]
+		token: String,
 	},
 }
 
@@ -607,14 +625,14 @@ pub async fn process_jsonrpc_input(
 						// Actually do send behavior.
 						let upload_output = handle_upload_command(val, app).await;
 						match upload_output {
-							Ok(attachment_pointers) => { 
+							Ok(attachment_pointers) => {
 								let result = if attachment_pointers.is_empty() {
 									serde_json::Value::Null
-								} 
-								else if attachment_pointers.len() == 1 { 
+								}
+								else if attachment_pointers.len() == 1 {
 									serde_json::to_value(&attachment_pointers[0]).unwrap()
 								}
-								else { 
+								else {
 									serde_json::to_value(attachment_pointers).unwrap()
 								};
 								JsonRpcResponse::Ok(JsonRpcGoodResponse {
@@ -857,11 +875,11 @@ pub(crate) fn merge(base: &Value, mask: &Value) -> Value {
         (&Value::Object(ref base), &Value::Object(ref mask)) => {
 			let mut result_map = base.clone();
             for (k, v) in mask {
-				if base.contains_key(k) { 
-					result_map.insert(k.clone(), merge(base.get(k).unwrap_or(&Value::Null), v ) ); 
+				if base.contains_key(k) {
+					result_map.insert(k.clone(), merge(base.get(k).unwrap_or(&Value::Null), v ) );
 				}
-				else { 
-					result_map.insert(k.clone(), v.clone() ); 
+				else {
+					result_map.insert(k.clone(), v.clone() );
 				}
             }
 			Value::Object(result_map)
@@ -886,13 +904,16 @@ pub async fn handle_send_command(
 	//Set up our address
 	let destination = match cmd.destination.as_ref() {
 		Some(user_id) => MessageDest::User(
-			AuxinAddress::try_from(user_id.as_str()).map_err( |e| SendCommandError::BadDestination(user_id.clone(), format!("{}", e)) )?
+			AuxinAddress::try_from(user_id.as_str())
+				.map_err(|e| SendCommandError::BadDestination(user_id.clone(), format!("{}", e)))?,
 		),
 		None => {
-			let group_b64 = cmd.group.as_ref().ok_or( SendCommandError::NoDestination )?; 
-			let group_id = GroupId::from_base64(group_b64).map_err( |e| SendCommandError::BadDestination(group_b64.clone(), format!("{}", e)) )?;
+			let group_b64 = cmd.group.as_ref().ok_or(SendCommandError::NoDestination)?;
+			let group_id = GroupId::from_base64(group_b64).map_err(|e| {
+				SendCommandError::BadDestination(group_b64.clone(), format!("{}", e))
+			})?;
 			MessageDest::Group(group_id)
-		},
+		}
 	};
 
 	//MessageContent
@@ -906,11 +927,11 @@ pub async fn handle_send_command(
 		..MessageContent::default()
 	};
 
-	// get default message content 
+	// get default message content
 	let built_content = MessageContent {
     		// we need to populate the stuff inside the datamessage
     		// otherwise you get e.g. Error("missing field `attachments`", ...) in the from_value step
-			text_message: Some(String::new()), 	
+			text_message: Some(String::new()),
 			..MessageContent::default()
 		}
 		.build_signal_content(
@@ -919,11 +940,11 @@ pub async fn handle_send_command(
 			generate_timestamp(),
 		)
 		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
-	// if cmd.content.is_some() {debug!("Base content {:?}", serde_json::to_string(&built_content));}	// get default message content 
+	// if cmd.content.is_some() {debug!("Base content {:?}", serde_json::to_string(&built_content));}	// get default message content
 	// turn it into json
 	let base_content_json = serde_json::to_value(built_content)
 		.map_err(|e| SendCommandError::SimulateErr(format!("{:?}", e)))?;
-	// if the user passed in a "Content" protocol buffer, mask the default with what was passed 
+	// if the user passed in a "Content" protocol buffer, mask the default with what was passed
 	// and turn it back into a Content
 	let mut premade_content: Option<auxin_protos::Content> = cmd
 		.content
@@ -966,12 +987,12 @@ pub async fn handle_send_command(
 		}
 	}
 
-	//Prepared attachments? 
-	if let Some(prepared_attachments) = cmd.prepared_attachments.as_ref() { 
-		for attachment_string in prepared_attachments.iter() { 
+	//Prepared attachments?
+	if let Some(prepared_attachments) = cmd.prepared_attachments.as_ref() {
+		for attachment_string in prepared_attachments.iter() {
 			//Parse each entry
 			let attachment_pointer: AttachmentPointer = serde_json::from_str(attachment_string)
-				.map_err(|e| SendCommandError::PreparedAttachmentError(format!("{:?}",e)))?;
+				.map_err(|e| SendCommandError::PreparedAttachmentError(format!("{:?}", e)))?;
 
 			//Attach to our message.
 			//If we have a premade content, put the attachments there instead.

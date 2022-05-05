@@ -1,4 +1,4 @@
-//! Holds and manages data for a Signal account
+///! Holds and manages data for a Signal account
 use libsignal_protocol::{KeyPair, PreKeyRecord, PrivateKey, SignedPreKeyRecord};
 use rand::{CryptoRng, Rng};
 use serde::{Deserialize, Serialize};
@@ -6,11 +6,13 @@ use std::{
 	collections::HashMap,
 	convert::TryInto,
 	fs,
-	io::{BufReader, BufWriter, Read, Write},
+	io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
 	path::Path,
 };
 use uuid::Uuid;
 use zkgroup::api::profiles::profile_key::ProfileKey as ZkProfileKey;
+
+use crate::generate_timestamp;
 
 /// A signal account "password"
 ///
@@ -463,7 +465,8 @@ impl<R> SignalAccount<R> {
 	pub fn to_signal_cli(&self, state_dir: impl AsRef<Path>) -> crate::Result<()> {
 		let state_dir = state_dir.as_ref();
 		let data = state_dir.join("data");
-		fs::create_dir_all(&data)?;		let path = data.join(self.phone.phone());
+		fs::create_dir_all(&data)?;
+		let path = data.join(self.phone.phone());
 		let file = fs::File::options()
 			.write(true)
 			// .create_new(true)
@@ -520,7 +523,8 @@ impl<R> SignalAccount<R> {
 		let id = self.aci().signed_id();
 		let key = self.aci().signed_prekey();
 		let sig = self.aci().signature();
-		let mut f = fs::File::create(signed_prekeys.join(id.to_string()))?;
+		let f = fs::File::create(signed_prekeys.join(id.to_string()))?;
+		let mut f = BufWriter::new(f);
 		let buf = libsignal_protocol::SignedPreKeyRecord::new(
 			id,
 			0,
@@ -532,6 +536,50 @@ impl<R> SignalAccount<R> {
 		)
 		.serialize()?;
 		f.write_all(&buf)?;
+		//
+		let recipients_store = path.join("recipients-store");
+		let mut f = fs::File::options()
+			.create(true)
+			.read(true)
+			.write(true)
+			.open(recipients_store)?;
+		let store = serde_json::from_reader::<_, RecipientsStore>(BufReader::new(&mut f));
+		// default empty recipients_store is invalid and needs to be fixed
+		// Caused by not doing it in earlier versions of registration
+		let store = match store {
+			Ok(mut store) => {
+				match store
+					.recipients
+					.iter_mut()
+					.find(|r| r.uuid == self.aci().uuid())
+				{
+					Some(r) => {
+						r.profile_key
+							.get_or_insert_with(|| base64::encode(self.profile_key().as_bytes()));
+						r.profile.get_or_insert_with(|| Profile::new(self));
+						store
+					}
+					None => {
+						store.last_id += 1;
+						store.recipients.push(Recipient::new(store.last_id, self));
+						store
+					}
+				}
+			}
+			Err(e) => match &e.classify() {
+				serde_json::error::Category::Data
+				| serde_json::error::Category::Syntax
+				| serde_json::error::Category::Eof => RecipientsStore::new(self),
+				_ => Err(e)?,
+			},
+		};
+
+		f.set_len(0)?;
+		f.seek(SeekFrom::Start(0))?;
+		f.flush()?;
+		
+
+		serde_json::to_writer_pretty(BufWriter::new(&mut f), &store)?;
 		Ok(())
 	}
 
@@ -590,6 +638,79 @@ impl<R> SignalAccount<R> {
 }
 
 type E164 = String;
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Profile {
+	last_update_timestamp: u64,
+	given_name: Option<String>,
+	family_name: Option<String>,
+	about: Option<String>,
+	about_emoji: Option<String>,
+	avatar_url_path: Option<String>,
+	unidentified_access_mode: String,
+	capabilities: Vec<String>,
+}
+
+impl Profile {
+	fn new<R>(account: &SignalAccount<R>) -> Self {
+		Self {
+			last_update_timestamp: generate_timestamp(),
+			given_name: Some(account.phone().into()),
+			family_name: None,
+			about: None,
+			about_emoji: None,
+			avatar_url_path: None,
+			unidentified_access_mode: String::from("DISABLED"),
+			capabilities: vec!["senderKey", "gv2", "gv1Migration", "announcementGroup"]
+				.into_iter()
+				.map(Into::into)
+				.collect(),
+		}
+	}
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Recipient {
+	id: u32,
+	number: Option<String>,
+	uuid: String,
+	profile_key: Option<String>,
+	profile_key_credential: Option<String>,
+	contact: Option<String>,
+	profile: Option<Profile>,
+}
+
+impl Recipient {
+	fn new<R>(id: u32, account: &SignalAccount<R>) -> Self {
+		Self {
+			id,
+			number: Some(account.phone().into()),
+			uuid: account.aci().uuid().into(),
+			profile_key: Some(base64::encode(account.profile_key().as_bytes())),
+			profile_key_credential: None,
+			contact: None,
+			profile: Some(Profile::new(account)),
+		}
+	}
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecipientsStore {
+	recipients: Vec<Recipient>,
+	last_id: u32,
+}
+
+impl RecipientsStore {
+	fn new<R>(account: &SignalAccount<R>) -> Self {
+		Self {
+			recipients: vec![Recipient::new(1, account)],
+			last_id: 1,
+		}
+	}
+}
 
 /// Just to help us writing out to signal-cli's format
 ///
