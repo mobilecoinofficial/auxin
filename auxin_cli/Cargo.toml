@@ -7,50 +7,34 @@ edition = "2021"
 auxin_protos = { path = "../auxin_protos" }
 auxin = { path = "../auxin" }
 
-aes-gcm = { version = "0.9.2", features = ["std"] }
+aes-gcm = { version = "0.10.1", features = ["std"] }
 async-global-executor = { version = "2.0.2", features = ["tokio"] }
-
 base64 = "0.13"
-
 custom_error = "1.9.2"
-
 env_logger = "0.9.0"
-
 futures = "0.3.15"
-
 http = "0.2.4"
 httparse = "1.4.1"
-
 hyper = { version = "0.14.9", features = ["full"] }
 hyper-tls = "0.5.0"
-hyper-multipart-rfc7578 = "0.5.1"
-
+hyper-multipart-rfc7578 = "0.8.0"
 libsignal-protocol = { git = "https://github.com/signalapp/libsignal-client", tag = "v0.14.0"}
 log = "0.4.14"
-
-protobuf = "2.24.1"
-
-rand = "0.7.3"
-
+protobuf = "3.1.0"
+rand = "0.8.5"
+reqwest = { version = "0.11.10", features = ["json"] }
 serde = { version = "1.0.126", features = ["derive"] }
 serde_json = "1.0.64"
-
 structopt = "0.3.25"
-
+thiserror = "1.0"
 tracing = "0.1"
-tracing-subscriber = "0.2.25"
+tracing-subscriber = "0.3.15"
 tracing-futures = { version = "0.2.5", features = ["futures-03", "tokio"] }
-
 tokio-native-tls = "0.3.0"
 tokio = { version = "1.16.1", features = ["full"] }
-tokio-tungstenite = { version = "0.14.0", features = ["native-tls"] }
-tungstenite = { version = "0.13.0", features = ["native-tls"] }
-
-thiserror = "1.0"
-
-uuid = "0.8.2"
-
-reqwest = { version = "0.11.10", features = ["json"] }
+tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
+tungstenite = { version = "0.17.3", features = ["native-tls"] }
+uuid = "1.1.2"
 
 [dev-dependencies]
 terminator = "0.1.0"
