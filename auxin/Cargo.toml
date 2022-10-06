@@ -19,7 +19,7 @@ auxin_protos = { path = "../auxin_protos" }
 
 #Signal protocol & zero knowledge proof stuff.
 libsignal-protocol = { git = "https://github.com/signalapp/libsignal-client", tag = "v0.14.0"}
-zkgroup = { git = "https://github.com/signalapp/zkgroup", tag = "v0.9.0" }
+zkgroup = { git = "https://github.com/signalapp/libsignal-client" }
 
 hkdf = "0.11"
 sha2 = "0.9.8"
