@@ -36,7 +36,7 @@ use uuid::Uuid;
 use zkgroup::{
 	auth::AuthCredentialResponse,
 	groups::GroupSecretParams,
-	profiles::{ProfileKey, ProfileKeyCredentialPresentation},
+	profiles::{ProfileKey, ProfileKeyCredentialPresentationV2},
 	ServerPublicParams,
 };
 
@@ -62,7 +62,7 @@ pub(crate) struct GroupOperations {
 #[derive(Debug)]
 pub enum GroupDecryptionError {
 	//zero-knowledge group error
-	ZkGroupError(zkgroup::ZkGroupError),
+	ZkGroupError(zkgroup::ZkGroupVerificationFailure),
 	//bincode::Error
 	BincodeError(bincode::Error),
 	//"protobuf message decoding error: {0}"
@@ -92,8 +92,8 @@ impl std::fmt::Display for GroupDecryptionError {
 }
 impl std::error::Error for GroupDecryptionError {}
 
-impl From<zkgroup::ZkGroupError> for GroupDecryptionError {
-	fn from(e: zkgroup::ZkGroupError) -> Self {
+impl From<zkgroup::ZkGroupVerificationFailure> for GroupDecryptionError {
+	fn from(e: zkgroup::ZkGroupVerificationFailure) -> Self {
 		GroupDecryptionError::ZkGroupError(e)
 	}
 }
@@ -143,7 +143,7 @@ impl GroupOperations {
 			let profile_key = self.decrypt_profile_key(&member.profileKey, uuid)?;
 			(uuid, profile_key)
 		} else {
-			let profile_key_credential_presentation: ProfileKeyCredentialPresentation =
+			let profile_key_credential_presentation: ProfileKeyCredentialPresentationV2 =
 				bincode::deserialize(&member.presentation)?;
 			let uuid = self
 				.group_secret_params
@@ -197,7 +197,7 @@ impl GroupOperations {
 			let profile_key = self.decrypt_profile_key(&member.profileKey, uuid)?;
 			(uuid, profile_key)
 		} else {
-			let profile_key_credential_presentation: ProfileKeyCredentialPresentation =
+			let profile_key_credential_presentation: ProfileKeyCredentialPresentationV2 =
 				bincode::deserialize(&member.presentation)?;
 			let uuid = self
 				.group_secret_params

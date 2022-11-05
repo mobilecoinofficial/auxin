@@ -1148,6 +1148,7 @@ and cannot automatically be repaired.",
 		group_info: auxin::groups::group_storage::GroupInfoStorage,
 	) -> auxin::Result<()> {
 		let group_id_b64 = filename_friendly_base_64(&group_id.to_base64());
+	use terminator::Terminator;
 
 		let our_path = self.get_protocol_store_path(context);
 		let groups_path = our_path.join(GROUPS_DIR);
@@ -1407,9 +1408,6 @@ pub fn reverse_filename_base_64(filename: &str) -> String {
 mod tests {
 	use super::*;
 	use std::fs;
-	use terminator::Terminator;
-
-	type Result<T> = std::result::Result<T, Terminator>;
 
 	/// Test this module can parse a signal-cli json file.
 	///
@@ -1419,19 +1417,19 @@ mod tests {
 	/// This picks an unspecified file to try and deserialize.
 	#[test]
 	#[ignore = "requires real config"]
-	fn test_config_parse() -> Result<()> {
+	fn test_config_parse() {
 		let path = Path::new("../state/data");
 		// Ensure we actually parse *something* and the directory isnt just empty/missing files
 		// If anything fails to parse it'll error, failing the test.
 		let mut done = false;
 		let mut state = StateManager::new_test(path.to_path_buf());
-		for file in fs::read_dir(path)? {
-			let file = file?;
+		for file in fs::read_dir(path).unwrap() {
+			let file = file.unwrap();
 			let name = file.file_name().to_str().unwrap().to_string();
 			if name.ends_with('d') {
 				continue;
 			}
-			let _local_identity = state.load_local_identity(&name)?;
+			let _local_identity = state.load_local_identity(&name).unwrap();
 			done = true
 		}
 		assert!(done, "state is empty, didn't actually parse anything");

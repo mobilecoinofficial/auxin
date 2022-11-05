@@ -115,12 +115,12 @@ impl AuxinDeviceAddress {
 	/// Generate a protocol address using our phone number (E164) as its "name"
 	pub fn phone_protocol_address(&self) -> Result<ProtocolAddress> {
 		let phone_number = self.get_phone_number()?;
-		Ok(ProtocolAddress::new(phone_number.clone(), self.device_id))
+		Ok(ProtocolAddress::new(phone_number.clone(), self.device_id.into()))
 	}
 	/// Generate a protocol address using our uuid, converted to a string, as its "name"
 	pub fn uuid_protocol_address(&self) -> Result<ProtocolAddress> {
 		let addr_uuid = self.get_uuid()?;
-		Ok(ProtocolAddress::new(addr_uuid.to_string(), self.device_id))
+		Ok(ProtocolAddress::new(addr_uuid.to_string(), self.device_id.into()))
 	}
 
 	/// Constructs an AuxinDeviceAddress using the provided AuxinAddress and assuming the default device ID of 1.

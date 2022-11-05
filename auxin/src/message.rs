@@ -764,7 +764,7 @@ impl MessageOut {
 
 				OutgoingPushMessage {
 					envelope_type,
-					destination_device_id: their_address.device_id(),
+					destination_device_id: their_address.device_id().into(),
 					destination_registration_id: reg_id,
 					content,
 				}

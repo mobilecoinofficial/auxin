@@ -24,6 +24,7 @@ use attachment::{
 };
 use auxin_protos::{AttachmentPointer, Envelope, DecryptedGroupChange, GroupChange};
 
+use crate::GroupDecryptionError::ZkGroupError;
 use custom_error::custom_error;
 use futures::TryFutureExt;
 use groups::{group_message::GroupEncryptionError, sender_key::DistributionId, GroupApiError, GroupDecryptionError, validate_group_member, GroupUtilsError};
@@ -51,7 +52,7 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
-use zkgroup::{groups::{GroupMasterKey, GroupSecretParams}, ZkGroupError};
+use zkgroup::{groups::{GroupMasterKey, GroupSecretParams}};
 
 pub mod address;
 pub mod attachment;
@@ -284,7 +285,6 @@ pub enum GroupsError {
 	CannotSave(String),
 	NoGroupInfo(GroupId),
 	ProtocolError(SignalProtocolError),
-	ZkError(ZkGroupError),
 	DecryptionError(GroupDecryptionError),
 	ModifyMissingGroup(GroupId),
 	UtilError(GroupUtilsError),
@@ -298,7 +298,6 @@ impl std::fmt::Display for GroupsError {
 			GroupsError::CannotSave(e) => write!(f, "Unable to save group info: {:?}.", e),
 			GroupsError::NoGroupInfo(id) => write!(f, "No group info on file for group {}, implying we have not joined that group or not recevied any messsages inside it.", id.to_base64()),
 			GroupsError::ProtocolError(e) => write!(f, "Signal Protocol error in group operations: {:?}.", e),
-			GroupsError::ZkError(e) => write!(f, "Error in Signal ZkGroups library: {:?}.", e),
 			GroupsError::DecryptionError(e) => write!(f, "Failed to decrypt group properties: {:?}.", e),
 			GroupsError::ModifyMissingGroup(id) => write!(f, "Attempted to modify our cache for group {}, but we have no cache for that group!", id.to_base64()),
 			GroupsError::UtilError(e) => write!(f, "Group util error (most likely converting protobufs into usable structures): {:?}", e),
@@ -314,11 +313,6 @@ impl From<GroupApiError> for GroupsError {
 impl From<SignalProtocolError> for GroupsError {
 	fn from(val: SignalProtocolError) -> Self {
 		GroupsError::ProtocolError(val)
-	}
-}
-impl From<ZkGroupError> for GroupsError {
-	fn from(val: ZkGroupError) -> Self {
-		GroupsError::ZkError(val)
 	}
 }
 impl From<GroupDecryptionError> for GroupsError {
@@ -1133,7 +1127,7 @@ where
 				.registration_ids
 				.insert(device.device_id, device.registration_id);
 			//Note that we are aware of this peer.
-			let addr = ProtocolAddress::new(uuid.to_string(), device.device_id);
+			let addr = ProtocolAddress::new(uuid.to_string(), device.device_id.into());
 			//Save this peer's public key.
 			self.context
 				.identity_store
@@ -1156,7 +1150,7 @@ where
 		let pre_key_bundles = peer_info.convert_to_pre_key_bundles()?;
 
 		for (device_id, keys) in pre_key_bundles {
-			let peer_address = ProtocolAddress::new(uuid.to_string(), device_id);
+			let peer_address = ProtocolAddress::new(uuid.to_string(), device_id.into());
 			// Initiate a session using foreign PreKey.
 			process_prekey_bundle(
 				&peer_address,
