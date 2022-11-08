@@ -795,7 +795,7 @@ impl MessageOut {
 				debug!("Encoded to {} bytes of base64", content.len());
 				OutgoingPushMessage {
 					envelope_type: envelope_types::UNIDENTIFIED_SENDER,
-					destination_device_id: their_address.device_id(),
+					destination_device_id: their_address.device_id().into(),
 					destination_registration_id: reg_id,
 					content,
 				}
@@ -936,7 +936,7 @@ pub async fn decrypt_unidentified_sender(
 
 	if (is_local_e164 || is_local_uuid)
 		&& unidentified_message_content.sender()?.sender_device_id()?
-			== context.identity.address.device_id
+			== context.identity.address.device_id.into()
 	{
 		return Err(MessageInError::ProtocolError(
 			SignalProtocolError::SealedSenderSelfSend,
@@ -1052,7 +1052,7 @@ pub async fn decrypt_unidentified_sender(
 
 	let remote_address = AuxinDeviceAddress {
 		address: sender_address.clone(),
-		device_id: decrypted.device_id,
+		device_id: decrypted.device_id.into(),
 	};
 
 	MessageIn::update_key_and_address_from(&message, &sender_address, context)?;

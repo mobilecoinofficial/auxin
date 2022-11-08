@@ -237,11 +237,11 @@ pub async fn load_known_peers(
 			let id_key = IdentityKey::decode(decoded_key.as_slice())?;
 			for i in recip.device_ids_used.iter() {
 				if let Some(uuid) = &recip.uuid {
-					let addr = ProtocolAddress::new(uuid.to_string(), *i);
+					let addr = ProtocolAddress::new(uuid.to_string(), (*i).into());
 					identity_store.save_identity(&addr, &id_key, ctx).await?;
 				}
 				if let Some(number) = &recip.number {
-					let addr = ProtocolAddress::new(number.clone(), *i);
+					let addr = ProtocolAddress::new(number.clone(), (*i).into());
 					identity_store.save_identity(&addr, &id_key, ctx).await?;
 				}
 			}
@@ -347,7 +347,7 @@ pub async fn load_sessions(
 				if let Some(uuid) = recip.uuid {
 					//NOTE RECIPIENT ADDRESS IS USING UUID
 					let recipient_address =
-						ProtocolAddress::new(uuid.to_string().clone(), device_id_num);
+						ProtocolAddress::new(uuid.to_string().clone(), device_id_num.into());
 
 					//Let's also build some extra cached information we keep around for convenience!
 					recip.device_ids_used.insert(device_id_num);
@@ -494,7 +494,7 @@ pub async fn load_prekeys(
 
 			debug!("Loaded a signed pre-key with ID {:?}", id);
 			signed_pre_key_store
-				.save_signed_pre_key(id, &record, ctx)
+				.save_signed_pre_key(id.into(), &record, ctx)
 				.await?;
 		}
 	}
@@ -882,7 +882,7 @@ impl AuxinStateManager for StateManager {
 		for device_id in peer_record.device_ids_used.iter() {
 			//MUST USE UUID
 			if let Some(uuid) = peer_record.uuid {
-				let address = ProtocolAddress::new(uuid.to_string().clone(), *device_id);
+				let address = ProtocolAddress::new(uuid.to_string().clone(), (*device_id).into());
 
 				let file_path = session_path.join(format!("{}_{}", peer_record.id, device_id));
 				let file_bk_path = file_path.with_extension("bk");
@@ -1148,7 +1148,6 @@ and cannot automatically be repaired.",
 		group_info: auxin::groups::group_storage::GroupInfoStorage,
 	) -> auxin::Result<()> {
 		let group_id_b64 = filename_friendly_base_64(&group_id.to_base64());
-	use terminator::Terminator;
 
 		let our_path = self.get_protocol_store_path(context);
 		let groups_path = our_path.join(GROUPS_DIR);

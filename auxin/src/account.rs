@@ -508,7 +508,7 @@ impl<R> SignalAccount<R> {
 		for (id, key) in self.aci().prekeys() {
 			let mut f = fs::File::create(prekeys.join(id.to_string()))?;
 			let buf = PreKeyRecord::new(
-				*id,
+				(*id).into(),
 				&libsignal_protocol::KeyPair::new(
 					libsignal_protocol::PublicKey::from_djb_public_key_bytes(key.public())?,
 					libsignal_protocol::PrivateKey::deserialize(key.private())?,
@@ -522,7 +522,7 @@ impl<R> SignalAccount<R> {
 		let sig = self.aci().signature();
 		let mut f = fs::File::create(signed_prekeys.join(id.to_string()))?;
 		let buf = libsignal_protocol::SignedPreKeyRecord::new(
-			id,
+			id.into(),
 			0,
 			&libsignal_protocol::KeyPair::new(
 				libsignal_protocol::PublicKey::from_djb_public_key_bytes(key.public())?,

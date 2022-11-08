@@ -24,15 +24,10 @@ use attachment::{
 };
 use auxin_protos::{AttachmentPointer, Envelope, DecryptedGroupChange, GroupChange};
 
-use crate::GroupDecryptionError::ZkGroupError;
 use custom_error::custom_error;
 use futures::TryFutureExt;
 use groups::{group_message::GroupEncryptionError, sender_key::DistributionId, GroupApiError, GroupDecryptionError, validate_group_member, GroupUtilsError};
-use libsignal_protocol::{
-	message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore,
-	PreKeySignalMessage, ProtocolAddress, PublicKey, SenderKeyDistributionMessage, SessionRecord,
-	SessionStore, SignalProtocolError, group_decrypt,
-};
+use libsignal_protocol::{message_decrypt_prekey, process_prekey_bundle, IdentityKey, IdentityKeyStore, PreKeySignalMessage, ProtocolAddress, PublicKey, SenderKeyDistributionMessage, SessionRecord, SessionStore, SignalProtocolError, group_decrypt, process_sender_key_distribution_message, create_sender_key_distribution_message};
 use log::{debug, error, info, trace, warn};
 
 use message::{MessageIn, MessageInError, MessageOut};
@@ -77,6 +72,7 @@ pub const SIGNAL_TLS_CERT: &str = include_str!("../data/whisper.pem");
 pub const IAS_TRUST_ANCHOR: &[u8] = include_bytes!("../data/ias.der");
 
 use rand::{CryptoRng, Rng, RngCore};
+use serde::de::StdError;
 use state::{AuxinStateManager, PeerIdentity, PeerInfoReply, PeerRecord, PeerStore};
 
 use crate::{
@@ -89,7 +85,7 @@ use crate::{
 		get_group_members_without, get_server_public_params,
 		group_message::{GroupSendContext, GroupSendContextV2},
 		group_storage::GroupInfo,
-		sender_key::{process_sender_key, SenderKeyName},
+		sender_key::SenderKeyName,
 		GroupId, GroupIdV2, GroupMemberInfo, GroupsManager, GroupOperations,
 	},
 	message::{
@@ -288,6 +284,7 @@ pub enum GroupsError {
 	DecryptionError(GroupDecryptionError),
 	ModifyMissingGroup(GroupId),
 	UtilError(GroupUtilsError),
+	RecordRetrieval(String),
 }
 impl std::fmt::Display for GroupsError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -301,6 +298,7 @@ impl std::fmt::Display for GroupsError {
 			GroupsError::DecryptionError(e) => write!(f, "Failed to decrypt group properties: {:?}.", e),
 			GroupsError::ModifyMissingGroup(id) => write!(f, "Attempted to modify our cache for group {}, but we have no cache for that group!", id.to_base64()),
 			GroupsError::UtilError(e) => write!(f, "Group util error (most likely converting protobufs into usable structures): {:?}", e),
+			GroupsError::RecordRetrieval(e) => write!(f, "Error retrieving sender key: {:?}", e),
 		}
 	}
 }
@@ -323,6 +321,11 @@ impl From<GroupDecryptionError> for GroupsError {
 impl From<GroupUtilsError> for GroupsError {
 	fn from(val: GroupUtilsError) -> Self {
 		GroupsError::UtilError(val)
+	}
+}
+impl From<Box<dyn StdError>> for GroupsError {
+	fn from(val: Box<dyn StdError>) -> Self {
+		GroupsError::RecordRetrieval(format!("{:?}", val))
 	}
 }
 
@@ -362,6 +365,8 @@ pub enum HandleEnvelopeError {
 	InvalidSenderKeyDistributionMessage(String),
 	CouldntSaveSenderKey(String),
 	GroupError(GroupsError),
+	RecordRetrieval(String),
+
 }
 impl std::fmt::Display for HandleEnvelopeError {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -375,6 +380,7 @@ impl std::fmt::Display for HandleEnvelopeError {
 			HandleEnvelopeError::InvalidSenderKeyDistributionMessage(e) => write!(f, "Could not deserialize a Sender Key Distribution Message: {:?}",e),
 			HandleEnvelopeError::CouldntSaveSenderKey(e) => write!(f, "Failed to store sender key: {:?}",e),
 			HandleEnvelopeError::GroupError(e) => write!(f, "Issue encountered while handing an inbound Group message: {:?}",e),
+			HandleEnvelopeError::RecordRetrieval(e) => write!(f, "Error retrieving sender key: {:?}", e),
 		}
 	}
 }
@@ -393,6 +399,11 @@ impl From<MessageInError> for HandleEnvelopeError {
 impl From<GroupsError> for HandleEnvelopeError {
 	fn from(val: GroupsError) -> Self {
 		HandleEnvelopeError::GroupError(val)
+	}
+}
+impl From<Box<dyn StdError>> for HandleEnvelopeError {
+	fn from(val: Box<dyn StdError>) -> Self {
+		HandleEnvelopeError::RecordRetrieval(format!("{:?}", val))
 	}
 }
 
@@ -2023,21 +2034,28 @@ where
 				device_id: self.context.identity.address.device_id,
 			},
 		};
-		let sender_key_distribution_message = groups::sender_key::create_distribution_message(
+		let sender_key_distribution_message = create_sender_key_distribution_message(
+			&sender_key_name.sender.uuid_protocol_address().unwrap(),
+			*distribution_id,
 			&mut self.context.sender_key_store,
-			&sender_key_name,
 			&mut self.rng,
-			&self.context.ctx,
-		)
-		.await?;
+			self.context.ctx.get(),
+		).
+			await?;
+
 		//Make sure we don't lose the information we just set up.
-		let record = process_sender_key(
+		process_sender_key_distribution_message(
+			&sender_key_name.sender.uuid_protocol_address().unwrap(),
+			&sender_key_distribution_message,
 			&mut self.context.sender_key_store,
-			sender_key_name.clone(),
-			sender_key_distribution_message.clone(),
-			&self.context.ctx,
-		)
-		.await?;
+			self.context.ctx.get(),
+		).
+			await?;
+
+		let record = self.state_manager.load_sender_key(
+			&self.context,
+			&sender_key_name,
+		)?;
 
 		self.state_manager.save_sender_key(&self.context, &sender_key_name, &record).map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
 
@@ -2112,7 +2130,6 @@ where
 						HandleEnvelopeError::InvalidSenderKeyDistributionMessage(format!("{:?}", e))
 					})?;
 
-			let ctx = self.context.get_signal_ctx().clone();
 			debug!("Got a SenderKeyDistributionMessage: {:?}. GroupsV2 support is a work in progress so this doesn't do anything yet.", &sender_key_distribution_message);
 			//let protocol_address = result.remote_address.uuid_protocol_address().unwrap();
 			let sender_key_name = SenderKeyName {
@@ -2122,13 +2139,18 @@ where
 			};
 
 			//Update or initialize ongoing group session.
-			let record = process_sender_key(
+			process_sender_key_distribution_message(
+				&sender_key_name.sender.uuid_protocol_address().unwrap(),
+				&sender_key_distribution_message,
 				&mut self.context.sender_key_store,
-				sender_key_name.clone(),
-				sender_key_distribution_message,
-				&ctx,
-			)
-			.await?;
+				self.context.ctx.get(),
+			).
+				await?;
+
+			let record = self.state_manager.load_sender_key(
+				&self.context,
+				&sender_key_name,
+			)?;
 
 			self.state_manager.save_sender_key(&self.context, &sender_key_name, &record).map_err(|e| GroupsError::CannotSave(format!("{:?}", e)))?;
 

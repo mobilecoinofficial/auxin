@@ -149,7 +149,7 @@ impl TryFrom<ProtocolAddress> for AuxinDeviceAddress {
 	fn try_from(val: ProtocolAddress) -> std::result::Result<Self, Self::Error> {
 		let address = AuxinAddress::try_from(val.name())?;
 		let device_id = val.device_id();
-		Ok(Self { address, device_id })
+		Ok(Self { address, device_id: device_id.into() })
 	}
 }
 
