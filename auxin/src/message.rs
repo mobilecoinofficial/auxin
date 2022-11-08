@@ -1007,9 +1007,12 @@ pub async fn decrypt_unidentified_sender(
 			)
 			.await?
 		}
-		CiphertextMessageType::Plaintext => { 
+		CiphertextMessageType::Plaintext => {
 			let bytes = unidentified_message_content.contents().unwrap();
-			debug!("Received \"Plaintext\" message which is {} bytes long.", bytes.len());
+			debug!(
+				"Received \"Plaintext\" message which is {} bytes long.",
+				bytes.len()
+			);
 			debug!("Contents were: {}", String::from_utf8_lossy(bytes));
 
 			bytes.to_vec()
@@ -1567,7 +1570,7 @@ pub async fn generate_group_v2_message<Rng: RngCore + CryptoRng>(
 			let protocol_address = device_address.uuid_protocol_address()?;
 			debug!("Send to ProtocolAddress {:?}", protocol_address,);
 
-			if address.get_uuid().unwrap() != context.identity.address.get_uuid().unwrap() { 
+			if address.get_uuid().unwrap() != context.identity.address.get_uuid().unwrap() {
 				// Avoid self-send
 				destinations.push(protocol_address);
 			}

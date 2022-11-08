@@ -463,7 +463,8 @@ impl<R> SignalAccount<R> {
 	pub fn to_signal_cli(&self, state_dir: impl AsRef<Path>) -> crate::Result<()> {
 		let state_dir = state_dir.as_ref();
 		let data = state_dir.join("data");
-		fs::create_dir_all(&data)?;		let path = data.join(self.phone.phone());
+		fs::create_dir_all(&data)?;
+		let path = data.join(self.phone.phone());
 		let file = fs::File::options()
 			.write(true)
 			// .create_new(true)

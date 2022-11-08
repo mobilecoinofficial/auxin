@@ -524,7 +524,10 @@ impl PeerDeviceInfo {
 		let pre_key = match &self.pre_key {
 			Some(reply) => {
 				let public_key = base64::decode(&reply.public_key)?;
-				Some((PreKeyId::from(reply.key_id), PublicKey::deserialize(public_key.as_slice())?))
+				Some((
+					PreKeyId::from(reply.key_id),
+					PublicKey::deserialize(public_key.as_slice())?,
+				))
 			}
 			None => None,
 		};

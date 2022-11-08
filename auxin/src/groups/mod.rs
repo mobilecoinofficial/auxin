@@ -17,13 +17,16 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 
-use auxin_protos::{protos::{
-	decrypted_groups::{
-		DecryptedGroup, DecryptedMember, DecryptedPendingMember, DecryptedRequestingMember,
-		DecryptedTimer,
+use auxin_protos::{
+	protos::{
+		decrypted_groups::{
+			DecryptedGroup, DecryptedMember, DecryptedPendingMember, DecryptedRequestingMember,
+			DecryptedTimer,
+		},
+		groups::GroupAttributeBlob_oneof_content,
 	},
-	groups::GroupAttributeBlob_oneof_content,
-}, GroupChange, DecryptedGroupChange, GroupChange_Actions};
+	DecryptedGroupChange, GroupChange, GroupChange_Actions,
+};
 
 use auxin_protos::protos::groups::{
 	Group as EncryptedGroup, GroupAttributeBlob, Member as EncryptedMember,
@@ -316,8 +319,11 @@ impl GroupOperations {
 		Ok(result)
 	}
 
-	pub fn decrypt_change(&self, change: GroupChange) -> Result<DecryptedGroupChange, GroupDecryptionError> { 
-		// Decode the actions, which are (at first) represented as an opaque byte blob on the GroupChange message. 
+	pub fn decrypt_change(
+		&self,
+		change: GroupChange,
+	) -> Result<DecryptedGroupChange, GroupDecryptionError> {
+		// Decode the actions, which are (at first) represented as an opaque byte blob on the GroupChange message.
 		let actions_bytes = change.get_actions();
 		let actions_bytes = fix_protobuf_buf(&actions_bytes).unwrap();
 		let mut stream = CodedInputStream::from_bytes(&actions_bytes);
@@ -326,16 +332,19 @@ impl GroupOperations {
 		debug!("Actions: {}", actions_json);
 
 		let mut output = DecryptedGroupChange::default();
-		
-		for add_member in actions.get_addMembers().iter() { 
+
+		for add_member in actions.get_addMembers().iter() {
 			let decrypted_member = self.decrypt_member(add_member.get_added().clone())?;
 			debug!("New member add action for {:?}", decrypted_member);
 			output.mut_newMembers().push(decrypted_member);
 		}
-		
-		for delete_member in actions.get_deleteMembers().iter() { 
+
+		for delete_member in actions.get_deleteMembers().iter() {
 			let decrypted_id = self.decrypt_uuid(delete_member.get_deletedUserId())?;
-			debug!("Group member removal action for {:?}", Uuid::from_bytes(decrypted_id));
+			debug!(
+				"Group member removal action for {:?}",
+				Uuid::from_bytes(decrypted_id)
+			);
 			output.mut_deleteMembers().push(decrypted_id.to_vec());
 		}
 		debug!("Decrypted changes {:?}", &output);
@@ -838,8 +847,8 @@ pub fn validate_group_member(
 		profile_key,
 		member_role: group_member.get_role(),
 		joined_at_revision: group_member.get_joinedAtRevision(),
-		//Start assuming we haven't sent one yet. 
-    	last_distribution: None,
+		//Start assuming we haven't sent one yet.
+		last_distribution: None,
 	})
 }
 

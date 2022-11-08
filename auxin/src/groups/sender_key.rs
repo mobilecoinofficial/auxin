@@ -1,16 +1,14 @@
 // Copyright (c) 2022 MobileCoin Inc.
 // Copyright (c) 2022 Emily Cultip
 
-
-
-use auxin_protos::{SenderChainKey, SenderKeyStateStructure, SenderSigningKey};
+use super::GroupIdV2;
 use crate::address::{AuxinAddress, AuxinDeviceAddress};
+use auxin_protos::{SenderChainKey, SenderKeyStateStructure, SenderSigningKey};
 use libsignal_protocol::{SenderKeyRecord, SignalProtocolError};
 use log::debug;
 use protobuf::{Message, ProtobufError};
 use ring::hmac;
 use std::collections::HashMap;
-use super::GroupIdV2;
 use uuid::Uuid;
 
 /// A DistributionId is a randomly-generated meaningless Uuid (also described as an opaque identifier) mapped to a GroupId internally in a Signal protocol implementation.
