@@ -764,7 +764,7 @@ impl MessageOut {
 
 				OutgoingPushMessage {
 					envelope_type,
-					destination_device_id: their_address.device_id().into(),
+					destination_device_id: their_address.device_id(),
 					destination_registration_id: reg_id,
 					content,
 				}
@@ -795,7 +795,7 @@ impl MessageOut {
 				debug!("Encoded to {} bytes of base64", content.len());
 				OutgoingPushMessage {
 					envelope_type: envelope_types::UNIDENTIFIED_SENDER,
-					destination_device_id: their_address.device_id().into(),
+					destination_device_id: their_address.device_id(),
 					destination_registration_id: reg_id,
 					content,
 				}
@@ -936,7 +936,7 @@ pub async fn decrypt_unidentified_sender(
 
 	if (is_local_e164 || is_local_uuid)
 		&& unidentified_message_content.sender()?.sender_device_id()?
-			== context.identity.address.device_id.into()
+			== context.identity.address.device_id
 	{
 		return Err(MessageInError::ProtocolError(
 			SignalProtocolError::SealedSenderSelfSend,
@@ -1007,12 +1007,9 @@ pub async fn decrypt_unidentified_sender(
 			)
 			.await?
 		}
-		CiphertextMessageType::Plaintext => {
+		CiphertextMessageType::Plaintext => { 
 			let bytes = unidentified_message_content.contents().unwrap();
-			debug!(
-				"Received \"Plaintext\" message which is {} bytes long.",
-				bytes.len()
-			);
+			debug!("Received \"Plaintext\" message which is {} bytes long.", bytes.len());
 			debug!("Contents were: {}", String::from_utf8_lossy(bytes));
 
 			bytes.to_vec()
@@ -1055,7 +1052,7 @@ pub async fn decrypt_unidentified_sender(
 
 	let remote_address = AuxinDeviceAddress {
 		address: sender_address.clone(),
-		device_id: decrypted.device_id.into(),
+		device_id: decrypted.device_id,
 	};
 
 	MessageIn::update_key_and_address_from(&message, &sender_address, context)?;
@@ -1570,7 +1567,7 @@ pub async fn generate_group_v2_message<Rng: RngCore + CryptoRng>(
 			let protocol_address = device_address.uuid_protocol_address()?;
 			debug!("Send to ProtocolAddress {:?}", protocol_address,);
 
-			if address.get_uuid().unwrap() != context.identity.address.get_uuid().unwrap() {
+			if address.get_uuid().unwrap() != context.identity.address.get_uuid().unwrap() { 
 				// Avoid self-send
 				destinations.push(protocol_address);
 			}

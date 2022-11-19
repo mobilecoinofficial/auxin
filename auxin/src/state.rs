@@ -7,7 +7,7 @@ use std::{
 	collections::{HashMap, HashSet},
 };
 
-use libsignal_protocol::{IdentityKey, PreKeyBundle, PreKeyId, PublicKey, SenderKeyRecord};
+use libsignal_protocol::{IdentityKey, PreKeyBundle, PublicKey, SenderKeyRecord};
 use log::warn;
 use protobuf::CodedInputStream;
 use serde::{
@@ -524,10 +524,7 @@ impl PeerDeviceInfo {
 		let pre_key = match &self.pre_key {
 			Some(reply) => {
 				let public_key = base64::decode(&reply.public_key)?;
-				Some((
-					PreKeyId::from(reply.key_id),
-					PublicKey::deserialize(public_key.as_slice())?,
-				))
+				Some((reply.key_id, PublicKey::deserialize(public_key.as_slice())?))
 			}
 			None => None,
 		};
@@ -539,9 +536,9 @@ impl PeerDeviceInfo {
 
 		Ok(PreKeyBundle::new(
 			self.registration_id,
-			self.device_id.into(),
+			self.device_id,
 			pre_key,
-			self.signed_pre_key.key_id.into(),
+			self.signed_pre_key.key_id,
 			signed_pre_key_public,
 			signed_pre_key_signature,
 			*identity_key,

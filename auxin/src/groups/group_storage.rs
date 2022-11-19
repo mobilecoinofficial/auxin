@@ -8,13 +8,11 @@ use uuid::Uuid;
 use zkgroup::{profiles::ProfileKey, GROUP_MASTER_KEY_LEN, PROFILE_KEY_LEN};
 
 use crate::{
-	generate_timestamp,
-	state::{PeerRecordStructure, PeerStore},
 	utils::{serde_base64, serde_optional_base64},
-	Timestamp,
+	Timestamp, generate_timestamp, state::{PeerStore, PeerRecordStructure},
 };
 
-use super::{sender_key::DistributionId, GroupMemberInfo};
+use super::{GroupMemberInfo, sender_key::DistributionId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GroupSerializationError {
@@ -34,7 +32,7 @@ pub enum GroupSerializationError {
 
 /// Holds per-member information about the last time we sent a peer a distribution message.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Hash)]
-pub struct LocalDistributionRecord {
+pub struct LocalDistributionRecord { 
 	pub distribution_id: DistributionId,
 	pub distribution_time: Timestamp,
 	/// Which of this peer's devices have we sent this to?
@@ -110,25 +108,26 @@ pub struct GroupInfo {
 	pub last_distribution_timestamp: Timestamp,
 }
 
-impl GroupInfo {
-	/// Do we need to generate a sender-key distribution message to send sender-key messages to this group?
-	pub fn needs_new_distribution(&self, distribution_lifespan: u64) -> bool {
-		let now = generate_timestamp();
+impl GroupInfo { 
+	/// Do we need to generate a sender-key distribution message to send sender-key messages to this group? 
+	pub fn needs_new_distribution(&self, distribution_lifespan: u64) -> bool { 
+		let now = generate_timestamp(); 
 		//Has the group-global one expired?
-		if (now - self.last_distribution_timestamp) > distribution_lifespan {
+		if (now - self.last_distribution_timestamp) > distribution_lifespan { 
 			return true;
-		} else if self.local_distribution_id.is_none() {
+		} else if self.local_distribution_id.is_none() { 
 			return true;
 		}
 
-		for member in self.members.iter() {
-			if let Some(distrib) = member.last_distribution.as_ref() {
+		for member in self.members.iter() { 
+			if let Some(distrib) = member.last_distribution.as_ref() { 
 				// Check for expiration.
-				if (now - distrib.distribution_time) > distribution_lifespan {
-					debug!("A sender key distribution ID has expired. Regenerating...");
+				if (now - distrib.distribution_time) > distribution_lifespan { 
+					debug!("A sender key distribution ID has expired. Regenerating..."); 
 					return true;
 				}
-			} else {
+			}
+			else { 
 				//We haven't sent one, make a new distribution.
 				return true;
 			}
@@ -136,27 +135,18 @@ impl GroupInfo {
 		false
 	}
 	/// Used to record a sender key distribution message sent to every group member.
-	pub fn set_distribution_all(
-		&mut self,
-		distribution_id: &DistributionId,
-		distribution_timestamp: Timestamp,
-		peers: &PeerRecordStructure,
-	) {
+	pub fn set_distribution_all(&mut self, distribution_id: &DistributionId, distribution_timestamp: Timestamp, peers: &PeerRecordStructure){
 		self.local_distribution_id = Some(distribution_id.clone());
 		self.last_distribution_timestamp = distribution_timestamp;
-		for member in self.members.iter_mut() {
+		for member in self.members.iter_mut() { 
 			let member_uuid = member.id.clone();
-			member.last_distribution = Some(LocalDistributionRecord {
-				distribution_id: distribution_id.clone(),
-				distribution_time: distribution_timestamp,
-				devices_included: peers
-					.get_by_uuid(&member_uuid)
-					.unwrap()
-					.device_ids_used
-					.iter()
-					.cloned()
-					.collect(),
-			});
+			member.last_distribution = Some( 
+				LocalDistributionRecord {
+					distribution_id: distribution_id.clone(),
+					distribution_time: distribution_timestamp,
+					devices_included: peers.get_by_uuid(&member_uuid).unwrap().device_ids_used.iter().cloned().collect(),
+				}
+			);
 		}
 	}
 }

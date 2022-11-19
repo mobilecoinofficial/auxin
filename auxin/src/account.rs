@@ -463,8 +463,7 @@ impl<R> SignalAccount<R> {
 	pub fn to_signal_cli(&self, state_dir: impl AsRef<Path>) -> crate::Result<()> {
 		let state_dir = state_dir.as_ref();
 		let data = state_dir.join("data");
-		fs::create_dir_all(&data)?;
-		let path = data.join(self.phone.phone());
+		fs::create_dir_all(&data)?;		let path = data.join(self.phone.phone());
 		let file = fs::File::options()
 			.write(true)
 			// .create_new(true)
@@ -509,7 +508,7 @@ impl<R> SignalAccount<R> {
 		for (id, key) in self.aci().prekeys() {
 			let mut f = fs::File::create(prekeys.join(id.to_string()))?;
 			let buf = PreKeyRecord::new(
-				(*id).into(),
+				*id,
 				&libsignal_protocol::KeyPair::new(
 					libsignal_protocol::PublicKey::from_djb_public_key_bytes(key.public())?,
 					libsignal_protocol::PrivateKey::deserialize(key.private())?,
@@ -523,7 +522,7 @@ impl<R> SignalAccount<R> {
 		let sig = self.aci().signature();
 		let mut f = fs::File::create(signed_prekeys.join(id.to_string()))?;
 		let buf = libsignal_protocol::SignedPreKeyRecord::new(
-			id.into(),
+			id,
 			0,
 			&libsignal_protocol::KeyPair::new(
 				libsignal_protocol::PublicKey::from_djb_public_key_bytes(key.public())?,
