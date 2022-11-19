@@ -237,11 +237,11 @@ pub async fn load_known_peers(
 			let id_key = IdentityKey::decode(decoded_key.as_slice())?;
 			for i in recip.device_ids_used.iter() {
 				if let Some(uuid) = &recip.uuid {
-					let addr = ProtocolAddress::new(uuid.to_string(), *i);
+					let addr = ProtocolAddress::new(uuid.to_string(), (*i).into());
 					identity_store.save_identity(&addr, &id_key, ctx).await?;
 				}
 				if let Some(number) = &recip.number {
-					let addr = ProtocolAddress::new(number.clone(), *i);
+					let addr = ProtocolAddress::new(number.clone(), (*i).into());
 					identity_store.save_identity(&addr, &id_key, ctx).await?;
 				}
 			}
@@ -347,7 +347,7 @@ pub async fn load_sessions(
 				if let Some(uuid) = recip.uuid {
 					//NOTE RECIPIENT ADDRESS IS USING UUID
 					let recipient_address =
-						ProtocolAddress::new(uuid.to_string().clone(), device_id_num);
+						ProtocolAddress::new(uuid.to_string().clone(), device_id_num.into());
 
 					//Let's also build some extra cached information we keep around for convenience!
 					recip.device_ids_used.insert(device_id_num);
@@ -494,7 +494,7 @@ pub async fn load_prekeys(
 
 			debug!("Loaded a signed pre-key with ID {:?}", id);
 			signed_pre_key_store
-				.save_signed_pre_key(id, &record, ctx)
+				.save_signed_pre_key(id.into(), &record, ctx)
 				.await?;
 		}
 	}
@@ -882,7 +882,7 @@ impl AuxinStateManager for StateManager {
 		for device_id in peer_record.device_ids_used.iter() {
 			//MUST USE UUID
 			if let Some(uuid) = peer_record.uuid {
-				let address = ProtocolAddress::new(uuid.to_string().clone(), *device_id);
+				let address = ProtocolAddress::new(uuid.to_string().clone(), (*device_id).into());
 
 				let file_path = session_path.join(format!("{}_{}", peer_record.id, device_id));
 				let file_bk_path = file_path.with_extension("bk");
@@ -1407,9 +1407,6 @@ pub fn reverse_filename_base_64(filename: &str) -> String {
 mod tests {
 	use super::*;
 	use std::fs;
-	use terminator::Terminator;
-
-	type Result<T> = std::result::Result<T, Terminator>;
 
 	/// Test this module can parse a signal-cli json file.
 	///
@@ -1419,19 +1416,19 @@ mod tests {
 	/// This picks an unspecified file to try and deserialize.
 	#[test]
 	#[ignore = "requires real config"]
-	fn test_config_parse() -> Result<()> {
+	fn test_config_parse() {
 		let path = Path::new("../state/data");
 		// Ensure we actually parse *something* and the directory isnt just empty/missing files
 		// If anything fails to parse it'll error, failing the test.
 		let mut done = false;
 		let mut state = StateManager::new_test(path.to_path_buf());
-		for file in fs::read_dir(path)? {
-			let file = file?;
+		for file in fs::read_dir(path).unwrap() {
+			let file = file.unwrap();
 			let name = file.file_name().to_str().unwrap().to_string();
 			if name.ends_with('d') {
 				continue;
 			}
-			let _local_identity = state.load_local_identity(&name)?;
+			let _local_identity = state.load_local_identity(&name).unwrap();
 			done = true
 		}
 		assert!(done, "state is empty, didn't actually parse anything");

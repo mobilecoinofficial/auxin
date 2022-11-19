@@ -17,13 +17,16 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 
-use auxin_protos::{protos::{
-	decrypted_groups::{
-		DecryptedGroup, DecryptedMember, DecryptedPendingMember, DecryptedRequestingMember,
-		DecryptedTimer,
+use auxin_protos::{
+	protos::{
+		decrypted_groups::{
+			DecryptedGroup, DecryptedMember, DecryptedPendingMember, DecryptedRequestingMember,
+			DecryptedTimer,
+		},
+		groups::GroupAttributeBlob_oneof_content,
 	},
-	groups::GroupAttributeBlob_oneof_content,
-}, GroupChange, DecryptedGroupChange, GroupChange_Actions};
+	DecryptedGroupChange, GroupChange, GroupChange_Actions,
+};
 
 use auxin_protos::protos::groups::{
 	Group as EncryptedGroup, GroupAttributeBlob, Member as EncryptedMember,
@@ -36,7 +39,7 @@ use uuid::Uuid;
 use zkgroup::{
 	auth::AuthCredentialResponse,
 	groups::GroupSecretParams,
-	profiles::{ProfileKey, ProfileKeyCredentialPresentation},
+	profiles::{ProfileKey, ProfileKeyCredentialPresentationV2},
 	ServerPublicParams,
 };
 
@@ -62,7 +65,7 @@ pub(crate) struct GroupOperations {
 #[derive(Debug)]
 pub enum GroupDecryptionError {
 	//zero-knowledge group error
-	ZkGroupError(zkgroup::ZkGroupError),
+	ZkGroupError(zkgroup::ZkGroupVerificationFailure),
 	//bincode::Error
 	BincodeError(bincode::Error),
 	//"protobuf message decoding error: {0}"
@@ -92,8 +95,8 @@ impl std::fmt::Display for GroupDecryptionError {
 }
 impl std::error::Error for GroupDecryptionError {}
 
-impl From<zkgroup::ZkGroupError> for GroupDecryptionError {
-	fn from(e: zkgroup::ZkGroupError) -> Self {
+impl From<zkgroup::ZkGroupVerificationFailure> for GroupDecryptionError {
+	fn from(e: zkgroup::ZkGroupVerificationFailure) -> Self {
 		GroupDecryptionError::ZkGroupError(e)
 	}
 }
@@ -143,7 +146,7 @@ impl GroupOperations {
 			let profile_key = self.decrypt_profile_key(&member.profileKey, uuid)?;
 			(uuid, profile_key)
 		} else {
-			let profile_key_credential_presentation: ProfileKeyCredentialPresentation =
+			let profile_key_credential_presentation: ProfileKeyCredentialPresentationV2 =
 				bincode::deserialize(&member.presentation)?;
 			let uuid = self
 				.group_secret_params
@@ -197,7 +200,7 @@ impl GroupOperations {
 			let profile_key = self.decrypt_profile_key(&member.profileKey, uuid)?;
 			(uuid, profile_key)
 		} else {
-			let profile_key_credential_presentation: ProfileKeyCredentialPresentation =
+			let profile_key_credential_presentation: ProfileKeyCredentialPresentationV2 =
 				bincode::deserialize(&member.presentation)?;
 			let uuid = self
 				.group_secret_params
@@ -316,8 +319,11 @@ impl GroupOperations {
 		Ok(result)
 	}
 
-	pub fn decrypt_change(&self, change: GroupChange) -> Result<DecryptedGroupChange, GroupDecryptionError> { 
-		// Decode the actions, which are (at first) represented as an opaque byte blob on the GroupChange message. 
+	pub fn decrypt_change(
+		&self,
+		change: GroupChange,
+	) -> Result<DecryptedGroupChange, GroupDecryptionError> {
+		// Decode the actions, which are (at first) represented as an opaque byte blob on the GroupChange message.
 		let actions_bytes = change.get_actions();
 		let actions_bytes = fix_protobuf_buf(&actions_bytes).unwrap();
 		let mut stream = CodedInputStream::from_bytes(&actions_bytes);
@@ -326,16 +332,19 @@ impl GroupOperations {
 		debug!("Actions: {}", actions_json);
 
 		let mut output = DecryptedGroupChange::default();
-		
-		for add_member in actions.get_addMembers().iter() { 
+
+		for add_member in actions.get_addMembers().iter() {
 			let decrypted_member = self.decrypt_member(add_member.get_added().clone())?;
 			debug!("New member add action for {:?}", decrypted_member);
 			output.mut_newMembers().push(decrypted_member);
 		}
-		
-		for delete_member in actions.get_deleteMembers().iter() { 
+
+		for delete_member in actions.get_deleteMembers().iter() {
 			let decrypted_id = self.decrypt_uuid(delete_member.get_deletedUserId())?;
-			debug!("Group member removal action for {:?}", Uuid::from_bytes(decrypted_id));
+			debug!(
+				"Group member removal action for {:?}",
+				Uuid::from_bytes(decrypted_id)
+			);
 			output.mut_deleteMembers().push(decrypted_id.to_vec());
 		}
 		debug!("Decrypted changes {:?}", &output);
@@ -838,8 +847,8 @@ pub fn validate_group_member(
 		profile_key,
 		member_role: group_member.get_role(),
 		joined_at_revision: group_member.get_joinedAtRevision(),
-		//Start assuming we haven't sent one yet. 
-    	last_distribution: None,
+		//Start assuming we haven't sent one yet.
+		last_distribution: None,
 	})
 }
 

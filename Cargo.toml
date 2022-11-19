@@ -1,7 +1,10 @@
 [workspace]
 
 members = [
-    "auxin_protos",
     "auxin",
     "auxin_cli",
+    "auxin_protos",
 ]
+
+[patch.crates-io]
+curve25519-dalek = { version = "3.0.0", git = "https://github.com/signalapp/curve25519-dalek.git", branch = "lizard2"}

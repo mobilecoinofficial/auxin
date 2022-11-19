@@ -29,22 +29,22 @@ pub enum AuxinAddress {
 }
 
 impl PartialEq for AuxinAddress {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Phone(l0), Self::Phone(r0)) => l0 == r0,
-            (Self::Uuid(l0), Self::Uuid(r0)) => l0 == r0,
-            (Self::Both(l0, l1), Self::Both(r0, r1)) => l0 == r0 || l1 == r1,
+	fn eq(&self, other: &Self) -> bool {
+		match (self, other) {
+			(Self::Phone(l0), Self::Phone(r0)) => l0 == r0,
+			(Self::Uuid(l0), Self::Uuid(r0)) => l0 == r0,
+			(Self::Both(l0, l1), Self::Both(r0, r1)) => l0 == r0 || l1 == r1,
 
-            (Self::Uuid(l), Self::Both(_, r1)) => l == r1,
-            (Self::Phone(l), Self::Both(r0, _)) => l == r0,
+			(Self::Uuid(l), Self::Both(_, r1)) => l == r1,
+			(Self::Phone(l), Self::Both(r0, _)) => l == r0,
 
-            (Self::Both(_, l1), Self::Uuid(r)) => l1 == r,
-            (Self::Both(l0, _), Self::Phone(r)) => l0 == r,
+			(Self::Both(_, l1), Self::Uuid(r)) => l1 == r,
+			(Self::Both(l0, _), Self::Phone(r)) => l0 == r,
 
-            (Self::Phone(_), Self::Uuid(_)) => false,
-            (Self::Uuid(_), Self::Phone(_)) => false,
-        }
-    }
+			(Self::Phone(_), Self::Uuid(_)) => false,
+			(Self::Uuid(_), Self::Phone(_)) => false,
+		}
+	}
 }
 
 impl std::fmt::Display for AuxinAddress {
@@ -115,12 +115,18 @@ impl AuxinDeviceAddress {
 	/// Generate a protocol address using our phone number (E164) as its "name"
 	pub fn phone_protocol_address(&self) -> Result<ProtocolAddress> {
 		let phone_number = self.get_phone_number()?;
-		Ok(ProtocolAddress::new(phone_number.clone(), self.device_id))
+		Ok(ProtocolAddress::new(
+			phone_number.clone(),
+			self.device_id.into(),
+		))
 	}
 	/// Generate a protocol address using our uuid, converted to a string, as its "name"
 	pub fn uuid_protocol_address(&self) -> Result<ProtocolAddress> {
 		let addr_uuid = self.get_uuid()?;
-		Ok(ProtocolAddress::new(addr_uuid.to_string(), self.device_id))
+		Ok(ProtocolAddress::new(
+			addr_uuid.to_string(),
+			self.device_id.into(),
+		))
 	}
 
 	/// Constructs an AuxinDeviceAddress using the provided AuxinAddress and assuming the default device ID of 1.
@@ -149,7 +155,10 @@ impl TryFrom<ProtocolAddress> for AuxinDeviceAddress {
 	fn try_from(val: ProtocolAddress) -> std::result::Result<Self, Self::Error> {
 		let address = AuxinAddress::try_from(val.name())?;
 		let device_id = val.device_id();
-		Ok(Self { address, device_id })
+		Ok(Self {
+			address,
+			device_id: device_id.into(),
+		})
 	}
 }
 

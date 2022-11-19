@@ -1,24 +1,15 @@
 // Copyright (c) 2022 MobileCoin Inc.
 // Copyright (c) 2022 Emily Cultip
 
-use std::collections::HashMap;
-
+use super::GroupIdV2;
+use crate::address::{AuxinAddress, AuxinDeviceAddress};
 use auxin_protos::{SenderChainKey, SenderKeyStateStructure, SenderSigningKey};
-use libsignal_protocol::{
-	SenderKeyDistributionMessage, SenderKeyRecord, SenderKeyStore, SignalProtocolError,
-};
+use libsignal_protocol::{SenderKeyRecord, SignalProtocolError};
 use log::debug;
 use protobuf::{Message, ProtobufError};
-use rand::{CryptoRng, Rng};
 use ring::hmac;
+use std::collections::HashMap;
 use uuid::Uuid;
-
-use crate::{
-	address::{AuxinAddress, AuxinDeviceAddress},
-	SignalCtx,
-};
-
-use super::GroupIdV2;
 
 /// A DistributionId is a randomly-generated meaningless Uuid (also described as an opaque identifier) mapped to a GroupId internally in a Signal protocol implementation.
 pub type DistributionId = Uuid;
@@ -246,94 +237,6 @@ pub enum SenderKeyStorageError {
 
 pub const MAX_SENDER_KEY_RECORD_STATES: usize = 5;
 pub const CIPHERTEXT_MESSAGE_VERSION: u8 = 3;
-
-/// Load or initialize a key.
-pub async fn load_or_new_key<Store: SenderKeyStore>(
-	sender_key_store: &mut Store,
-	name: &SenderKeyName,
-	ctx: &SignalCtx,
-) -> Result<SenderKeyRecord, SignalProtocolError> {
-	let protocol_address = name.sender.uuid_protocol_address().unwrap();
-	let record_maybe = sender_key_store
-		.load_sender_key(&protocol_address, name.distribution_id, ctx.get())
-		.await?;
-
-	if let Some(record) = record_maybe {
-		Ok(record)
-	} else {
-		let new_record = SenderKeyRecord::new_empty();
-		sender_key_store
-			.store_sender_key(
-				&protocol_address,
-				name.distribution_id,
-				&new_record,
-				ctx.get(),
-			)
-			.await?;
-		Ok(new_record)
-	}
-}
-/// Construct a group session for receiving messages from sender_key_name.
-///
-/// # Arguments
-///
-/// * `sender_key_name` - The group id, sender id, and device id associated with the SenderKeyDistributionMessage.
-/// * `distribution_message` - A received SenderKeyDistributionMessage.
-pub async fn process_sender_key<Store: SenderKeyStore>(
-	sender_key_store: &mut Store,
-	sender_key_name: SenderKeyName,
-	distribution_message: SenderKeyDistributionMessage,
-	ctx: &SignalCtx,
-) -> Result<SenderKeyRecord, SignalProtocolError> {
-	let mut record = load_or_new_key(sender_key_store, &sender_key_name, ctx).await?;
-	record.add_sender_key_state(
-		CIPHERTEXT_MESSAGE_VERSION,
-		distribution_message.chain_id()?,
-		distribution_message.iteration()?,
-		distribution_message.chain_key()?,
-		*distribution_message.signing_key()?,
-		None,
-	)?;
-
-	let protocol_address = sender_key_name.sender.uuid_protocol_address().unwrap();
-	sender_key_store
-		.store_sender_key(
-			&protocol_address,
-			sender_key_name.distribution_id,
-			&record,
-			ctx.get(),
-		)
-		.await?;
-	Ok(record)
-}
-
-/// Construct a group session for sending messages.
-///
-/// # Arguments
-///
-/// * `sender_key_name` - The group id, sender id, and device id associated with the SenderKeyDistributionMessage. In this case, `address` should be the caller (i.e. the bot, the "self" user's address).
-pub async fn create_distribution_message<R: Rng + CryptoRng, Store: SenderKeyStore>(
-	sender_key_store: &mut Store,
-	sender_key_name: &SenderKeyName,
-	csprng: &mut R,
-	signal_ctx: &SignalCtx,
-) -> Result<SenderKeyDistributionMessage, SignalProtocolError> {
-	let _record = load_or_new_key(sender_key_store, sender_key_name, signal_ctx).await?;
-	let protocol_address = sender_key_name.sender.uuid_protocol_address().map_err(|_| {
-        SignalProtocolError::InvalidArgument(
-            format!( "Could not creeate a sender key distribution message because this sender address cannot be used as a protocol address: {:?}", sender_key_name.sender )
-        )
-    })?;
-	let distrib = libsignal_protocol::create_sender_key_distribution_message(
-		&protocol_address,
-		sender_key_name.distribution_id,
-		sender_key_store,
-		csprng,
-		signal_ctx.get(),
-	)
-	.await?;
-	Ok(distrib)
-}
 
 /// Stores and retrieves SenderKeys.
 /// Signal-protocol's InMemSenderKeyStore was unsuitable because there was no way to retrieve all currently-loaded keys at once,

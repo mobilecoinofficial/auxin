@@ -16,9 +16,9 @@ pub mod api_paths {
 }
 
 //For "User-Agent" http header
-pub const USER_AGENT: &str = "Signal-Android/5.22.3";
+pub const USER_AGENT: &str = "Signal-Android/5.22.1";
 //For "X-Signal-Agent" http header
-pub const X_SIGNAL_AGENT: &str = "Signal-Android/5.22.3";
+pub const X_SIGNAL_AGENT: &str = "Signal-Android/5.22.1";
 
 pub type Body = Vec<u8>;
 pub type Request = http::request::Request<Body>;
